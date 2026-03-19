@@ -1,6 +1,6 @@
 import { type GraphViewType } from "../../electron/types";
 import { type GraphViewTask } from "./types";
-import { componentTask, gitTask } from "@react-map/extension-sdk";
+import { componentTask, gitTask } from "@nexiq/extension-sdk";
 import { fileTask } from "./tasks/fileTask";
 import { allExtensions } from "./tasks/all-tasks";
 

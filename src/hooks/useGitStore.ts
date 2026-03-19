@@ -1,5 +1,10 @@
 import { create } from "zustand";
-import type { GitStatus, GitCommit, GitFileDiff, DatabaseData } from "@react-map/shared";
+import type {
+  GitStatus,
+  GitCommit,
+  GitFileDiff,
+  DatabaseData,
+} from "@nexiq/shared";
 
 interface GitState {
   status: GitStatus | null;
@@ -150,7 +155,15 @@ export const useGitStore = create<GitState>((set, get) => ({
           );
         } catch {
           // Root commit, use empty graph as parent
-          dataA = { files: [], entities: [], scopes: [], symbols: [], renders: [], exports: [], relations: [] };
+          dataA = {
+            files: [],
+            entities: [],
+            scopes: [],
+            symbols: [],
+            renders: [],
+            exports: [],
+            relations: [],
+          };
         }
       } else {
         // 1. Current state
@@ -175,7 +188,7 @@ export const useGitStore = create<GitState>((set, get) => ({
         dataA,
         dataB,
       );
-      
+
       set((state) => ({
         analyzedDiffs: { ...state.analyzedDiffs, [key]: diffResult },
       }));

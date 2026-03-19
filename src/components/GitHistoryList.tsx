@@ -2,7 +2,7 @@ import { memo, useRef, useEffect } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/utils";
 import { Separator } from "./ui/separator";
-import type { GitCommit } from "@react-map/shared";
+import type { GitCommit } from "@nexiq/shared";
 
 interface HistoryItemProps {
   commit: GitCommit;

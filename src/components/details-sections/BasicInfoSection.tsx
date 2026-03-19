@@ -1,5 +1,5 @@
 import React from "react";
-import type { DetailSectionProps } from "@react-map/extension-sdk";
+import type { DetailSectionProps } from "@nexiq/extension-sdk";
 
 export const BasicInfoSection: React.FC<DetailSectionProps> = ({ item }) => {
   return (
@@ -29,9 +29,7 @@ export const BasicInfoSection: React.FC<DetailSectionProps> = ({ item }) => {
           <span className="font-semibold text-muted-foreground/80 min-w-12 text-start">
             Kind:
           </span>
-          <span className="text-muted-foreground">
-            {item.declarationKind}
-          </span>
+          <span className="text-muted-foreground">{item.declarationKind}</span>
         </div>
       )}
 

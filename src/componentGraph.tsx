@@ -5,7 +5,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { type TypeDataDeclare, type DatabaseData } from "@react-map/shared";
+import { type TypeDataDeclare, type DatabaseData } from "@nexiq/shared";
 import useGraph, {
   GraphCombo,
   GraphNode,
@@ -483,8 +483,8 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   }, [highlightGitChanges, status, selectedCommit, activeTab]);
 
   useEffect(() => {
-    window.reactMapGraph = graph;
-    window.reactMapSearch = performSearch;
+    window.nexiqGraph = graph;
+    window.nexiqSearch = performSearch;
   }, [graph, performSearch]);
 
   const onSelect = useCallback(

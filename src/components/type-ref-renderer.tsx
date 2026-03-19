@@ -4,7 +4,7 @@ import {
   type TypeDataDeclare,
   type TypeDataRef,
   getDisplayName,
-} from "@react-map/shared";
+} from "@nexiq/shared";
 import { TypeRenderer } from "./type-renderer";
 import React from "react";
 import { TypeColorClasses } from "./type-colors";

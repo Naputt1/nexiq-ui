@@ -36,7 +36,7 @@ export default defineConfig(({ mode }) => ({
                 "better-sqlite3",
                 "@parcel/watcher",
                 "@node-rs/xxhash",
-                "@react-map/shared",
+                "@nexiq/shared",
                 "fast-glob",
                 "js-yaml",
                 "simple-git",

@@ -1,4 +1,4 @@
-import type { DetailSection } from "@react-map/extension-sdk";
+import type { DetailSection } from "@nexiq/extension-sdk";
 import { BasicInfoSection } from "@/components/details-sections/BasicInfoSection";
 import { PropsSection } from "@/components/details-sections/PropsSection";
 import { ChildrenSection } from "@/components/details-sections/ChildrenSection";

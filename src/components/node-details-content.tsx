@@ -8,7 +8,7 @@ import {
   EmptyMedia,
 } from "@/components/ui/empty";
 
-import { type TypeDataDeclare, getDisplayName } from "@react-map/shared";
+import { type TypeDataDeclare, getDisplayName } from "@nexiq/shared";
 import type { GraphComboData, GraphNodeData, GraphData } from "@/graph/hook";
 import { useMemo } from "react";
 import { getDetailSections } from "@/registry/detail-sections";

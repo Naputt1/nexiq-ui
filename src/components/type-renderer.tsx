@@ -1,5 +1,5 @@
 import React, { type JSX } from "react";
-import type { FuncParam, TypeData, TypeDataDeclare } from "@react-map/shared";
+import type { FuncParam, TypeData, TypeDataDeclare } from "@nexiq/shared";
 import { TypeColorClasses } from "./type-colors";
 import { cn } from "@/lib/utils";
 import { TypeRefRenderer } from "./type-ref-renderer";
@@ -16,7 +16,10 @@ const FuncParamRenderer: React.FC<{
   param: FuncParam;
   typeData: Record<string, TypeDataDeclare>;
   depth: number;
-  getStyle: (key: keyof typeof TypeColorClasses) => { className: string; style: React.CSSProperties };
+  getStyle: (key: keyof typeof TypeColorClasses) => {
+    className: string;
+    style: React.CSSProperties;
+  };
 }> = ({ param, typeData, depth, getStyle }) => {
   const p = param;
 
@@ -138,9 +141,7 @@ export const TypeRenderer: React.FC<TypeRendererProps> = ({
         return <span {...getStyle("typeNumber")}>{literal.value}</span>;
       if (literal.type === "boolean")
         return (
-          <span {...getStyle("typeBoolean")}>
-            {literal.value.toString()}
-          </span>
+          <span {...getStyle("typeBoolean")}>{literal.value.toString()}</span>
         );
       if (literal.type == "bigint") {
         return <span {...getStyle("typeNumber")}>{literal.value}</span>;
@@ -485,9 +486,7 @@ export const TypeRenderer: React.FC<TypeRendererProps> = ({
           <span {...getStyle("typeComponent")}>"{type.name}"</span>
           <span {...getStyle("typePunctuation")}>{")"}</span>
           {type.qualifier && (
-            <span {...getStyle("typePunctuation")}>
-              {`.${type.qualifier}`}
-            </span>
+            <span {...getStyle("typePunctuation")}>{`.${type.qualifier}`}</span>
           )}
         </span>
       );

@@ -1,6 +1,6 @@
 import React from "react";
-import type { DetailSectionProps } from "@react-map/extension-sdk";
-import { getDisplayName } from "@react-map/shared";
+import type { DetailSectionProps } from "@nexiq/extension-sdk";
+import { getDisplayName } from "@nexiq/shared";
 
 export const HooksSection: React.FC<DetailSectionProps> = ({
   item,

@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import type { DatabaseData } from "@react-map/shared";
+import type { DatabaseData } from "@nexiq/shared";
 
 import { GitChangeTree } from "./GitChangeTree";
 import { GitHistoryList } from "./GitHistoryList";
