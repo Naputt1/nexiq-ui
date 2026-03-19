@@ -1,8 +1,5 @@
-import { type DatabaseData } from "@react-map/shared";
-import {
-  type GraphViewResult,
-  type GraphViewTask,
-} from "@react-map/extension-sdk";
+import { type DatabaseData } from "@nexiq/shared";
+import { type GraphViewResult, type GraphViewTask } from "@nexiq/extension-sdk";
 
 export type { GraphViewResult, GraphViewTask };
 

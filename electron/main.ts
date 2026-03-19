@@ -18,18 +18,49 @@ import os from "node:os";
 import { WebSocket, type MessageEvent } from "ws";
 import { spawn, ChildProcess } from "node:child_process";
 import Database from "better-sqlite3";
-import { SqliteDB } from "@react-map/shared/db";
+import { SqliteDB } from "@nexiq/shared/db";
 
 const BACKEND_PORT = 3030;
 let backendProcess: ChildProcess | null = null;
 let backendWs: WebSocket | null = null;
 const projectSqlitePaths = new Map<string, string>();
 
+async function isBackendAlive(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const ws = new WebSocket(`ws://localhost:${BACKEND_PORT}`);
+    const timeout = setTimeout(() => {
+      ws.terminate();
+      resolve(false);
+    }, 500);
+
+    ws.on("open", () => {
+      clearTimeout(timeout);
+      ws.terminate();
+      resolve(true);
+    });
+
+    ws.on("error", () => {
+      clearTimeout(timeout);
+      ws.terminate();
+      resolve(false);
+    });
+  });
+}
+
 async function startBackend() {
   if (backendProcess) return;
 
   if (process.env.VITE_EXTERNAL_BACKEND === "true") {
     console.log("Using external backend as requested by VITE_EXTERNAL_BACKEND");
+    connectToBackend();
+    return;
+  }
+
+  // Try to connect to an existing backend first
+  if (await isBackendAlive()) {
+    console.log(
+      `Using existing backend already running on port ${BACKEND_PORT}`,
+    );
     connectToBackend();
     return;
   }
@@ -43,6 +74,8 @@ async function startBackend() {
     serverDist = path.join(
       process.env.APP_ROOT!,
       "..",
+      "react-map",
+      "packages",
       "server",
       "dist",
       "index.js",
@@ -188,10 +221,10 @@ import type {
   GitCommit,
   GitFileDiff,
   UIStateMap,
-  ReactMapConfig,
+  NexiqConfig,
   BackendRequestMap,
   BackendMessageType,
-} from "@react-map/shared";
+} from "@nexiq/shared";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -581,10 +614,7 @@ ipcMain.handle(
   "save-project-config",
   async (
     _: IpcMainInvokeEvent,
-    {
-      config,
-      directoryPath,
-    }: { config: ReactMapConfig; directoryPath: string },
+    { config, directoryPath }: { config: NexiqConfig; directoryPath: string },
   ) => {
     const result = await requestBackend("save_project_config", {
       projectPath: directoryPath,

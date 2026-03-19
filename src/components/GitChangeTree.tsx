@@ -18,7 +18,7 @@ import {
   type SymbolRow,
   type RenderRow,
   type AnalyzedDiff,
-} from "@react-map/shared";
+} from "@nexiq/shared";
 
 import { useConfigStore } from "@/hooks/use-config-store";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -97,44 +97,53 @@ export const GitChangeTree = memo(function GitChangeTree({
 
     // Find all unique files that have changes
     const changedFileIds = new Set<number>();
-    
+
     const findFileForEntity = (entityId: string) => {
-        const entity = data.entities.find(e => e.id === entityId);
-        if (!entity) return null;
-        const scope = data.scopes.find(s => s.id === entity.scope_id);
-        return scope?.file_id;
+      const entity = data.entities.find((e) => e.id === entityId);
+      if (!entity) return null;
+      const scope = data.scopes.find((s) => s.id === entity.scope_id);
+      return scope?.file_id;
     };
 
     const findFileForSymbol = (symbolId: string) => {
-        const symbol = data.symbols.find(s => s.id === symbolId);
-        if (!symbol) return null;
-        const scope = data.scopes.find(s => s.id === symbol.scope_id);
-        return scope?.file_id;
+      const symbol = data.symbols.find((s) => s.id === symbolId);
+      if (!symbol) return null;
+      const scope = data.scopes.find((s) => s.id === symbol.scope_id);
+      return scope?.file_id;
     };
 
-    diff.added.forEach(id => {
-        const fid = findFileForEntity(id) || findFileForSymbol(id);
-        if (fid != null) changedFileIds.add(fid);
+    diff.added.forEach((id) => {
+      const fid = findFileForEntity(id) || findFileForSymbol(id);
+      if (fid != null) changedFileIds.add(fid);
     });
-    diff.modified.forEach(id => {
-        const fid = findFileForEntity(id) || findFileForSymbol(id);
-        if (fid != null) changedFileIds.add(fid);
+    diff.modified.forEach((id) => {
+      const fid = findFileForEntity(id) || findFileForSymbol(id);
+      if (fid != null) changedFileIds.add(fid);
     });
-    diff.deleted.forEach(id => {
-        const fid = findFileForEntity(id) || findFileForSymbol(id);
-        if (fid != null) changedFileIds.add(fid);
+    diff.deleted.forEach((id) => {
+      const fid = findFileForEntity(id) || findFileForSymbol(id);
+      if (fid != null) changedFileIds.add(fid);
     });
 
-    const changedFiles = data.files.filter(f => changedFileIds.has(f.id)).sort((a,b) => a.path.localeCompare(b.path));
+    const changedFiles = data.files
+      .filter((f) => changedFileIds.has(f.id))
+      .sort((a, b) => a.path.localeCompare(b.path));
 
     for (const file of changedFiles) {
       const fileId = file.path;
       const isExpanded = expandedIds.has(fileId);
-      
-      const fileEntities = data.entities.filter(e => {
-          const scope = data.scopes.find(s => s.id === e.scope_id);
+
+      const fileEntities = data.entities
+        .filter((e) => {
+          const scope = data.scopes.find((s) => s.id === e.scope_id);
           return scope?.file_id === file.id;
-      }).filter(e => diffSets.added.has(e.id) || diffSets.modified.has(e.id) || diffSets.deleted.has(e.id));
+        })
+        .filter(
+          (e) =>
+            diffSets.added.has(e.id) ||
+            diffSets.modified.has(e.id) ||
+            diffSets.deleted.has(e.id),
+        );
 
       result.push({
         type: "file",

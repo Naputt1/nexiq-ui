@@ -1,5 +1,5 @@
 import { type GraphData } from "../hook";
-import { type UIStateMap } from "@react-map/shared";
+import { type UIStateMap } from "@nexiq/shared";
 
 /**
  * Extracts all relevant UI state (positions, radii, layout status) from the graph.

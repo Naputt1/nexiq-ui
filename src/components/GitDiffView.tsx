@@ -1,4 +1,4 @@
-import type { GitFileDiff } from "@react-map/shared";
+import type { GitFileDiff } from "@nexiq/shared";
 import { cn } from "@/lib/utils";
 import { useConfigStore } from "@/hooks/use-config-store";
 import {
@@ -79,8 +79,12 @@ export function GitDiffView({ diffs, fileName, scope }: GitDiffViewProps) {
                   key={j}
                   className={cn(
                     "flex gap-2 px-2 whitespace-pre-wrap",
-                    line.type === "added" && !customColors?.gitAdded && "bg-green-500/10 text-green-400",
-                    line.type === "deleted" && !customColors?.gitDeleted && "bg-red-500/10 text-red-400",
+                    line.type === "added" &&
+                      !customColors?.gitAdded &&
+                      "bg-green-500/10 text-green-400",
+                    line.type === "deleted" &&
+                      !customColors?.gitDeleted &&
+                      "bg-red-500/10 text-red-400",
                     line.type === "normal" && "text-muted-foreground",
                   )}
                   style={lineStyle}

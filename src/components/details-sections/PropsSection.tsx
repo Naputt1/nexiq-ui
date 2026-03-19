@@ -1,8 +1,8 @@
 import React from "react";
-import type { DetailSectionProps } from "@react-map/extension-sdk";
+import type { DetailSectionProps } from "@nexiq/extension-sdk";
 import { TypeRenderer } from "../type-renderer";
 import { TypeRefRenderer } from "../type-ref-renderer";
-import { type PropData, type TypeDataParam } from "@react-map/shared";
+import { type PropData, type TypeDataParam } from "@nexiq/shared";
 import { useConfigStore } from "@/hooks/use-config-store";
 import { cn } from "@/lib/utils";
 

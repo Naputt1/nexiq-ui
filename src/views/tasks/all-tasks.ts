@@ -1,7 +1,8 @@
-import { tanstackRouterExtension } from "@react-map/tanstack-router-extension";
-import { tanstackQueryExtension } from "@react-map/tanstack-query-extension";
+import type { Extension } from "@nexiq/extension-sdk";
 
-export const allExtensions = [
-  tanstackRouterExtension,
-  tanstackQueryExtension,
-];
+/**
+ * Extensions that are built-in or loaded at startup.
+ * UI extensions are now intended to be loaded dynamically from the client project
+ * instead of being bundled as direct dependencies.
+ */
+export const allExtensions: Extension[] = [];

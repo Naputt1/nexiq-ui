@@ -1,4 +1,4 @@
-import type { Extension } from "@react-map/extension-sdk";
+import type { Extension } from "@nexiq/extension-sdk";
 import { registerDetailSection } from "./detail-sections";
 import { allExtensions } from "../views/tasks/all-tasks";
 
@@ -23,6 +23,11 @@ export function loadExtension(extension: Extension) {
 for (const ext of allExtensions) {
   loadExtension(ext);
 }
+
+/**
+ * Expose for dynamic registration from the client or main process.
+ */
+window.registerNexiqExtension = loadExtension;
 
 /**
  * Returns all loaded extensions.

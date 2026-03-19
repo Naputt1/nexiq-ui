@@ -1,14 +1,22 @@
 /// <reference types="vite-plugin-electron/electron-env" />
 
-import { DatabaseData, GitStatus, GitCommit, GitFileDiff, UIStateMap } from "@react-map/shared";
+import {
+  DatabaseData,
+  GitStatus,
+  GitCommit,
+  GitFileDiff,
+  UIStateMap,
+} from "@nexiq/shared";
 import {
   AppStateData,
   IpcEvents,
   ProjectStatus,
-  ReactMapConfig,
+  NexiqConfig,
   GlobalSettings,
 } from "../electron/types";
 import type { GraphData } from "./graph/hook";
+
+import type { Extension } from "@nexiq/extension-sdk";
 
 declare global {
   namespace NodeJS {
@@ -19,8 +27,9 @@ declare global {
   }
 
   interface Window {
-    reactMapGraph: GraphData;
-    reactMapSearch: (value: string) => void;
+    nexiqGraph: GraphData;
+    nexiqSearch: (value: string) => void;
+    registerNexiqExtension: (extension: Extension) => void;
     ipcRenderer: {
       invoke(channel: "run-cli", command: string): Promise<string>;
       invoke(channel: "open-vscode", path: string): Promise<string>;
@@ -32,7 +41,7 @@ declare global {
       ): Promise<ProjectStatus>;
       invoke(
         channel: "save-project-config",
-        args: { config: ReactMapConfig; directoryPath: string },
+        args: { config: NexiqConfig; directoryPath: string },
       ): Promise<boolean>;
       invoke(channel: "set-project", path: string): Promise<void>;
       invoke(channel: "get-project"): Promise<string | null>;

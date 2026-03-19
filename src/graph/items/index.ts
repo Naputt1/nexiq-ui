@@ -8,7 +8,7 @@ import type {
   VariableName,
   VariableScope,
   UIItemState,
-} from "@react-map/shared";
+} from "@nexiq/shared";
 import type { GraphData } from "../hook";
 import type { LabelData } from "../label";
 import type { GraphArrow } from "./arrow";

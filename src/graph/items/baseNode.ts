@@ -6,7 +6,7 @@ import type {
   VariableLoc,
   VariableName,
   VariableScope,
-} from "@react-map/shared";
+} from "@nexiq/shared";
 import Konva from "konva";
 import type { LabelData } from "../label";
 import type { GraphCombo } from "./combo";

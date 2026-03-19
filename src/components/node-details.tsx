@@ -1,7 +1,5 @@
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  type TypeDataDeclare,
-} from "@react-map/shared";
+import { type TypeDataDeclare } from "@nexiq/shared";
 import type { GraphComboData, GraphNodeData, GraphData } from "@/graph/hook";
 import { NodeDetailsContent } from "./node-details-content";
 

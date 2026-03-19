@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ArrowLeft, Save, Loader2 } from "lucide-react";
-import type { ProjectStatus, ReactMapConfig } from "../../electron/types";
+import type { ProjectStatus, NexiqConfig } from "../../electron/types";
 
 interface SettingsProps {
   projectPath: string;
@@ -17,16 +17,25 @@ export function ProjectSettings({ projectPath }: SettingsProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [status, setStatus] = useState<ProjectStatus | null>(null);
   const [ignorePatterns, setIgnorePatterns] = useState("");
-  const [selectedIgnoreSubProjects, setSelectedIgnoreSubProjects] = useState<string[]>([]);
+  const [selectedIgnoreSubProjects, setSelectedIgnoreSubProjects] = useState<
+    string[]
+  >([]);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const projectRes = await window.ipcRenderer.invoke("check-project-status", projectPath);
+        const projectRes = await window.ipcRenderer.invoke(
+          "check-project-status",
+          projectPath,
+        );
         setStatus(projectRes);
         if (projectRes.config) {
-          setIgnorePatterns((projectRes.config.ignorePatterns || []).join("\n"));
-          setSelectedIgnoreSubProjects(projectRes.config.ignoreSubProjects || []);
+          setIgnorePatterns(
+            (projectRes.config.ignorePatterns || []).join("\n"),
+          );
+          setSelectedIgnoreSubProjects(
+            projectRes.config.ignoreSubProjects || [],
+          );
         }
       } catch (e) {
         console.error("Failed to fetch settings", e);
@@ -50,7 +59,7 @@ export function ProjectSettings({ projectPath }: SettingsProps) {
         .map((p) => p.trim())
         .filter((p) => p !== "");
 
-      const config: ReactMapConfig = {
+      const config: NexiqConfig = {
         ...status.config,
         ignorePatterns: patterns,
         ignoreSubProjects: selectedIgnoreSubProjects,
@@ -72,7 +81,7 @@ export function ProjectSettings({ projectPath }: SettingsProps) {
 
   const toggleSubProject = (name: string) => {
     setSelectedIgnoreSubProjects((prev) =>
-      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
+      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
     );
   };
 
@@ -91,7 +100,9 @@ export function ProjectSettings({ projectPath }: SettingsProps) {
           <Button variant="ghost" size="icon" onClick={goBack}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <h1 className="text-3xl font-bold tracking-tight">Project Settings</h1>
+          <h1 className="text-3xl font-bold tracking-tight">
+            Project Settings
+          </h1>
         </div>
         <Button onClick={handleSave} disabled={isSaving}>
           {isSaving ? (

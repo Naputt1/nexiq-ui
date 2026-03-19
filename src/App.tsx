@@ -45,9 +45,9 @@ function App() {
   useEffect(() => {
     if (projectRoot) {
       const name = projectRoot.split(/[/\\]/).filter(Boolean).pop();
-      document.title = name ? `${name} - react-map` : "react-map";
+      document.title = name ? `${name} - nexiq` : "nexiq";
     } else {
-      document.title = "react-map";
+      document.title = "nexiq";
     }
   }, [projectRoot]);
 

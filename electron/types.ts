@@ -1,14 +1,14 @@
 import type {
-  ReactMapConfig,
+  NexiqConfig,
   SubProject,
   CustomColors,
   ProjectStatus,
   AppStateData,
   GraphViewType,
-} from "@react-map/shared";
+} from "@nexiq/shared";
 
 export type {
-  ReactMapConfig,
+  NexiqConfig,
   SubProject,
   CustomColors,
   ProjectStatus,

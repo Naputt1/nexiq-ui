@@ -6,7 +6,7 @@ import React, {
   useMemo,
 } from "react";
 import { ChevronRight, ChevronDown, ListTree, Info, X } from "lucide-react";
-import { getDisplayName, type TypeDataDeclare } from "@react-map/shared";
+import { getDisplayName, type TypeDataDeclare } from "@nexiq/shared";
 import { NodeDetailsContent } from "./node-details-content";
 import {
   GraphData,

@@ -6,7 +6,7 @@ import {
   type GraphNodeData,
   type GraphComboData,
   type GraphArrowData,
-} from "@react-map/extension-sdk";
+} from "@nexiq/extension-sdk";
 
 import {
   GraphNode,
@@ -25,7 +25,7 @@ export {
   type CurRender,
 };
 import { type Node, type Edge } from "./layout";
-import { type UIItemState } from "@react-map/shared";
+import { type UIItemState } from "@nexiq/shared";
 
 export type useGraphProps = {
   nodes?: GraphNodeData[];

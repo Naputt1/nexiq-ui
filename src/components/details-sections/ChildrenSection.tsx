@@ -1,9 +1,9 @@
 import React from "react";
-import type {
-  DetailSectionProps,
-  GraphNodeData,
-} from "@react-map/extension-sdk";
-import { getDisplayName, type ComponentInfoRenderDependency } from "@react-map/shared";
+import type { DetailSectionProps, GraphNodeData } from "@nexiq/extension-sdk";
+import {
+  getDisplayName,
+  type ComponentInfoRenderDependency,
+} from "@nexiq/shared";
 import { TypeRenderer } from "../type-renderer";
 import { useConfigStore } from "@/hooks/use-config-store";
 import { cn } from "@/lib/utils";
