@@ -493,7 +493,7 @@ export const TypeRenderer: React.FC<TypeRendererProps> = ({
     default:
       return (
         <span {...getStyle("typeDefault")}>
-          {(type as { type: string }).type}
+          {(type as Record<string, unknown>).type as string}
         </span>
       );
   }

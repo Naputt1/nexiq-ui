@@ -10,11 +10,13 @@ import useGraph, {
   GraphCombo,
   GraphNode,
   type useGraphProps,
+  type GraphNodeData,
 } from "./graph/hook";
 import { GraphRenderer } from "./graph/renderer";
 import { ProjectSidebar } from "./components/Sidebar";
 import { RightSidebar } from "./components/RightSidebar";
 import { ZoomSlider } from "./components/ZoomSlider";
+import { Loader2 } from "lucide-react";
 import { cn, debounce } from "@/lib/utils";
 import {
   SidebarProvider,
@@ -29,61 +31,10 @@ import {
 import { useDefaultLayout } from "react-resizable-panels";
 
 import { setupAutoSave, useAppStateStore } from "./hooks/use-app-state-store";
-import type { GraphViewType } from "../electron/types";
 import { useGitStore } from "./hooks/useGitStore";
 import { useConfigStore } from "./hooks/use-config-store";
-import {
-  getTasksForView,
-  type GraphViewGenerator,
-  type GraphViewResult,
-  type ViewWorkerResponse,
-} from "./views";
-import ViewWorker from "./views/view.worker?worker";
-import { Loader2 } from "lucide-react";
-import { useWorkerStore } from "./hooks/use-worker-store";
-import { getRegistry } from "./views/registry";
-
 import { extractUIState } from "./graph/utils/ui-state";
-import type { ViewWorkerRegistryResponse } from "./views/view.worker";
-
-const VIEW_GENERATORS: Record<GraphViewType, GraphViewGenerator> = {
-  component: (data) => {
-    let res: GraphViewResult = {
-      nodes: [],
-      edges: [],
-      combos: [],
-      typeData: {},
-    };
-    for (const task of getTasksForView("component")) {
-      res = task.run(data, res);
-    }
-    return res;
-  },
-  file: (data) => {
-    let res: GraphViewResult = {
-      nodes: [],
-      edges: [],
-      combos: [],
-      typeData: {},
-    };
-    for (const task of getTasksForView("file")) {
-      res = task.run(data, res);
-    }
-    return res;
-  },
-  router: (data) => {
-    let res: GraphViewResult = {
-      nodes: [],
-      edges: [],
-      combos: [],
-      typeData: {},
-    };
-    for (const task of getTasksForView("router")) {
-      res = task.run(data, res);
-    }
-    return res;
-  },
-};
+import { type GraphViewResult } from "@nexiq/extension-sdk";
 
 interface ComponentGraphProps {
   projectPath: string;
@@ -120,9 +71,6 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   const viewport = useAppStateStore((s) => s.viewport);
 
   const [isGeneratingView, setIsGeneratingView] = useState(false);
-  const workerRef = useRef<Worker | null>(null);
-  const setWorker = useWorkerStore((s) => s.setWorker);
-  const setRegistryState = useWorkerStore((s) => s.setRegistryState);
 
   // Persistence bridge for useDefaultLayout
   const storage = useMemo(
@@ -148,53 +96,6 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     panelIds: ["main", "sidebar"],
     storage,
   });
-
-  useEffect(() => {
-    const worker = new ViewWorker();
-    workerRef.current = worker;
-    setWorker(worker);
-
-    const handleMessage = (
-      e: MessageEvent<ViewWorkerResponse | ViewWorkerRegistryResponse>,
-    ) => {
-      if ("type" in e.data && e.data.type === "DEBUG_REGISTRY") {
-        const rendererRegistry = getRegistry();
-        const serializedRenderer: Record<
-          string,
-          { id: string; priority: number }[]
-        > = {};
-        for (const [view, tasks] of Object.entries(rendererRegistry)) {
-          serializedRenderer[view] = tasks.map((t) => ({
-            id: t.id,
-            priority: t.priority,
-          }));
-        }
-
-        setRegistryState({
-          registry: e.data.registry,
-          rendererRegistry: serializedRenderer,
-          lastUpdated: Date.now(),
-        });
-        return;
-      }
-
-      const { result, isIncremental, done } = e.data as ViewWorkerResponse;
-      const { nodes, edges, combos, typeData: newTypeData } = result;
-      settypeData(newTypeData);
-      setGraphData({ nodes, edges, combos });
-
-      if (done || !isIncremental) {
-        setIsGeneratingView(false);
-      }
-    };
-    worker.addEventListener("message", handleMessage);
-
-    return () => {
-      worker.removeEventListener("message", handleMessage);
-      worker.terminate();
-      setWorker(null);
-    };
-  }, [setWorker, setRegistryState]);
 
   const subPath = useMemo(() => {
     return selectedSubProject &&
@@ -285,25 +186,21 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
         rawGraphDataRef.current = graphData;
 
         setIsGeneratingView(true);
-        if (workerRef.current) {
-          workerRef.current.postMessage({ type: view, data: graphData });
-        } else {
-          // Fallback if worker not available
-          const {
-            nodes,
-            edges,
-            combos,
-            typeData: newTypeData,
-          } = VIEW_GENERATORS[view](graphData);
+        // Call the optimized view generation in the main process
+        const result = (await window.ipcRenderer.invoke("generate-graph-view", {
+          projectRoot: projectPath,
+          analysisPath: targetPath === projectPath ? undefined : targetPath,
+          view,
+        })) as GraphViewResult;
 
-          settypeData(newTypeData);
-          setGraphData({
-            nodes,
-            edges,
-            combos,
-          });
-          setIsGeneratingView(false);
-        }
+        const { nodes, edges, combos, typeData: newTypeData } = result;
+        settypeData(newTypeData);
+        setGraphData({
+          nodes,
+          edges,
+          combos,
+        });
+        setIsGeneratingView(false);
       } catch (err) {
         console.error(err);
         setIsGeneratingView(false);
@@ -325,6 +222,18 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     projectPath,
     targetPath: selectedSubProject || projectPath,
   });
+
+  const debouncedRender = useMemo(
+    () =>
+      debounce(() => {
+        if (graph) {
+          const time = performance.now();
+          graph.render();
+          console.log("layout (debounced)", performance.now() - time);
+        }
+      }, 100),
+    [graph],
+  );
 
   const highlightGitChanges = useCallback(
     async (isGitTab: boolean) => {
@@ -627,10 +536,14 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
       graphData.nodes?.length == 0
     )
       return;
-    const time = performance.now();
-    graph.render();
-    console.log("layout", performance.now() - time);
-  }, [graphData, graph]);
+
+    // Only trigger a full layout/render if not already generating a view
+    // or if it's the final update.
+    // For incremental updates, we let useGraph's setData handle it (without full layout).
+    if (!isGeneratingView) {
+      debouncedRender();
+    }
+  }, [graphData, graph, isGeneratingView, debouncedRender]);
 
   useEffect(() => {
     // After render, center on saved item if it exists AND we haven't restored a viewport
@@ -651,7 +564,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
 
     // Initial analysis to ensure sqlitePath is populated in main process
     const triggerInitialAnalysis = async () => {
-      const targetPath = selectedSubProject || projectPath;
+      const targetPath = subProject || projectPath;
       if (!targetPath) return;
 
       setIsAnalyzing(true);
@@ -670,12 +583,12 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     };
 
     triggerInitialAnalysis();
-  }, [projectPath, subProject, loadState, resetState, selectedSubProject]);
+  }, [projectPath, subProject, loadState, resetState]);
 
   // load data whenever sub-project selection or selected commit changes
   useEffect(() => {
     loadData();
-  }, [selectedSubProject, selectedCommit, status, graph, loadData]);
+  }, [selectedSubProject, selectedCommit, loadData]);
 
   // Resize observer for container
   const containerRef = useRef<HTMLDivElement>(null);
@@ -810,7 +723,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     const renderComboId = selectedId + "-render";
     const renderCombo = graph.getCombo(renderComboId);
     if (!renderCombo || !renderCombo.child) return [];
-    return Object.values(renderCombo.child.nodes);
+    return Object.values(renderCombo.child.nodes) as GraphNodeData[];
   }, [selectedId, selectedItem, graph]);
 
   const handleClose = useCallback(() => {

@@ -15,10 +15,12 @@ import path from "node:path";
 import { exec } from "node:child_process";
 import os from "node:os";
 
-import { WebSocket, type MessageEvent } from "ws";
+import { WebSocket } from "ws";
 import { spawn, ChildProcess } from "node:child_process";
 import Database from "better-sqlite3";
 import { SqliteDB } from "@nexiq/shared/db";
+import { UISqliteDB } from "./ui-sqlite-db";
+import { generateGraphView } from "./view-generator";
 
 const BACKEND_PORT = 3030;
 let backendProcess: ChildProcess | null = null;
@@ -124,7 +126,8 @@ function connectToBackend() {
 
   backendWs.on("message", (data) => {
     try {
-      JSON.parse(data.toString());
+      const parsed = JSON.parse(data.toString());
+      handleBackendMessage(parsed);
       // Handle messages from backend (e.g., project_opened, graph_data)
       // This will need to be integrated with the window management logic
     } catch (e: unknown) {
@@ -144,6 +147,89 @@ function connectToBackend() {
   });
 }
 
+const pendingRequests = new Map<
+  string,
+  {
+    resolve: (value: unknown) => void;
+    reject: (reason?: unknown) => void;
+    timeout: NodeJS.Timeout;
+    chunksMap: Map<string, string[]>;
+  }
+>();
+
+interface BackendResponsePayload {
+  chunk?: string;
+  index?: number;
+  total?: number;
+  message?: string;
+  [key: string]: unknown;
+}
+
+interface BackendMessage {
+  type: string;
+  payload: BackendResponsePayload;
+  requestId: string;
+}
+
+function handleBackendMessage(data: BackendMessage) {
+  try {
+    const {
+      type: responseType,
+      payload: responsePayload,
+      requestId: responseId,
+    } = data;
+
+    const pending = pendingRequests.get(responseId);
+    if (!pending) return;
+
+    if (responseType === "chunked_response") {
+      const { chunk, index, total } = responsePayload;
+      if (
+        typeof chunk !== "string" ||
+        typeof index !== "number" ||
+        typeof total !== "number"
+      ) {
+        return;
+      }
+
+      let chunks = pending.chunksMap.get(responseId);
+      if (!chunks) {
+        chunks = new Array(total);
+        pending.chunksMap.set(responseId, chunks);
+      }
+      chunks[index] = chunk;
+
+      // Check if all chunks received
+      const receivedCount = chunks.filter((c) => c !== undefined).length;
+      if (receivedCount === total) {
+        clearTimeout(pending.timeout);
+        const fullData = chunks.join("");
+        pending.chunksMap.delete(responseId);
+        pendingRequests.delete(responseId);
+        try {
+          pending.resolve(JSON.parse(fullData));
+        } catch (e) {
+          pending.reject(new Error(`Failed to parse reassembled JSON: ${e}`));
+        }
+      }
+      return;
+    }
+
+    clearTimeout(pending.timeout);
+    pendingRequests.delete(responseId);
+
+    if (responseType === "error") {
+      pending.reject(
+        new Error(responsePayload.message || "Unknown backend error"),
+      );
+    } else {
+      pending.resolve(responsePayload);
+    }
+  } catch (e) {
+    console.error("Error in handleBackendMessage", e);
+  }
+}
+
 async function requestBackend<K extends BackendMessageType>(
   type: K,
   payload: BackendRequestMap[K]["payload"],
@@ -155,61 +241,19 @@ async function requestBackend<K extends BackendMessageType>(
 
   return new Promise((resolve, reject) => {
     const requestId = Math.random().toString(36).substring(7);
-    const chunksMap = new Map<string, string[]>();
 
     const timeout = setTimeout(() => {
-      backendWs!.removeEventListener("message", onMessage);
+      pendingRequests.delete(requestId);
       reject(new Error(`Timeout waiting for backend response: ${type}`));
     }, timeoutMs);
 
-    const onMessage = (event: MessageEvent) => {
-      try {
-        const {
-          type: responseType,
-          payload: responsePayload,
-          requestId: responseId,
-        } = JSON.parse(event.data.toString());
-        if (responseId !== requestId) return;
+    pendingRequests.set(requestId, {
+      resolve,
+      reject,
+      timeout,
+      chunksMap: new Map(),
+    });
 
-        if (responseType === "chunked_response") {
-          const { chunk, index, total } = responsePayload;
-          let chunks = chunksMap.get(requestId);
-          if (!chunks) {
-            chunks = new Array(total);
-            chunksMap.set(requestId, chunks);
-          }
-          chunks[index] = chunk;
-
-          // Check if all chunks received
-          const receivedCount = chunks.filter((c) => c !== undefined).length;
-          if (receivedCount === total) {
-            clearTimeout(timeout);
-            backendWs!.removeEventListener("message", onMessage);
-            const fullData = chunks.join("");
-            chunksMap.delete(requestId);
-            try {
-              resolve(JSON.parse(fullData));
-            } catch (e) {
-              reject(new Error(`Failed to parse reassembled JSON: ${e}`));
-            }
-          }
-          return;
-        }
-
-        clearTimeout(timeout);
-        backendWs!.removeEventListener("message", onMessage);
-
-        if (responseType === "error") {
-          reject(new Error(responsePayload.message || "Unknown backend error"));
-        } else {
-          resolve(responsePayload);
-        }
-      } catch {
-        // Ignore parsing errors for other messages
-      }
-    };
-
-    backendWs!.addEventListener("message", onMessage);
     backendWs!.send(JSON.stringify({ type, payload, requestId }));
   });
 }
@@ -537,25 +581,53 @@ ipcMain.handle("run-cli", async (_: IpcMainInvokeEvent, command: string) => {
 });
 
 let firstOpen = true;
-ipcMain.handle("open-vscode", async (_: IpcMainInvokeEvent, path: string) => {
-  return new Promise((resolve, reject) => {
-    let cmd = `code -g ${path}`;
-
-    if (firstOpen) {
-      // handle for windows and linux
-      if (os.platform() === "darwin") {
-        // cmd = `open -a "Visual Studio Code" --args -g ${path}`;
-        cmd += `\nosascript -e 'tell application "Visual Studio Code" to activate'`;
+ipcMain.handle(
+  "open-vscode",
+  async (
+    _: IpcMainInvokeEvent,
+    filePath: string,
+    projectRoot?: string,
+    line?: number,
+    column?: number,
+  ) => {
+    return new Promise((resolve, reject) => {
+      let absolutePath = filePath;
+      if (projectRoot) {
+        if (!path.isAbsolute(filePath)) {
+          absolutePath = path.join(projectRoot, filePath);
+        } else if (filePath.startsWith("/") && !fs.existsSync(filePath)) {
+          // Handle the case where it starts with / but is relative to project root
+          // On macOS, /src/views is "absolute" but might not exist at root of disk
+          absolutePath = path.join(projectRoot, filePath);
+        }
       }
-      firstOpen = false;
-    }
 
-    exec(cmd, (error, stdout, stderr) => {
-      if (error) reject(error.message);
-      else resolve(stdout || stderr);
+      let location = absolutePath;
+      if (line != null) {
+        location += `:${line}`;
+        if (column != null) {
+          location += `:${column}`;
+        }
+      }
+
+      let cmd = `code -g ${location}`;
+
+      if (firstOpen) {
+        // handle for windows and linux
+        if (os.platform() === "darwin") {
+          // cmd = `open -a "Visual Studio Code" --args -g ${path}`;
+          cmd += `\nosascript -e 'tell application "Visual Studio Code" to activate'`;
+        }
+        firstOpen = false;
+      }
+
+      exec(cmd, (error, stdout, stderr) => {
+        if (error) reject(error.message);
+        else resolve(stdout || stderr);
+      });
     });
-  });
-});
+  },
+);
 
 ipcMain.handle("select-directory", async (event: IpcMainInvokeEvent) => {
   const win = BrowserWindow.fromWebContents(event.sender);
@@ -726,6 +798,42 @@ ipcMain.handle(
 );
 
 ipcMain.handle(
+  "generate-graph-view",
+  async (
+    _: IpcMainInvokeEvent,
+    {
+      projectRoot,
+      analysisPath,
+      view,
+    }: {
+      projectRoot: string;
+      analysisPath?: string;
+      view: "component" | "file" | "router";
+    },
+  ) => {
+    const targetPath = analysisPath || projectRoot;
+    let sqlitePath = projectSqlitePaths.get(targetPath);
+
+    if (!sqlitePath || !fs.existsSync(sqlitePath)) {
+      const response = await requestBackend("open_project", {
+        projectPath: projectRoot,
+        subProject: targetPath === projectRoot ? undefined : targetPath,
+      });
+      if (response && response.sqlitePath) {
+        sqlitePath = response.sqlitePath;
+        projectSqlitePaths.set(targetPath, sqlitePath);
+      }
+    }
+
+    if (!sqlitePath || !fs.existsSync(sqlitePath)) {
+      throw new Error(`SQLite database not found for path: ${targetPath}`);
+    }
+
+    return generateGraphView(sqlitePath, view, projectRoot);
+  },
+);
+
+ipcMain.handle(
   "git-analyze-commit",
   async (
     _: IpcMainInvokeEvent,
@@ -809,6 +917,32 @@ ipcMain.handle(
     positions: UIStateMap,
     contextId?: string,
   ) => {
+    let sqlitePath = projectSqlitePaths.get(analysisPath);
+    if (!sqlitePath) {
+      // If not in cache, try to get it from backend
+      const response = await requestBackend("open_project", {
+        projectPath: projectRoot,
+        subProject: analysisPath === projectRoot ? undefined : analysisPath,
+      });
+      if (response && response.sqlitePath) {
+        sqlitePath = response.sqlitePath;
+        projectSqlitePaths.set(analysisPath, sqlitePath);
+      }
+    }
+
+    if (sqlitePath && fs.existsSync(sqlitePath)) {
+      try {
+        const db = new Database(sqlitePath);
+        const uiDb = new UISqliteDB(db);
+        uiDb.saveUIState(positions);
+        db.close();
+        return true;
+      } catch (e) {
+        console.error("Failed to save UI state to sqlite", e);
+      }
+    }
+
+    // Fallback to backend process if direct write fails or sqlitePath not found
     return requestBackend("update_graph_position", {
       projectPath: projectRoot,
       subProject: analysisPath === projectRoot ? undefined : analysisPath,

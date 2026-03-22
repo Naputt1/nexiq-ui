@@ -27,7 +27,7 @@ export abstract class BaseNode implements Renderable {
   gitStatus?: "added" | "modified" | "deleted";
   visible: boolean = true;
   combo?: string;
-  name: VariableName;
+  name: VariableName | string;
   fileName: string;
   pureFileName?: string;
   label?: LabelData;
@@ -35,6 +35,7 @@ export abstract class BaseNode implements Renderable {
   highlighted: boolean = false;
   isLayoutCalculated: boolean = false;
   displayName?: string;
+  [key: string]: unknown;
 
   // From DetailItemData
   scope?: VariableScope;

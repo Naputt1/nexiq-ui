@@ -3,13 +3,8 @@ import {
   ChevronRight,
   ChevronDown,
   Box,
-  Webhook,
   Database,
-  Link,
   Activity,
-  Zap,
-  Settings,
-  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -17,10 +12,8 @@ import {
   type EntityRow,
   type SymbolRow,
   type RenderRow,
-  type AnalyzedDiff,
 } from "@nexiq/shared";
 
-import { useConfigStore } from "@/hooks/use-config-store";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 interface GitChangeTreeProps {
@@ -57,7 +50,6 @@ export const GitChangeTree = memo(function GitChangeTree({
   onLocate,
 }: GitChangeTreeProps) {
   const diff = data.diff;
-  const { customColors } = useConfigStore();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -179,6 +171,7 @@ export const GitChangeTree = memo(function GitChangeTree({
     return result;
   }, [data, diff, diffSets, expandedIds]);
 
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: flattenedItems.length,
     getScrollElement: () => parentRef.current,

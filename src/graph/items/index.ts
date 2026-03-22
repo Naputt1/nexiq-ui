@@ -65,7 +65,7 @@ export interface PointData {
 
 export interface DetailItemData {
   id: string;
-  name: VariableName;
+  name: VariableName | string;
   fileName?: string;
   pureFileName?: string;
   scope?: VariableScope;
@@ -107,6 +107,7 @@ export interface DetailItemData {
     children?: Record<string, UIItemState>;
     vars?: Record<string, UIItemState>;
   };
+  [key: string]: unknown;
 }
 
 export interface BaseNodeData extends DetailItemData, PointData {
@@ -134,4 +135,5 @@ export interface GraphArrowData {
   combo?: string;
   visible?: boolean;
   opacity?: number;
+  [key: string]: unknown;
 }

@@ -1,4 +1,4 @@
-import { type DatabaseData, getDisplayName } from "@nexiq/shared";
+import { type DatabaseData } from "@nexiq/shared";
 import { type GraphViewResult, type GraphViewTask } from "../types";
 import { type GraphComboData, type GraphNodeData } from "../../graph/hook";
 
