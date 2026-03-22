@@ -2,17 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 // Graph Data Types
 // Graph Data Class
 import type Konva from "konva";
-import {
-  type GraphNodeData,
-  type GraphComboData,
-  type GraphArrowData,
-} from "@nexiq/extension-sdk";
 
 import {
   GraphNode,
   GraphCombo,
   GraphArrow,
   type CurRender,
+  type GraphNodeData,
+  type GraphComboData,
+  type GraphArrowData,
 } from "./items/index";
 
 export {
@@ -128,8 +126,8 @@ export class GraphData {
 
   private worker: Worker;
 
-  private projectPath?: string;
-  private targetPath?: string;
+  public projectPath?: string;
+  public targetPath?: string;
 
   private layoutInProgress: Set<string> = new Set();
   private draggingId: string | null = null;
@@ -183,7 +181,7 @@ export class GraphData {
 
             this.updateEdgePos(Array.from(edgeIds));
 
-            for (const c of this.combos.values()) {
+            for (const c of Array.from(this.combos.values())) {
               this.innerCallback.get(c.id)?.({ type: "layout-change" });
             }
           } else {
@@ -320,7 +318,7 @@ export class GraphData {
       this.trigger({ type: "new-edges" });
     }
 
-    for (const c of this.combos.values()) {
+    for (const c of Array.from(this.combos.values())) {
       this.innerCallback.get(c.id)?.({ type: "layout-change" });
     }
   }
@@ -593,11 +591,11 @@ export class GraphData {
       let y = c.y;
 
       if (c.ui) {
-        x = c.ui.x;
-        y = c.ui.y;
+        x = (c.ui as UIItemState).x;
+        y = (c.ui as UIItemState).y;
       } else if (parentCombo.ui?.children?.[c.id]) {
-        x = parentCombo.ui.children[c.id].x;
-        y = parentCombo.ui.children[c.id].y;
+        x = (parentCombo.ui.children[c.id] as UIItemState).x;
+        y = (parentCombo.ui.children[c.id] as UIItemState).y;
       }
 
       const scale = parentCombo.scale * SCALE_FACTOR;
@@ -626,8 +624,8 @@ export class GraphData {
       parentCombo.child.nodes[c.id] = new GraphNode({
         ...c,
         radius,
-        color: c.color ?? this.config.node.color,
-        isLayoutCalculated: !!savedUi?.isLayoutCalculated,
+        color: (c.color as string) ?? this.config.node.color,
+        isLayoutCalculated: !!(savedUi as UIItemState)?.isLayoutCalculated,
         x: x ?? (Math.random() - 0.5) * (size + 1) * 10 * scale,
         y: y ?? (Math.random() - 0.5) * (size + 1) * 10 * scale,
         parent: parentCombo,
@@ -677,11 +675,17 @@ export class GraphData {
           n.id,
           new GraphNode({
             ...n,
-            radius: n.ui?.radius ?? n.radius ?? 20,
-            color: n.color ?? this.config.node.color,
-            isLayoutCalculated: !!n.ui?.isLayoutCalculated,
-            x: n.ui?.x ?? n.x ?? (Math.random() - 0.5) * 100, // Use UI position if available
-            y: n.ui?.y ?? n.y ?? (Math.random() - 0.5) * 100,
+            radius: (n.ui as UIItemState)?.radius ?? (n.radius as number) ?? 20,
+            color: (n.color as string) ?? this.config.node.color,
+            isLayoutCalculated: !!(n.ui as UIItemState)?.isLayoutCalculated,
+            x:
+              (n.ui as UIItemState)?.x ??
+              (n.x as number) ??
+              (Math.random() - 0.5) * 100, // Use UI position if available
+            y:
+              (n.ui as UIItemState)?.y ??
+              (n.y as number) ??
+              (Math.random() - 0.5) * 100,
             scale: 1,
           }),
         );
@@ -829,7 +833,7 @@ export class GraphData {
         }
         const parent = this.getComboByID(parentId, i + 1);
         if (parent != null) {
-          return parent.child?.combos[id];
+          return (parent.child?.combos as Record<string, GraphCombo>)[id];
         }
       }
     }
@@ -893,23 +897,32 @@ export class GraphData {
         expandedRadius *= scale;
       }
 
-      parentCombo.child.combos[c.id] = new GraphCombo({
-        ...c,
-        collapsed: savedUi?.collapsed ?? c.collapsed,
-        radius:
-          (savedUi?.collapsed ?? c.collapsed)
-            ? (savedUi?.radius ?? collapsedRadius)
-            : (savedUi?.expandedRadius ?? expandedRadius),
-        color: c.color ?? this.config.combo.color,
-        collapsedRadius: savedUi?.collapsedRadius ?? collapsedRadius,
-        expandedRadius: savedUi?.expandedRadius ?? expandedRadius,
-        x: c.ui?.x ?? c.x ?? (Math.random() - 0.5) * (size + 1) * 50 * scale,
-        y: c.ui?.y ?? c.y ?? (Math.random() - 0.5) * (size + 1) * 50 * scale,
-        padding: c.padding ?? this.config.combo.padding,
-        isLayoutCalculated: !!savedUi?.isLayoutCalculated,
-        parent: parentCombo,
-        scale,
-      });
+      (parentCombo.child.combos as Record<string, GraphCombo>)[c.id] =
+        new GraphCombo({
+          ...c,
+          collapsed: (savedUi as UIItemState)?.collapsed ?? c.collapsed,
+          radius:
+            ((savedUi as UIItemState)?.collapsed ?? c.collapsed)
+              ? ((savedUi as UIItemState)?.radius ?? collapsedRadius)
+              : ((savedUi as UIItemState)?.expandedRadius ?? expandedRadius),
+          color: (c.color as string) ?? this.config.combo.color,
+          collapsedRadius:
+            (savedUi as UIItemState)?.collapsedRadius ?? collapsedRadius,
+          expandedRadius:
+            (savedUi as UIItemState)?.expandedRadius ?? expandedRadius,
+          x:
+            (c.ui as UIItemState)?.x ??
+            (c.x as number) ??
+            (Math.random() - 0.5) * (size + 1) * 50 * scale,
+          y:
+            (c.ui as UIItemState)?.y ??
+            (c.y as number) ??
+            (Math.random() - 0.5) * (size + 1) * 50 * scale,
+          padding: (c.padding as number) ?? this.config.combo.padding,
+          isLayoutCalculated: !!(savedUi as UIItemState)?.isLayoutCalculated,
+          parent: parentCombo,
+          scale,
+        });
       this.comboChildMap.set(c.id, c.combo);
       return true;
     }
@@ -1076,7 +1089,7 @@ export class GraphData {
     const collect = (itemId: string) => {
       const ids = this.edgeIds[itemId];
       if (ids) {
-        for (const eid of ids) {
+        for (const eid of Array.from(ids)) {
           edgeIds.add(eid);
         }
       }
@@ -1597,13 +1610,16 @@ export class GraphData {
 
   public layout(force = false, fixedId?: string) {
     // Trigger layout for all expanded combos
-    for (const c of this.getAllCombos()) {
+    for (const c of Array.from(this.getAllCombos())) {
       if (!c.collapsed) {
         this.calculateComboChildrenLayout(c.id, false);
       }
     }
 
-    const allItems = [...this.nodes.values(), ...this.combos.values()];
+    const allItems = [
+      ...Array.from(this.nodes.values()),
+      ...Array.from(this.combos.values()),
+    ];
     const allCalculated = allItems.every((c) => c.isLayoutCalculated);
 
     if (!force && allItems.length > 0 && allCalculated) {
@@ -1614,7 +1630,7 @@ export class GraphData {
     const nodes: Node[] = [];
     const edges: Edge[] = [];
 
-    for (const n of this.nodes.values()) {
+    for (const n of Array.from(this.nodes.values())) {
       nodes.push({
         id: n.id,
         x: n.x,
@@ -1624,7 +1640,7 @@ export class GraphData {
       });
     }
 
-    for (const c of this.combos.values()) {
+    for (const c of Array.from(this.combos.values())) {
       nodes.push({
         id: c.id,
         x: c.x,
@@ -1634,7 +1650,7 @@ export class GraphData {
       });
     }
 
-    for (const e of this.edges.values()) {
+    for (const e of Array.from(this.edges.values())) {
       edges.push({
         id: e.id,
         source: e.source,
@@ -1749,8 +1765,8 @@ export class GraphData {
   }
 
   public render() {
-    // Run the layout algorithm once
-    this.layout(true);
+    // Run the layout algorithm once, but don't force it if positions already exist
+    this.layout(false);
 
     // Show all nodes/combos/edges initially (no viewport culling on initial render)
     // Viewport culling can be handled by the rendering layer if needed

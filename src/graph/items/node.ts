@@ -3,6 +3,7 @@ import { BaseNode } from "./baseNode";
 import type { GraphNodeData, RenderContext } from ".";
 
 export class GraphNode extends BaseNode {
+  [key: string]: unknown;
   constructor(data: GraphNodeData) {
     super(data);
   }
@@ -69,14 +70,22 @@ export class GraphNode extends BaseNode {
     group.on("click", (e) => {
       if (e.evt.ctrlKey) {
         e.cancelBubble = true;
-        window.ipcRenderer.invoke("open-vscode", this.fileName);
+        window.ipcRenderer.invoke(
+          "open-vscode",
+          this.fileName,
+          context.graph.projectPath,
+          this.loc?.line,
+          this.loc?.column,
+        );
       } else {
         e.cancelBubble = true;
         context.onSelect?.(this.id, false);
       }
     });
 
-    const highlightColor = context.customColors?.nodeHighlight || (context.theme === "dark" ? "#3b82f6" : "#2563eb");
+    const highlightColor =
+      context.customColors?.nodeHighlight ||
+      (context.theme === "dark" ? "#3b82f6" : "#2563eb");
 
     const fillColor = this.getFillColor(context);
 
@@ -113,16 +122,42 @@ export class GraphNode extends BaseNode {
     let fillColor = this.color;
     if (context.customColors) {
       switch (this.type) {
-        case "state": fillColor = context.customColors.stateNode || "#ef4444"; break;
-        case "memo": fillColor = context.customColors.memoNode || "#ef4444"; break;
-        case "callback": fillColor = context.customColors.callbackNode || "#ef4444"; break;
-        case "ref": fillColor = context.customColors.refNode || "#ef4444"; break;
-        case "effect": fillColor = context.customColors.effectNode || "#eab308"; break;
-        case "prop": fillColor = context.customColors.propNode || "#22c55e"; break;
-        case "render": fillColor = context.customColors.renderNode || (context.theme === "dark" ? "#3b82f6" : "#2563eb"); break;
-        case "component": fillColor = context.customColors.componentNode || (context.theme === "dark" ? "#3b82f6" : "#2563eb"); break;
-        case "hook": fillColor = context.customColors.hookNode || (context.theme === "dark" ? "#8b5cf6" : "#7c3aed"); break;
-        case "jsx": fillColor = "#f97316"; break; // orange
+        case "state":
+          fillColor = context.customColors.stateNode || "#ef4444";
+          break;
+        case "memo":
+          fillColor = context.customColors.memoNode || "#ef4444";
+          break;
+        case "callback":
+          fillColor = context.customColors.callbackNode || "#ef4444";
+          break;
+        case "ref":
+          fillColor = context.customColors.refNode || "#ef4444";
+          break;
+        case "effect":
+          fillColor = context.customColors.effectNode || "#eab308";
+          break;
+        case "prop":
+          fillColor = context.customColors.propNode || "#22c55e";
+          break;
+        case "render":
+          fillColor =
+            context.customColors.renderNode ||
+            (context.theme === "dark" ? "#3b82f6" : "#2563eb");
+          break;
+        case "component":
+          fillColor =
+            context.customColors.componentNode ||
+            (context.theme === "dark" ? "#3b82f6" : "#2563eb");
+          break;
+        case "hook":
+          fillColor =
+            context.customColors.hookNode ||
+            (context.theme === "dark" ? "#8b5cf6" : "#7c3aed");
+          break;
+        case "jsx":
+          fillColor = "#f97316";
+          break; // orange
         case "type":
         case "interface":
         case "normal":

@@ -32,7 +32,13 @@ declare global {
     registerNexiqExtension: (extension: Extension) => void;
     ipcRenderer: {
       invoke(channel: "run-cli", command: string): Promise<string>;
-      invoke(channel: "open-vscode", path: string): Promise<string>;
+      invoke(
+        channel: "open-vscode",
+        path: string,
+        projectRoot?: string,
+        line?: number,
+        column?: number,
+      ): Promise<string>;
       invoke(channel: "select-directory"): Promise<string | null>;
       invoke(channel: "get-recent-projects"): Promise<string[]>;
       invoke(
@@ -128,12 +134,22 @@ declare global {
         config: GlobalSettings,
       ): Promise<boolean>;
       invoke(
-        channel: "save-state",
-        projectRoot: string,
-        state: AppStateData,
-      ): Promise<boolean>;
+        channel: "generate-graph-view",
+        args: {
+          projectRoot: string;
+          analysisPath?: string;
+          view: "component" | "file" | "router";
+        },
+      ): Promise<import("@nexiq/extension-sdk").GraphViewResult>;
     };
   }
+}
+
+declare module "*?worker" {
+  const workerConstructor: {
+    new (): Worker;
+  };
+  export default workerConstructor;
 }
 
 export {};

@@ -1,8 +1,15 @@
 import Konva from "konva";
-import type { CurRender, RenderContext, GraphNode, GraphArrow, GraphComboData } from ".";
+import type {
+  CurRender,
+  RenderContext,
+  GraphNode,
+  GraphArrow,
+  GraphComboData,
+} from ".";
 import { BaseNode } from "./baseNode";
 
 export class GraphCombo extends BaseNode {
+  [key: string]: unknown;
   collapsed: boolean;
   collapsedRadius: number;
   expandedRadius: number;
@@ -15,7 +22,9 @@ export class GraphCombo extends BaseNode {
     this.collapsedRadius = data.collapsedRadius ?? 20;
     this.expandedRadius = data.expandedRadius ?? 40;
     this.padding = data.padding ?? 10;
-    this.radius = data.radius ?? (this.collapsed ? this.collapsedRadius : this.expandedRadius);
+    this.radius =
+      data.radius ??
+      (this.collapsed ? this.collapsedRadius : this.expandedRadius);
     this.child = data.child;
   }
 
@@ -56,14 +65,20 @@ export class GraphCombo extends BaseNode {
 
     // Background Circle
     const radius = this.collapsed ? this.collapsedRadius : this.expandedRadius;
-    const highlightColor = context.customColors?.comboHighlight || (context.theme === "dark" ? "#3b82f6" : "#2563eb");
-    
+    const highlightColor =
+      context.customColors?.comboHighlight ||
+      (context.theme === "dark" ? "#3b82f6" : "#2563eb");
+
     const fillColor = this.getFillColor(context);
 
     const bg = new Konva.Circle({
       id: `bg-${this.id}`,
       radius: radius,
-      stroke: this.highlighted ? highlightColor : (context.theme === "dark" ? "#555" : fillColor),
+      stroke: this.highlighted
+        ? highlightColor
+        : context.theme === "dark"
+          ? "#555"
+          : fillColor,
       strokeWidth: this.highlighted ? 4 * this.scale : 2 * this.scale,
       fill: this.collapsed ? fillColor : "transparent",
       perfectDrawEnabled: false,
@@ -108,7 +123,13 @@ export class GraphCombo extends BaseNode {
       if (e.cancelBubble) return;
       if (e.evt.ctrlKey) {
         e.cancelBubble = true;
-        window.ipcRenderer.invoke("open-vscode", this.fileName);
+        window.ipcRenderer.invoke(
+          "open-vscode",
+          this.fileName,
+          context.graph.projectPath,
+          this.loc?.line,
+          this.loc?.column,
+        );
       } else {
         e.cancelBubble = true;
         context.onSelect?.(this.id, false);
