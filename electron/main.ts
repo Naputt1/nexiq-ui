@@ -93,7 +93,7 @@ Please set REACT_MAP_SERVER_PATH or use VITE_EXTERNAL_BACKEND=true.`);
   console.log(`Starting backend from: ${serverDist}`);
 
   backendProcess = spawn("node", [serverDist], {
-    stdio: ["inherit", "inherit", "inherit"],
+    stdio: ["inherit", "inherit", "inherit", "ipc"],
     env: {
       ...process.env,
       PORT: BACKEND_PORT.toString(),
