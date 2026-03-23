@@ -2,12 +2,14 @@ import { type GraphViewType } from "../../electron/types";
 import { type GraphViewTask } from "./types";
 import { componentTask, gitTask } from "@nexiq/extension-sdk";
 import { fileTask } from "./tasks/fileTask";
+import { packageTask } from "./tasks/packageTask";
 import { allExtensions } from "./tasks/all-tasks";
 
 const registry: Record<string, GraphViewTask[]> = {
   component: [componentTask, gitTask],
   file: [fileTask, gitTask],
   router: [gitTask], // Default to gitTask for router too
+  package: [packageTask, gitTask],
 };
 
 // Automatically register tasks from all extensions
@@ -54,4 +56,20 @@ export function registerTask(view: GraphViewType, task: GraphViewTask) {
  */
 export function getRegistry() {
   return registry;
+}
+
+export function serializeRegistry() {
+  const serializedRegistry: Record<string, { id: string; priority: number }[]> =
+    {};
+
+  for (const [view, tasks] of Object.entries(registry)) {
+    serializedRegistry[view] = tasks.map((task) => ({
+      id: task.id,
+      priority: task.priority,
+    }));
+  }
+
+  return {
+    registry: serializedRegistry,
+  };
 }

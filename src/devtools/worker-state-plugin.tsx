@@ -6,23 +6,23 @@ import { RefreshCcw } from "lucide-react";
 export const WorkerStatePluginComponent = () => {
   const registryState = useWorkerStore((s) => s.registryState);
   const refreshRegistry = useWorkerStore((s) => s.refreshRegistry);
-  const worker = useWorkerStore((s) => s.worker);
+  const isBackendAvailable = useWorkerStore((s) => s.isBackendAvailable);
 
   useEffect(() => {
-    if (worker) {
-      refreshRegistry();
+    if (isBackendAvailable) {
+      void refreshRegistry();
     }
-  }, [worker, refreshRegistry]);
+  }, [isBackendAvailable, refreshRegistry]);
 
-  if (!worker) {
-    return <div className="text-zinc-500 p-4">No View Worker Active</div>;
+  if (!isBackendAvailable) {
+    return <div className="text-zinc-500 p-4">No Backend View Service Active</div>;
   }
 
   return (
     <div className="h-full flex flex-col text-white p-2 overflow-hidden">
       <div className="flex items-center justify-between mb-2 px-2">
         <span className="text-xs font-semibold text-zinc-400">
-          Worker Registry State
+          Backend View Registry
         </span>
         <button
           onClick={refreshRegistry}

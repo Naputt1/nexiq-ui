@@ -1,0 +1,128 @@
+namespace Nexiq.GraphSnapshot;
+
+table PackageRow {
+  id:string;
+  name:string;
+  version:string;
+  path:string;
+}
+
+table PackageDependencyRow {
+  package_id:string;
+  dependency_name:string;
+  dependency_version:string;
+  is_dev:bool = false;
+}
+
+table FileRow {
+  id:int;
+  path:string;
+  package_id:string;
+  hash:string;
+  fingerprint:string;
+  default_export:string;
+  star_exports_json:string;
+}
+
+table EntityRow {
+  id:string;
+  scope_id:string;
+  kind:string;
+  name:string;
+  type:string;
+  line:int;
+  column:int;
+  end_line:int;
+  end_column:int;
+  declaration_kind:string;
+  data_json:string;
+}
+
+table ScopeRow {
+  id:string;
+  file_id:int;
+  parent_id:string;
+  kind:string;
+  entity_id:string;
+  data_json:string;
+}
+
+table SymbolRow {
+  id:string;
+  entity_id:string;
+  scope_id:string;
+  name:string;
+  path:string;
+  is_alias:bool = false;
+  has_default:bool = false;
+  data_json:string;
+}
+
+table RenderRow {
+  id:string;
+  file_id:int;
+  parent_entity_id:string;
+  parent_render_id:string;
+  render_index:int;
+  tag:string;
+  symbol_id:string;
+  line:int;
+  column:int;
+  kind:string;
+  data_json:string;
+}
+
+table ExportRow {
+  id:string;
+  scope_id:string;
+  symbol_id:string;
+  entity_id:string;
+  name:string;
+  is_default:bool = false;
+}
+
+table RelationRow {
+  from_id:string;
+  to_id:string;
+  kind:string;
+  line:int;
+  column:int;
+  data_json:string;
+}
+
+table UiStateRow {
+  id:string;
+  x:float;
+  y:float;
+  radius:float;
+  collapsed_radius:float;
+  expanded_radius:float;
+  is_layout_calculated:bool = false;
+  collapsed:bool = false;
+  has_radius:bool = false;
+  has_collapsed_radius:bool = false;
+  has_expanded_radius:bool = false;
+}
+
+table DiffData {
+  added:[string];
+  modified:[string];
+  deleted:[string];
+}
+
+table GraphSnapshot {
+  packages:[PackageRow];
+  package_dependencies:[PackageDependencyRow];
+  files:[FileRow];
+  entities:[EntityRow];
+  scopes:[ScopeRow];
+  symbols:[SymbolRow];
+  renders:[RenderRow];
+  exports:[ExportRow];
+  relations:[RelationRow];
+  ui_state:[UiStateRow];
+  diff:DiffData;
+}
+
+root_type GraphSnapshot;
+file_identifier "NGPH";

@@ -30,7 +30,18 @@ export default defineConfig(({ mode }) => ({
           build: {
             target: "node18",
             minify: false,
+            assetsInlineLimit: 0,
             rollupOptions: {
+              input: {
+                main: path.resolve(__dirname, "electron/main.ts"),
+                "graph-snapshot.worker": path.resolve(
+                  __dirname,
+                  "electron/graph-snapshot.worker.ts",
+                ),
+              },
+              output: {
+                entryFileNames: "[name].js",
+              },
               external: [
                 "electron",
                 "better-sqlite3",

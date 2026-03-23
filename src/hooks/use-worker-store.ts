@@ -7,22 +7,31 @@ export interface WorkerRegistryState {
 }
 
 interface WorkerState {
-  worker: Worker | null;
+  isBackendAvailable: boolean;
   registryState: WorkerRegistryState | null;
-  setWorker: (worker: Worker | null) => void;
+  setBackendAvailable: (available: boolean) => void;
   setRegistryState: (state: WorkerRegistryState) => void;
-  refreshRegistry: () => void;
+  refreshRegistry: () => Promise<void>;
 }
 
 export const useWorkerStore = create<WorkerState>((set, get) => ({
-  worker: null,
+  isBackendAvailable: false,
   registryState: null,
-  setWorker: (worker) => set({ worker }),
+  setBackendAvailable: (isBackendAvailable) => set({ isBackendAvailable }),
   setRegistryState: (registryState) => set({ registryState }),
-  refreshRegistry: () => {
-    const { worker } = get();
-    if (worker) {
-      worker.postMessage({ type: "DEBUG_GET_REGISTRY" });
+  refreshRegistry: async () => {
+    const { isBackendAvailable } = get();
+    if (!isBackendAvailable) {
+      return;
     }
+
+    const registry = await window.ipcRenderer.invoke("debug-get-view-registry");
+    set({
+      registryState: {
+        registry: registry.registry,
+        rendererRegistry: registry.registry,
+        lastUpdated: Date.now(),
+      },
+    });
   },
 }));

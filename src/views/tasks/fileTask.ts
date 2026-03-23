@@ -18,6 +18,16 @@ export const fileTask: GraphViewTask = {
 
     const files = batch?.files || data.files;
     const symbols = batch?.symbols || data.symbols;
+    const indexedData = data as DatabaseData & {
+      __indexes?: {
+        entityById: Map<string, (typeof data.entities)[number]>;
+        scopeById: Map<string, (typeof data.scopes)[number]>;
+        fileById: Map<number, (typeof data.files)[number]>;
+      };
+    };
+    const indexes = indexedData.__indexes;
+    const existingComboIds = new Set(combos.map((combo) => combo.id));
+    const existingNodeIds = new Set(nodes.map((node) => node.id));
 
     const createdDirs = new Set<string>();
     combos.forEach((c) => {
@@ -59,7 +69,7 @@ export const fileTask: GraphViewTask = {
       const dirPath = parts.slice(0, -1).join("/");
       const fileId = `file:${filePath}`;
 
-      if (!combos.some((c) => c.id === fileId)) {
+      if (!existingComboIds.has(fileId)) {
         combos.push({
           id: fileId,
           label: { text: fileName },
@@ -74,21 +84,28 @@ export const fileTask: GraphViewTask = {
             loc: { line: 0, column: 0 },
           },
         });
+        existingComboIds.add(fileId);
       }
     }
 
     // Add symbols (components and hooks) as nodes within the file combo
     for (const symbol of symbols) {
-      if (nodes.some((n) => n.id === symbol.id)) continue;
+      if (existingNodeIds.has(symbol.id)) continue;
 
-      const entity = data.entities.find((e) => e.id === symbol.entity_id);
+      const entity =
+        indexes?.entityById.get(symbol.entity_id) ||
+        data.entities.find((e) => e.id === symbol.entity_id);
       if (!entity || (entity.kind !== "component" && entity.kind !== "hook"))
         continue;
 
-      const scope = data.scopes.find((s) => s.id === symbol.scope_id);
+      const scope =
+        indexes?.scopeById.get(symbol.scope_id) ||
+        data.scopes.find((s) => s.id === symbol.scope_id);
       if (!scope) continue;
 
-      const file = data.files.find((f) => f.id === scope.file_id);
+      const file =
+        indexes?.fileById.get(scope.file_id) ||
+        data.files.find((f) => f.id === scope.file_id);
       if (!file) continue;
 
       nodes.push({
@@ -102,6 +119,7 @@ export const fileTask: GraphViewTask = {
         loc: { line: entity.line || 0, column: entity.column || 0 },
         radius: 20,
       });
+      existingNodeIds.add(symbol.id);
     }
 
     return {

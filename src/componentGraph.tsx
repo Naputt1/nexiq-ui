@@ -5,7 +5,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { type TypeDataDeclare, type DatabaseData } from "@nexiq/shared";
+import { type AnalyzedDiff, type TypeDataDeclare } from "@nexiq/shared";
 import useGraph, {
   GraphCombo,
   GraphNode,
@@ -33,8 +33,14 @@ import { useDefaultLayout } from "react-resizable-panels";
 import { setupAutoSave, useAppStateStore } from "./hooks/use-app-state-store";
 import { useGitStore } from "./hooks/useGitStore";
 import { useConfigStore } from "./hooks/use-config-store";
+import { useWorkerStore } from "./hooks/use-worker-store";
 import { extractUIState } from "./graph/utils/ui-state";
-import { type GraphViewResult } from "@nexiq/extension-sdk";
+import type { GenerateViewRequest } from "./views/types";
+import {
+  getGraphSnapshotKey,
+  refreshGraphSnapshot,
+  subscribeGraphSnapshot,
+} from "./graph-snapshot/client";
 
 interface ComponentGraphProps {
   projectPath: string;
@@ -69,6 +75,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   const clearAnalyzedDiffCache = useGitStore((s) => s.clearAnalyzedDiffCache);
 
   const viewport = useAppStateStore((s) => s.viewport);
+  const setBackendAvailable = useWorkerStore((s) => s.setBackendAvailable);
 
   const [isGeneratingView, setIsGeneratingView] = useState(false);
 
@@ -157,15 +164,34 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     return () => unsubscribe();
   }, [projectPath]);
 
-  const rawGraphDataRef = useRef<DatabaseData | null>(null);
+  const rawDiffRef = useRef<AnalyzedDiff | null>(null);
+  const snapshotKeyRef = useRef<string | null>(null);
+  const viewRequestIdRef = useRef(0);
+
+  useEffect(() => {
+    setBackendAvailable(true);
+
+    return () => {
+      setBackendAvailable(false);
+    };
+  }, [setBackendAvailable]);
 
   const loadData = useCallback(
-    async (analysisPath?: string) => {
+    async (
+      analysisPath?: string,
+      options?: {
+        refreshHandle?: boolean;
+      },
+    ) => {
       const targetPath = analysisPath || selectedSubProject || projectPath;
       if (!targetPath) return;
 
+      const requestId = ++viewRequestIdRef.current;
+      setIsGeneratingView(true);
+
       try {
-        let graphData: DatabaseData;
+        let request: GenerateViewRequest;
+
         if (selectedCommit || activeTab === "git") {
           const diffData = await loadAnalyzedDiff(
             projectPath,
@@ -173,37 +199,46 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
             subPath,
           );
           if (!diffData) return;
-          graphData = diffData;
+          rawDiffRef.current = diffData.diff ?? null;
+          request = {
+            view,
+            projectRoot: projectPath,
+            data: diffData,
+          };
         } else {
-          graphData = (await window.ipcRenderer.invoke(
-            "read-graph-data",
+          const resolvedAnalysisPath =
+            targetPath === projectPath ? undefined : targetPath;
+          const snapshotKey = getGraphSnapshotKey(
             projectPath,
-            targetPath,
-          )) as DatabaseData;
+            resolvedAnalysisPath,
+          );
+          snapshotKeyRef.current = snapshotKey;
+          rawDiffRef.current = null;
+          request = {
+            view,
+            projectRoot: projectPath,
+            analysisPath: resolvedAnalysisPath,
+            refreshHandle: options?.refreshHandle,
+          };
         }
 
-        if (!graphData) throw new Error("Graph data not found");
-        rawGraphDataRef.current = graphData;
-
-        setIsGeneratingView(true);
-        // Call the optimized view generation in the main process
-        const result = (await window.ipcRenderer.invoke("generate-graph-view", {
-          projectRoot: projectPath,
-          analysisPath: targetPath === projectPath ? undefined : targetPath,
-          view,
-        })) as GraphViewResult;
+        const result = await window.ipcRenderer.invoke(
+          "generate-view",
+          request,
+        );
+        if (requestId !== viewRequestIdRef.current) {
+          return;
+        }
 
         const { nodes, edges, combos, typeData: newTypeData } = result;
         settypeData(newTypeData);
-        setGraphData({
-          nodes,
-          edges,
-          combos,
-        });
-        setIsGeneratingView(false);
+        setGraphData({ nodes, edges, combos });
       } catch (err) {
         console.error(err);
-        setIsGeneratingView(false);
+      } finally {
+        if (requestId === viewRequestIdRef.current) {
+          setIsGeneratingView(false);
+        }
       }
     },
     [
@@ -237,7 +272,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
 
   const highlightGitChanges = useCallback(
     async (isGitTab: boolean) => {
-      if (!graph || !rawGraphDataRef.current) return;
+      if (!graph) return;
 
       try {
         const combos = graph.getAllCombos();
@@ -247,7 +282,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
           added = [],
           modified = [],
           deleted = [],
-        } = rawGraphDataRef.current.diff || {};
+        } = rawDiffRef.current || {};
 
         graph.batch(() => {
           const applyStatus = (item: GraphCombo | GraphNode) => {
@@ -590,6 +625,33 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     loadData();
   }, [selectedSubProject, selectedCommit, loadData]);
 
+  useEffect(() => {
+    const unsubscribe = subscribeGraphSnapshot((payload) => {
+      if (selectedCommit || activeTab === "git") return;
+
+      const expectedKey = snapshotKeyRef.current;
+      if (!expectedKey || payload.key !== expectedKey) return;
+
+      const rerenderFromHandle = async () => {
+        const analysisPath =
+          selectedSubProject && selectedSubProject !== projectPath
+            ? selectedSubProject
+            : undefined;
+        await loadData(analysisPath, {
+          refreshHandle: payload.handleChanged,
+        });
+      };
+
+      if (payload.status !== 1) {
+        console.error("Graph snapshot update failed", payload.error || payload);
+        return;
+      }
+
+      void rerenderFromHandle();
+    });
+    return () => unsubscribe();
+  }, [activeTab, loadData, projectPath, selectedCommit, selectedSubProject]);
+
   // Resize observer for container
   const containerRef = useRef<HTMLDivElement>(null);
   // const debouncedSetSize = useMemo(() => debounce(setSize, 100), []);
@@ -695,6 +757,10 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
         targetPath,
         projectPath,
       );
+      await refreshGraphSnapshot(
+        projectPath,
+        targetPath === projectPath ? undefined : targetPath,
+      );
       clearAnalyzedDiffCache();
       await loadData();
     } catch (e) {
@@ -766,6 +832,10 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
       try {
         // Trigger analysis on new path, storing config in projectRoot
         await window.ipcRenderer.invoke("analyze-project", path, projectPath);
+        await refreshGraphSnapshot(
+          projectPath,
+          path === projectPath ? undefined : path,
+        );
 
         // Data will be reloaded by the useEffect watching loadData/selectedSubProject
       } catch (e) {
