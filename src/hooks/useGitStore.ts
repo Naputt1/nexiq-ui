@@ -5,6 +5,7 @@ import type {
   GitFileDiff,
   DatabaseData,
 } from "@nexiq/shared";
+import { openGraphSnapshot, readGraphSnapshotData } from "../graph-snapshot/client";
 
 interface GitState {
   status: GitStatus | null;
@@ -156,6 +157,8 @@ export const useGitStore = create<GitState>((set, get) => ({
         } catch {
           // Root commit, use empty graph as parent
           dataA = {
+            packages: [],
+            package_dependencies: [],
             files: [],
             entities: [],
             scopes: [],
@@ -167,11 +170,12 @@ export const useGitStore = create<GitState>((set, get) => ({
         }
       } else {
         // 1. Current state
-        dataB = (await window.ipcRenderer.invoke(
-          "read-graph-data",
-          projectRoot,
-          subPath ? `${projectRoot}/${subPath}` : undefined,
-        ))!;
+        dataB = readGraphSnapshotData(
+          await openGraphSnapshot(
+            projectRoot,
+            subPath ? `${projectRoot}/${subPath}` : undefined,
+          ),
+        );
 
         // 2. HEAD commit
         dataA = await window.ipcRenderer.invoke(

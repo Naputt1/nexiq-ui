@@ -4,8 +4,9 @@ import type {
   CustomColors,
   ProjectStatus,
   AppStateData,
-  GraphViewType,
+  GraphViewType as SharedGraphViewType,
 } from "@nexiq/shared";
+import type { GraphSnapshotUpdateEvent } from "../src/graph-snapshot/types";
 
 export type {
   NexiqConfig,
@@ -13,8 +14,9 @@ export type {
   CustomColors,
   ProjectStatus,
   AppStateData,
-  GraphViewType,
 };
+
+export type GraphViewType = SharedGraphViewType | "package";
 
 export interface PnpmWorkspace {
   packages?: string[];
@@ -29,6 +31,7 @@ export interface IpcEvents {
   "main-process-message": string;
   "reload-project": void;
   "git-status-changed": void;
+  "graph-snapshot-updated": GraphSnapshotUpdateEvent;
 }
 
 export interface GlobalSettings {

@@ -7,6 +7,9 @@ import {
   GitFileDiff,
   UIStateMap,
 } from "@nexiq/shared";
+import type {
+  GraphSnapshotUpdateEvent,
+} from "./graph-snapshot/types";
 import {
   AppStateData,
   IpcEvents,
@@ -17,6 +20,11 @@ import {
 import type { GraphData } from "./graph/hook";
 
 import type { Extension } from "@nexiq/extension-sdk";
+import type {
+  GenerateViewRequest,
+  GraphViewResult,
+  SerializedViewRegistry,
+} from "./views/types";
 
 declare global {
   namespace NodeJS {
@@ -30,6 +38,20 @@ declare global {
     nexiqGraph: GraphData;
     nexiqSearch: (value: string) => void;
     registerNexiqExtension: (extension: Extension) => void;
+    graphSnapshot: {
+      open: (
+        projectRoot: string,
+        analysisPath?: string,
+      ) => Promise<import("./graph-snapshot/types").SharedGraphSnapshotHandle>;
+      getHandle: (
+        projectRoot: string,
+        analysisPath?: string,
+      ) => Promise<import("./graph-snapshot/types").SharedGraphSnapshotHandle>;
+      refresh: (projectRoot: string, analysisPath?: string) => Promise<void>;
+      onUpdate: (
+        listener: (payload: GraphSnapshotUpdateEvent) => void,
+      ) => () => void;
+    };
     ipcRenderer: {
       invoke(channel: "run-cli", command: string): Promise<string>;
       invoke(
@@ -57,10 +79,12 @@ declare global {
         projectPath: string,
       ): Promise<string>;
       invoke(
-        channel: "read-graph-data",
-        projectRoot: string,
-        analysisPath?: string,
-      ): Promise<DatabaseData | null>;
+        channel: "generate-view",
+        args: GenerateViewRequest,
+      ): Promise<GraphViewResult>;
+      invoke(
+        channel: "debug-get-view-registry",
+      ): Promise<SerializedViewRegistry>;
       invoke(
         channel: "read-state",
         projectRoot: string,
@@ -133,14 +157,6 @@ declare global {
         channel: "save-global-config",
         config: GlobalSettings,
       ): Promise<boolean>;
-      invoke(
-        channel: "generate-graph-view",
-        args: {
-          projectRoot: string;
-          analysisPath?: string;
-          view: "component" | "file" | "router";
-        },
-      ): Promise<import("@nexiq/extension-sdk").GraphViewResult>;
     };
   }
 }

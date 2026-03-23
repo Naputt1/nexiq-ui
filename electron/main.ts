@@ -5,6 +5,7 @@ import {
   ipcMain,
   dialog,
   Menu,
+  type MessagePortMain,
   type MenuItemConstructorOptions,
   type IpcMainInvokeEvent,
 } from "electron";
@@ -18,9 +19,10 @@ import os from "node:os";
 import { WebSocket } from "ws";
 import { spawn, ChildProcess } from "node:child_process";
 import Database from "better-sqlite3";
-import { SqliteDB } from "@nexiq/shared/db";
 import { UISqliteDB } from "./ui-sqlite-db";
-import { generateGraphView } from "./view-generator";
+import { GraphSnapshotManager } from "./graph-snapshot-manager";
+import { generateGraphView, getSerializedViewRegistry } from "./view-generator";
+import type { GenerateViewRequest } from "../src/views/types";
 
 const BACKEND_PORT = 3030;
 let backendProcess: ChildProcess | null = null;
@@ -52,11 +54,11 @@ async function isBackendAlive(): Promise<boolean> {
 async function startBackend() {
   if (backendProcess) return;
 
-  if (process.env.VITE_EXTERNAL_BACKEND === "true") {
-    console.log("Using external backend as requested by VITE_EXTERNAL_BACKEND");
-    connectToBackend();
-    return;
-  }
+  // if (process.env.VITE_EXTERNAL_BACKEND === "true") {
+  //   console.log("Using external backend as requested by VITE_EXTERNAL_BACKEND");
+  //   connectToBackend();
+  //   return;
+  // }
 
   // Try to connect to an existing backend first
   if (await isBackendAlive()) {
@@ -76,7 +78,7 @@ async function startBackend() {
     serverDist = path.join(
       process.env.APP_ROOT!,
       "..",
-      "react-map",
+      "nexiq",
       "packages",
       "server",
       "dist",
@@ -294,6 +296,10 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
 
 const windowProjects = new Map<number, string | null>();
 let isQuitting = false;
+const graphSnapshotManager = new GraphSnapshotManager(() =>
+  BrowserWindow.getAllWindows(),
+  resolveSqlitePath,
+);
 
 function createWindow(projectPath?: string, forceEmpty: boolean = false) {
   if (projectPath) {
@@ -524,6 +530,7 @@ app.on("before-quit", async () => {
   store.setOpenProjects(
     Array.from(windowProjects.values()).map((p) => p || ""),
   );
+  graphSnapshotManager.dispose();
   if (backendProcess) {
     backendProcess.kill();
     backendProcess = null;
@@ -535,6 +542,7 @@ app.on("will-quit", async () => {
   store.setOpenProjects(
     Array.from(windowProjects.values()).map((p) => p || ""),
   );
+  graphSnapshotManager.dispose();
 });
 
 app.on("activate", () => {
@@ -762,74 +770,78 @@ ipcMain.handle(
 );
 
 ipcMain.handle(
-  "read-graph-data",
-  async (_: IpcMainInvokeEvent, projectRoot: string, analysisPath?: string) => {
-    const targetPath = analysisPath || projectRoot;
-    if (!targetPath) return null;
+  "generate-view",
+  async (_: IpcMainInvokeEvent, args: GenerateViewRequest) => {
+    const { data, projectRoot, analysisPath, view } = args;
 
-    let sqlitePath = projectSqlitePaths.get(targetPath);
+    if (!projectRoot) {
+      throw new Error("projectRoot is required to generate a view");
+    }
 
-    if (!sqlitePath || !fs.existsSync(sqlitePath)) {
-      // Trigger analysis if not already done
-      const response = await requestBackend("open_project", {
-        projectPath: projectRoot,
-        subProject: targetPath === projectRoot ? undefined : targetPath,
+    if (data) {
+      return generateGraphView({
+        view,
+        data,
+        projectRoot,
+        analysisPath,
       });
-      if (response && response.sqlitePath) {
-        sqlitePath = response.sqlitePath;
-        projectSqlitePaths.set(targetPath, sqlitePath);
-      }
     }
 
-    if (!sqlitePath || !fs.existsSync(sqlitePath)) {
-      throw new Error(`SQLite database not found for path: ${targetPath}`);
-    }
-
-    try {
-      const sqliteInstance = new SqliteDB(new Database(sqlitePath));
-      const data = sqliteInstance.getAllData();
-      sqliteInstance.close();
-      return data;
-    } catch (e) {
-      console.error("Failed to read graph data from sqlite", e);
-      throw e;
-    }
+    const { sqlitePath } = await resolveSqlitePath(projectRoot, analysisPath);
+    return generateGraphView({
+      view,
+      projectRoot,
+      analysisPath,
+      sqlitePath,
+    });
   },
 );
 
+ipcMain.handle("debug-get-view-registry", async () => {
+  return getSerializedViewRegistry();
+});
+
+async function resolveSqlitePath(projectRoot: string, analysisPath?: string) {
+  const targetPath = analysisPath || projectRoot;
+  let sqlitePath = projectSqlitePaths.get(targetPath);
+
+  if (!sqlitePath || !fs.existsSync(sqlitePath)) {
+    const response = await requestBackend("open_project", {
+      projectPath: projectRoot,
+      subProject: targetPath === projectRoot ? undefined : targetPath,
+    });
+    if (response && response.sqlitePath) {
+      sqlitePath = response.sqlitePath;
+      projectSqlitePaths.set(targetPath, sqlitePath);
+    }
+  }
+
+  if (!sqlitePath || !fs.existsSync(sqlitePath)) {
+    throw new Error(`SQLite database not found for path: ${targetPath}`);
+  }
+
+  return { targetPath, sqlitePath };
+}
+
+ipcMain.on("graph-snapshot-connect", (event) => {
+  const [port] = event.ports as MessagePortMain[];
+  if (!port) {
+    return;
+  }
+  graphSnapshotManager.attachPort(event.sender, port);
+});
+
 ipcMain.handle(
-  "generate-graph-view",
+  "refresh-graph-snapshot",
   async (
     _: IpcMainInvokeEvent,
-    {
-      projectRoot,
-      analysisPath,
-      view,
-    }: {
-      projectRoot: string;
-      analysisPath?: string;
-      view: "component" | "file" | "router";
-    },
+    args: { projectRoot: string; analysisPath?: string },
   ) => {
-    const targetPath = analysisPath || projectRoot;
-    let sqlitePath = projectSqlitePaths.get(targetPath);
-
-    if (!sqlitePath || !fs.existsSync(sqlitePath)) {
-      const response = await requestBackend("open_project", {
-        projectPath: projectRoot,
-        subProject: targetPath === projectRoot ? undefined : targetPath,
-      });
-      if (response && response.sqlitePath) {
-        sqlitePath = response.sqlitePath;
-        projectSqlitePaths.set(targetPath, sqlitePath);
-      }
-    }
-
-    if (!sqlitePath || !fs.existsSync(sqlitePath)) {
-      throw new Error(`SQLite database not found for path: ${targetPath}`);
-    }
-
-    return generateGraphView(sqlitePath, view, projectRoot);
+    const { targetPath, sqlitePath } = await resolveSqlitePath(
+      args.projectRoot,
+      args.analysisPath,
+    );
+    await graphSnapshotManager.refresh(targetPath, sqlitePath);
   },
 );
 
@@ -943,12 +955,15 @@ ipcMain.handle(
     }
 
     // Fallback to backend process if direct write fails or sqlitePath not found
-    return requestBackend("update_graph_position", {
-      projectPath: projectRoot,
-      subProject: analysisPath === projectRoot ? undefined : analysisPath,
-      positions,
-      contextId,
-    });
+    return (requestBackend as (...args: unknown[]) => Promise<boolean>)(
+      "update_graph_position",
+      {
+        projectPath: projectRoot,
+        subProject: analysisPath === projectRoot ? undefined : analysisPath,
+        positions,
+        contextId,
+      },
+    );
   },
 );
 

@@ -38,6 +38,7 @@ export function ViewSwitcher({ className, isCollapsed }: { className?: string; i
           <SelectItem value="component">Component View</SelectItem>
           <SelectItem value="file">File View</SelectItem>
           <SelectItem value="router">Router View</SelectItem>
+          <SelectItem value="package">Package View</SelectItem>
         </SelectContent>
       </Select>
     </div>

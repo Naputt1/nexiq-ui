@@ -8,6 +8,7 @@
     "module": "ESNext",
     "types": [
       "node",
+      "vite/client",
       "vite-plugin-istanbul"
     ],
     "skipLibCheck": true,

@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@nexiq/extension-sdk':
-        specifier: ^1.0.3
-        version: 1.0.3(@nexiq/shared@1.0.2)(react@19.2.4)
+        specifier: file:../nexiq/packages/extension-sdk/dist
+        version: dist@file:../nexiq/packages/extension-sdk/dist
       '@nexiq/shared':
         specifier: ^1.0.2
         version: 1.0.2
@@ -786,12 +786,6 @@ packages:
 
   '@napi-rs/wasm-runtime@1.1.1':
     resolution: {integrity: sha512-p64ah1M1ld8xjWv3qbvFwHiFVWrq1yFvV4f7w+mzaqiR4IlSgkqhcRdHwsGgomwzBH51sRY4NEowLxnaBjcW/A==}
-
-  '@nexiq/extension-sdk@1.0.3':
-    resolution: {integrity: sha512-IEIh7Upz0kdvzpzf743XB2iWNomI4pXG9Mv1+gwAZOd6J+j5+/Yo4y1SsD3W5D8zxF90ipHqjZBydxQzGtBNig==}
-    peerDependencies:
-      '@nexiq/shared': 1.0.2
-      react: ^18.0.0 || ^19.0.0
 
   '@nexiq/shared@1.0.2':
     resolution: {integrity: sha512-7sj/4lwkVXpe6DRcg3PFGRlFzXxlJJdKzZI06ZdC34kQTj6pHuCwSd7eCZZY8B775zG5e208DnPDk9L4ot9vow==}
@@ -2723,6 +2717,9 @@ packages:
 
   dir-compare@4.2.0:
     resolution: {integrity: sha512-2xMCmOoMrdQIPHdsTawECdNPwlVFB9zGcz3kuhmBO6U3oU+UQjsue0i8ayLKpgBcm+hcXPMVSGUN9d+pvJ6+VQ==}
+
+  dist@file:../nexiq/packages/extension-sdk/dist:
+    resolution: {directory: ../nexiq/packages/extension-sdk/dist, type: directory}
 
   dmg-builder@26.8.1:
     resolution: {integrity: sha512-glMJgnTreo8CFINujtAhCgN96QAqApDMZ8Vl1r8f0QT8QprvC1UCltV4CcWj20YoIyLZx6IUskaJZ0NV8fokcg==}
@@ -5165,11 +5162,6 @@ snapshots:
       '@tybys/wasm-util': 0.10.1
     optional: true
 
-  '@nexiq/extension-sdk@1.0.3(@nexiq/shared@1.0.2)(react@19.2.4)':
-    dependencies:
-      '@nexiq/shared': 1.0.2
-      react: 19.2.4
-
   '@nexiq/shared@1.0.2': {}
 
   '@node-rs/xxhash-android-arm-eabi@1.7.6':
@@ -7151,6 +7143,8 @@ snapshots:
     dependencies:
       minimatch: 3.1.5
       p-limit: 3.1.0
+
+  dist@file:../nexiq/packages/extension-sdk/dist: {}
 
   dmg-builder@26.8.1(electron-builder-squirrel-windows@26.8.1):
     dependencies:
