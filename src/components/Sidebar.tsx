@@ -92,7 +92,7 @@ export function ProjectSidebar({
       try {
         const url = await window.ipcRenderer.invoke(
           "get-project-icon",
-          projectRoot,
+          currentPath,
         );
         setIconUrl(url);
       } catch (e) {
@@ -102,7 +102,7 @@ export function ProjectSidebar({
 
     fetchStatus();
     fetchIcon();
-  }, [projectRoot]);
+  }, [projectRoot, currentPath]);
 
   const currentConfig = status?.config;
   const filteredSubProjects = useMemo(() => {
