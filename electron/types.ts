@@ -6,7 +6,7 @@ import type {
   AppStateData,
   GraphViewType as SharedGraphViewType,
 } from "@nexiq/shared";
-import type { GraphSnapshotUpdateEvent } from "../src/graph-snapshot/types";
+import type { GraphSnapshotUpdateEvent, LargeDataUpdateEvent } from "../src/graph-snapshot/types";
 
 export type {
   NexiqConfig,
@@ -32,6 +32,7 @@ export interface IpcEvents {
   "reload-project": void;
   "git-status-changed": void;
   "graph-snapshot-updated": GraphSnapshotUpdateEvent;
+  "large-data-updated": LargeDataUpdateEvent;
 }
 
 export interface GlobalSettings {

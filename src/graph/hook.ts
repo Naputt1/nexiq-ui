@@ -124,7 +124,7 @@ export class GraphData {
 
   private isBatching = false;
 
-  private worker: Worker;
+  private worker: globalThis.Worker;
 
   public projectPath?: string;
   public targetPath?: string;
@@ -153,8 +153,8 @@ export class GraphData {
     this.projectPath = projectPath;
     this.targetPath = targetPath;
     this.worker = new LayoutWorker();
-    this.worker.onmessage = (e: MessageEvent<LayoutResponse>) => {
-      const { type, id, nodes } = e.data;
+    this.worker.onmessage = (e: MessageEvent) => {
+      const { type, id, nodes } = e.data as LayoutResponse;
       if (type === "layout-result") {
         this.layoutInProgress.delete(id);
         this.batch(() => {

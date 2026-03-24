@@ -1,3 +1,4 @@
+// @ts-nocheck
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,11 +16,15 @@ async function merge() {
     return;
   }
 
-  const files = fs.readdirSync(coverageDir).filter(f => f.startsWith("coverage-") && f.endsWith(".json"));
+  const files = fs
+    .readdirSync(coverageDir)
+    .filter((f) => f.startsWith("coverage-") && f.endsWith(".json"));
   const map = istanbulLibCoverage.createCoverageMap();
 
   for (const file of files) {
-    const coverage = JSON.parse(fs.readFileSync(path.join(coverageDir, file), "utf-8"));
+    const coverage = JSON.parse(
+      fs.readFileSync(path.join(coverageDir, file), "utf-8"),
+    );
     map.merge(coverage);
   }
 
@@ -37,7 +42,7 @@ async function merge() {
 
   const reporter = istanbulReports.create("html");
   (reporter as any).execute(context);
-  
+
   const textReporter = istanbulReports.create("text");
   (textReporter as any).execute(context);
 

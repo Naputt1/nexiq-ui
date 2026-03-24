@@ -2,8 +2,12 @@ import { ipcRenderer, contextBridge, type IpcRendererEvent } from "electron";
 import type { IpcEvents } from "./types";
 import type {
   GraphSnapshotPortRequest,
-  GraphSnapshotPortResponse,
+  LargeDataKind,
+  LargeDataRequestArgs,
+  SharedLargeDataHandle,
   SharedGraphSnapshotHandle,
+  LargeDataUpdateEvent,
+  GraphSnapshotUpdateEvent,
 } from "../src/graph-snapshot/types";
 // --------- Expose some API to the Renderer process ---------
 contextBridge.exposeInMainWorld("ipcRenderer", {
@@ -11,10 +15,8 @@ contextBridge.exposeInMainWorld("ipcRenderer", {
     channel: K,
     listener: (payload: IpcEvents[K]) => void,
   ) {
-    const wrappedListener = (
-      _event: IpcRendererEvent,
-      payload: IpcEvents[K],
-    ) => listener(payload);
+    const wrappedListener = (_event: IpcRendererEvent, payload: IpcEvents[K]) =>
+      listener(payload);
     ipcRenderer.on(channel, wrappedListener);
     return () => {
       ipcRenderer.removeListener(channel, wrappedListener);
@@ -40,7 +42,7 @@ let graphSnapshotRequestId = 0;
 const graphSnapshotPendingRequests = new Map<
   string,
   {
-    resolve: (handle: SharedGraphSnapshotHandle) => void;
+    resolve: (handle: SharedLargeDataHandle) => void;
     reject: (reason?: unknown) => void;
     timeout: ReturnType<typeof setTimeout>;
   }
@@ -55,10 +57,13 @@ function resetGraphSnapshotPort() {
   graphSnapshotPendingRequests.clear();
 }
 
-function handleGraphSnapshotPortMessage(
-  event: MessageEvent<GraphSnapshotPortResponse>,
-) {
-  const message = event.data;
+function handleGraphSnapshotPortMessage(event: MessageEvent) {
+  const message = event.data as {
+    requestId: string;
+    type: string;
+    handle: SharedLargeDataHandle;
+    message: string;
+  };
   const pending = graphSnapshotPendingRequests.get(message.requestId);
   if (!pending) {
     return;
@@ -86,15 +91,15 @@ function ensureGraphSnapshotPort(): MessagePort {
   graphSnapshotPort.onmessageerror = () => {
     resetGraphSnapshotPort();
   };
-  ipcRenderer.postMessage("graph-snapshot-connect", null, [channel.port1]);
+  ipcRenderer.postMessage("large-data-connect", null, [channel.port1]);
   return graphSnapshotPort;
 }
 
 function requestGraphSnapshotHandle(
+  kind: LargeDataKind,
   type: GraphSnapshotPortRequest["type"],
-  projectRoot: string,
-  analysisPath?: string,
-): Promise<SharedGraphSnapshotHandle> {
+  args: LargeDataRequestArgs,
+): Promise<SharedLargeDataHandle> {
   const port = ensureGraphSnapshotPort();
   return new Promise((resolve, reject) => {
     const requestId = `graph-snapshot-${graphSnapshotRequestId++}`;
@@ -105,33 +110,88 @@ function requestGraphSnapshotHandle(
 
     graphSnapshotPendingRequests.set(requestId, { resolve, reject, timeout });
     port.postMessage({
+      kind,
       type,
       requestId,
-      projectRoot,
-      analysisPath,
+      ...args,
     } satisfies GraphSnapshotPortRequest);
   });
 }
 
+contextBridge.exposeInMainWorld("largeData", {
+  open(kind: LargeDataKind, args: LargeDataRequestArgs) {
+    if (kind === "diff-analysis" || kind === "view-result") {
+      return ipcRenderer.invoke("open-inline-large-data", {
+        kind,
+        ...args,
+      });
+    }
+    return requestGraphSnapshotHandle(kind, "open", args);
+  },
+  getHandle(kind: LargeDataKind, args: LargeDataRequestArgs) {
+    if (kind === "diff-analysis" || kind === "view-result") {
+      return ipcRenderer.invoke("get-inline-large-data-handle", {
+        kind,
+        ...args,
+      });
+    }
+    return requestGraphSnapshotHandle(kind, "get-handle", args);
+  },
+  refresh(kind: LargeDataKind, args: LargeDataRequestArgs) {
+    return ipcRenderer.invoke("refresh-large-data", {
+      kind,
+      ...args,
+    });
+  },
+  onUpdate(listener: (payload: LargeDataUpdateEvent) => void) {
+    const wrappedListener = (
+      _event: IpcRendererEvent,
+      payload: LargeDataUpdateEvent,
+    ) => listener(payload);
+    ipcRenderer.on("large-data-updated", wrappedListener);
+    return () => {
+      ipcRenderer.removeListener("large-data-updated", wrappedListener);
+    };
+  },
+});
+
 contextBridge.exposeInMainWorld("graphSnapshot", {
   open(projectRoot: string, analysisPath?: string) {
-    return requestGraphSnapshotHandle("open", projectRoot, analysisPath);
+    return requestGraphSnapshotHandle("graph", "open", {
+      projectRoot,
+      analysisPath,
+    }) as Promise<SharedGraphSnapshotHandle>;
   },
   getHandle(projectRoot: string, analysisPath?: string) {
-    return requestGraphSnapshotHandle("get-handle", projectRoot, analysisPath);
+    return requestGraphSnapshotHandle("graph", "get-handle", {
+      projectRoot,
+      analysisPath,
+    }) as Promise<SharedGraphSnapshotHandle>;
   },
   refresh(projectRoot: string, analysisPath?: string) {
-    return ipcRenderer.invoke("refresh-graph-snapshot", {
+    return ipcRenderer.invoke("refresh-large-data", {
+      kind: "graph",
       projectRoot,
       analysisPath,
     });
   },
-  onUpdate(listener: (payload: unknown) => void) {
-    const wrappedListener = (_event: IpcRendererEvent, payload: unknown) =>
-      listener(payload);
-    ipcRenderer.on("graph-snapshot-updated", wrappedListener);
+  onUpdate(listener: (payload: GraphSnapshotUpdateEvent) => void) {
+    const wrappedListener = (
+      _event: IpcRendererEvent,
+      payload: GraphSnapshotUpdateEvent,
+    ) => {
+      if (
+        payload &&
+        typeof payload === "object" &&
+        "kind" in payload &&
+        payload.kind === "graph"
+      ) {
+        listener(payload);
+      }
+    };
+    ipcRenderer.on("large-data-updated", wrappedListener);
     return () => {
-      ipcRenderer.removeListener("graph-snapshot-updated", wrappedListener);
+      ipcRenderer.removeListener("large-data-updated", wrappedListener);
     };
   },
 });

@@ -1,27 +1,28 @@
-import { type DatabaseData } from "@nexiq/shared";
+import {
+  type DatabaseData,
+  type PackageRow,
+  type PackageDependencyRow,
+} from "@nexiq/shared";
 import type { GraphViewResult, GraphViewTask } from "../types";
+import type { IndexedGraphSnapshotData } from "../../graph-snapshot/types";
 
 export const packageTask: GraphViewTask = {
   id: "package-task",
   priority: 10,
   run: (data: DatabaseData, result: GraphViewResult) => {
-    const rawData = data as any;
+    const rawData = data as unknown as IndexedGraphSnapshotData;
     if (!rawData.packages || !rawData.package_dependencies) return result;
 
     const { packages, package_dependencies } = rawData;
-    const indexedPackages = rawData.__indexes?.packageById as
-      | Map<string, { id: string; name: string }>
-      | undefined;
-    const depsByPackage = rawData.__indexes?.packageDependenciesByPackageId as
-      | Map<string, typeof package_dependencies>
-      | undefined;
+    const indexedPackages = rawData.__indexes?.packageById;
+    const depsByPackage = rawData.__indexes?.packageDependenciesByPackageId;
     const nodeIds = new Set(result.nodes.map((node) => node.id));
     const edgeIds = new Set(result.edges.map((edge) => edge.id));
 
     const packageList =
       indexedPackages != null ? Array.from(indexedPackages.values()) : packages;
 
-    packageList.forEach((pkg: any) => {
+    packageList.forEach((pkg: PackageRow) => {
       // Create a node for the internal package
       if (!nodeIds.has(pkg.id)) {
         result.nodes.push({
@@ -38,17 +39,18 @@ export const packageTask: GraphViewTask = {
     const dependencyGroups =
       depsByPackage != null
         ? Array.from(depsByPackage.values())
-        : packageList.map((pkg: any) =>
-            package_dependencies.filter((dep: any) => dep.package_id === pkg.id),
+        : packageList.map((pkg: PackageRow) =>
+            package_dependencies.filter(
+              (dep: PackageDependencyRow) => dep.package_id === pkg.id,
+            ),
           );
 
     for (const dependencies of dependencyGroups) {
       for (const dep of dependencies) {
         const targetId = `${dep.dependency_name}@${dep.dependency_version}`;
         const edgeId = `${dep.package_id}->${targetId}`;
-        const isInternal = nodeIds.has(targetId);
 
-        if (!isInternal && !nodeIds.has(targetId)) {
+        if (!nodeIds.has(targetId)) {
           result.nodes.push({
             id: targetId,
             name: dep.dependency_name,

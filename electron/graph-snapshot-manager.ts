@@ -6,18 +6,21 @@ import {
 import { Worker } from "node:worker_threads";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { GRAPH_SNAPSHOT_META_INDEX } from "../src/graph-snapshot/constants";
 import type {
   GraphSnapshotPortRequest,
   GraphSnapshotPortResponse,
-  GraphSnapshotUpdateEvent,
+  LargeDataKind,
+  LargeDataUpdateEvent,
 } from "../src/graph-snapshot/types";
 
 interface SnapshotController {
+  kind: LargeDataKind;
   key: string;
   sqlitePath: string;
   worker: Worker;
-  dataBuffer: SharedArrayBuffer;
-  metaBuffer: SharedArrayBuffer;
+  dataBuffer: ArrayBufferLike;
+  metaBuffer: ArrayBufferLike;
   ready: Promise<void>;
   resolveReady: () => void;
   rejectReady: (reason?: unknown) => void;
@@ -29,7 +32,8 @@ interface SnapshotPortSession {
 }
 
 interface ResolvedSnapshotPath {
-  targetPath: string;
+  kind: LargeDataKind;
+  key: string;
   sqlitePath: string;
 }
 
@@ -54,34 +58,44 @@ export class GraphSnapshotManager {
   private portSessions = new Map<number, Set<SnapshotPortSession>>();
   private readonly getWindows: () => BrowserWindow[];
   private readonly resolveSnapshotPath: (
-    projectRoot: string,
-    analysisPath?: string,
+    request: GraphSnapshotPortRequest,
   ) => Promise<ResolvedSnapshotPath>;
 
   constructor(
     getWindows: () => BrowserWindow[],
     resolveSnapshotPath: (
-      projectRoot: string,
-      analysisPath?: string,
+      request: GraphSnapshotPortRequest,
     ) => Promise<ResolvedSnapshotPath>,
   ) {
     this.getWindows = getWindows;
     this.resolveSnapshotPath = resolveSnapshotPath;
   }
 
-  private broadcast(payload: GraphSnapshotUpdateEvent) {
+  private broadcast(payload: LargeDataUpdateEvent) {
     for (const window of this.getWindows()) {
       if (!window.isDestroyed()) {
-        window.webContents.send("graph-snapshot-updated", payload);
+        window.webContents.send("large-data-updated", payload);
+        if (payload.kind === "graph") {
+          window.webContents.send("graph-snapshot-updated", payload);
+        }
       }
     }
   }
 
-  private createWorker(key: string, sqlitePath: string): SnapshotController {
+  private getControllerId(kind: LargeDataKind, key: string) {
+    return `${kind}:${key}`;
+  }
+
+  private createWorker(
+    kind: LargeDataKind,
+    key: string,
+    sqlitePath: string,
+  ): SnapshotController {
     const readyDeferred = deferred();
     const worker = new Worker(bundledWorkerPath, {});
 
     const controller: SnapshotController = {
+      kind,
       key,
       sqlitePath,
       worker,
@@ -94,7 +108,7 @@ export class GraphSnapshotManager {
 
     worker.on(
       "message",
-      (message: GraphSnapshotUpdateEvent & { type: string }) => {
+      (message: LargeDataUpdateEvent & { type: string }) => {
         if (message.dataBuffer) {
           controller.dataBuffer = message.dataBuffer;
         }
@@ -105,6 +119,7 @@ export class GraphSnapshotManager {
         if (message.type === "snapshot-updated") {
           controller.resolveReady();
           this.broadcast({
+            kind,
             key,
             snapshotVersion: message.snapshotVersion,
             byteLength: message.byteLength,
@@ -118,6 +133,7 @@ export class GraphSnapshotManager {
           new Error(message.error ?? "Snapshot worker failed"),
         );
         this.broadcast({
+          kind,
           key,
           snapshotVersion: message.snapshotVersion ?? 0,
           byteLength: message.byteLength ?? 0,
@@ -132,6 +148,7 @@ export class GraphSnapshotManager {
       controller.rejectReady(error);
       const message = error instanceof Error ? error.message : String(error);
       this.broadcast({
+        kind,
         key,
         snapshotVersion: 0,
         byteLength: 0,
@@ -142,11 +159,12 @@ export class GraphSnapshotManager {
 
     worker.postMessage({
       type: "initialize",
+      kind,
       key,
       sqlitePath,
     });
 
-    this.controllers.set(key, controller);
+    this.controllers.set(this.getControllerId(kind, key), controller);
     return controller;
   }
 
@@ -167,7 +185,7 @@ export class GraphSnapshotManager {
       port.close();
     };
 
-    port.on("message", (event) => {
+    port.on("message", (event: { data: unknown }) => {
       void this.handlePortRequest(
         session,
         event.data as GraphSnapshotPortRequest,
@@ -198,20 +216,22 @@ export class GraphSnapshotManager {
     request: GraphSnapshotPortRequest,
   ) {
     try {
-      const { targetPath, sqlitePath } = await this.resolveSnapshotPath(
-        request.projectRoot,
-        request.analysisPath,
-      );
-      const handle = await this.open(targetPath, sqlitePath);
+      const { kind, key, sqlitePath } = await this.resolveSnapshotPath(request);
+      const handle = await this.open(kind, key, sqlitePath);
       this.postPortMessage(session, {
         type: "handle",
+        kind,
         requestId: request.requestId,
         handle,
       });
     } catch (error) {
-      const key = request.analysisPath || request.projectRoot;
+      const key =
+        request.kind === "graph"
+          ? request.analysisPath || request.projectRoot
+          : `${request.projectRoot}::${request.commitHash || ""}::${request.subPath || ""}`;
       this.postPortMessage(session, {
         type: "error",
+        kind: request.kind,
         requestId: request.requestId,
         key,
         message: error instanceof Error ? error.message : String(error),
@@ -219,12 +239,13 @@ export class GraphSnapshotManager {
     }
   }
 
-  async open(key: string, sqlitePath: string) {
-    const existing = this.controllers.get(key);
+  async open(kind: LargeDataKind, key: string, sqlitePath: string) {
+    const controllerId = this.getControllerId(kind, key);
+    const existing = this.controllers.get(controllerId);
     const controller =
       existing && existing.sqlitePath === sqlitePath
         ? existing
-        : this.createWorker(key, sqlitePath);
+        : this.createWorker(kind, key, sqlitePath);
 
     if (existing && existing.sqlitePath !== sqlitePath) {
       existing.worker.terminate();
@@ -232,29 +253,41 @@ export class GraphSnapshotManager {
 
     await controller.ready;
 
-    function cloneToShared(buffer: SharedArrayBuffer): SharedArrayBuffer {
-      const copy = new SharedArrayBuffer(buffer.byteLength);
-      new Uint8Array(copy).set(new Uint8Array(buffer));
-      return copy;
+    function cloneBuffer(buffer: ArrayBufferLike) {
+      if (
+        typeof SharedArrayBuffer !== "undefined" &&
+        buffer instanceof SharedArrayBuffer
+      ) {
+        const copy = new SharedArrayBuffer(buffer.byteLength);
+        new Uint8Array(copy).set(new Uint8Array(buffer));
+        return copy;
+      }
+      return buffer.slice(0);
     }
 
     return {
       key,
-      dataBuffer: cloneToShared(controller.dataBuffer),
-      metaBuffer: cloneToShared(controller.metaBuffer),
+      kind,
+      version:
+        new Int32Array(controller.metaBuffer)[
+          GRAPH_SNAPSHOT_META_INDEX.snapshotVersion
+        ] ?? 0,
+      dataBuffer: cloneBuffer(controller.dataBuffer),
+      metaBuffer: cloneBuffer(controller.metaBuffer),
     };
   }
 
-  async refresh(key: string, sqlitePath?: string) {
-    const controller = this.controllers.get(key);
+  async refresh(kind: LargeDataKind, key: string, sqlitePath?: string) {
+    const controller = this.controllers.get(this.getControllerId(kind, key));
     if (!controller) {
-      throw new Error(`No graph snapshot worker for key: ${key}`);
+      throw new Error(`No snapshot worker for ${kind}: ${key}`);
     }
     if (sqlitePath) {
       controller.sqlitePath = sqlitePath;
     }
     controller.worker.postMessage({
       type: "refresh",
+      kind,
       sqlitePath: controller.sqlitePath,
     });
   }

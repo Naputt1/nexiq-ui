@@ -31,5 +31,5 @@ playwright-report
 release-builds
 coverage
 .nyc_output
-.react-map
-react-map.config.json
+.nexiq
+nexiq.config.json

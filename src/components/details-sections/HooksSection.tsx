@@ -1,12 +1,15 @@
 import React from "react";
 import type { DetailSectionProps } from "@nexiq/extension-sdk";
 import { getDisplayName } from "@nexiq/shared";
+import { type GraphNodeData, type GraphData } from "@/graph/hook";
 
 export const HooksSection: React.FC<DetailSectionProps> = ({
-  item,
-  graph,
+  item: baseItem,
+  graph: baseGraph,
   onSelect,
 }) => {
+  const item = baseItem as GraphNodeData;
+  const graph = baseGraph as GraphData;
   if (!item.hooks || item.hooks.length === 0) return null;
 
   return (

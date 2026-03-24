@@ -5,12 +5,14 @@ import { TypeRefRenderer } from "../type-ref-renderer";
 import { type PropData, type TypeDataParam } from "@nexiq/shared";
 import { useConfigStore } from "@/hooks/use-config-store";
 import { cn } from "@/lib/utils";
+import { type GraphNodeData } from "@/graph/hook";
 
 export const PropsSection: React.FC<DetailSectionProps> = ({
-  item,
+  item: baseItem,
   typeData,
 }) => {
   const { customColors } = useConfigStore();
+  const item = baseItem as GraphNodeData;
 
   const renderGenerics = (params?: TypeDataParam[]) => {
     const genericsStyle = customColors?.genericsColor

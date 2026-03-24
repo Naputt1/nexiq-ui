@@ -1,7 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DatabaseData } from "@nexiq/shared";
 
-const mockReadGraphSnapshotFromSqlite = vi.fn();
+const { mockReadGraphSnapshotFromSqlite } = vi.hoisted(() => ({
+  mockReadGraphSnapshotFromSqlite: vi.fn(),
+}));
 
 vi.mock("./graph-snapshot-db", () => ({
   readGraphSnapshotFromSqlite: mockReadGraphSnapshotFromSqlite,
@@ -34,6 +36,10 @@ import {
 } from "./view-generator";
 
 describe("view-generator", () => {
+  beforeEach(() => {
+    mockReadGraphSnapshotFromSqlite.mockReset();
+  });
+
   it("applies UI state for sqlite-backed generation", async () => {
     mockReadGraphSnapshotFromSqlite.mockReturnValue({
       packages: [],
@@ -115,11 +121,11 @@ describe("view-generator", () => {
     expect(mockReadGraphSnapshotFromSqlite).toHaveBeenCalledTimes(2);
   });
 
-  it("supports diff-based generation from raw data", async () => {
+  it("supports diff-based generation from snapshot data", async () => {
     const result = await generateGraphView({
       projectRoot: "/repo",
       view: "component",
-      data: {
+      snapshotData: {
         packages: [],
         package_dependencies: [],
         files: [],

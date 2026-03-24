@@ -107,7 +107,7 @@ describe("graph snapshot codec", () => {
     expect(decoded.packages).toEqual(snapshotFixture.packages);
     expect(decoded.package_dependencies).toEqual([
       {
-        ...snapshotFixture.package_dependencies[0],
+        ...snapshotFixture.package_dependencies![0],
         id: 0,
       },
     ]);

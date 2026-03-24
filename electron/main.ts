@@ -21,13 +21,46 @@ import { spawn, ChildProcess } from "node:child_process";
 import Database from "better-sqlite3";
 import { UISqliteDB } from "./ui-sqlite-db";
 import { GraphSnapshotManager } from "./graph-snapshot-manager";
+import { encodeGraphSnapshot } from "../src/graph-snapshot/codec";
+import {
+  GRAPH_SNAPSHOT_META_INDEX,
+  GRAPH_SNAPSHOT_SCHEMA_VERSION,
+  GRAPH_SNAPSHOT_STATUS,
+} from "../src/graph-snapshot/constants";
+import {
+  toDatabaseData,
+  type GraphSnapshotData,
+} from "../src/graph-snapshot/types";
 import { generateGraphView, getSerializedViewRegistry } from "./view-generator";
 import type { GenerateViewRequest } from "../src/views/types";
+import type {
+  GraphSnapshotPortRequest,
+  LargeDataKind,
+  LargeDataRequestArgs,
+  SharedLargeDataHandle,
+} from "../src/graph-snapshot/types";
+import { readGraphSnapshotFromSqlite } from "./graph-snapshot-db";
+import {
+  analyzeDatabaseDiff,
+  createEmptyDatabaseData,
+} from "../src/lib/diff-analysis";
+import { encodeGraphViewSnapshot } from "../src/view-snapshot/codec";
 
 const BACKEND_PORT = 3030;
 let backendProcess: ChildProcess | null = null;
 let backendWs: WebSocket | null = null;
 const projectSqlitePaths = new Map<string, string>();
+const gitCommitSnapshotPaths = new Map<string, string>();
+const inlineLargeDataHandles = new Map<
+  string,
+  {
+    kind: LargeDataKind;
+    key: string;
+    version: number;
+    dataBuffer: ArrayBufferLike;
+    metaBuffer: ArrayBufferLike;
+  }
+>();
 
 async function isBackendAlive(): Promise<boolean> {
   return new Promise((resolve) => {
@@ -271,6 +304,7 @@ import type {
   BackendRequestMap,
   BackendMessageType,
 } from "@nexiq/shared";
+import type { GraphViewResult } from "@nexiq/extension-sdk";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -296,10 +330,260 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
 
 const windowProjects = new Map<number, string | null>();
 let isQuitting = false;
-const graphSnapshotManager = new GraphSnapshotManager(() =>
-  BrowserWindow.getAllWindows(),
-  resolveSqlitePath,
+const graphSnapshotManager = new GraphSnapshotManager(
+  () => BrowserWindow.getAllWindows(),
+  resolveLargeDataSnapshotPath,
 );
+
+function cloneBuffer(buffer: ArrayBufferLike) {
+  if (
+    typeof SharedArrayBuffer !== "undefined" &&
+    buffer instanceof SharedArrayBuffer
+  ) {
+    const copy = new SharedArrayBuffer(buffer.byteLength);
+    new Uint8Array(copy).set(new Uint8Array(buffer));
+    return copy;
+  }
+  return buffer.slice(0);
+}
+
+function getInlineHandleId(kind: LargeDataKind, key: string) {
+  return `${kind}:${key}`;
+}
+
+function buildHandleFromEntry(entry: {
+  kind: LargeDataKind;
+  key: string;
+  version: number;
+  dataBuffer: ArrayBufferLike;
+  metaBuffer: ArrayBufferLike;
+}): SharedLargeDataHandle {
+  return {
+    kind: entry.kind,
+    key: entry.key,
+    version: entry.version,
+    dataBuffer: cloneBuffer(entry.dataBuffer),
+    metaBuffer: cloneBuffer(entry.metaBuffer),
+  };
+}
+
+function broadcastLargeDataUpdate(payload: {
+  kind: LargeDataKind;
+  key: string;
+  snapshotVersion: number;
+  byteLength: number;
+  status: number;
+  handleChanged?: boolean;
+  error?: string;
+}) {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) {
+      window.webContents.send("large-data-updated", payload);
+      if (payload.kind === "graph") {
+        window.webContents.send("graph-snapshot-updated", payload);
+      }
+    }
+  }
+}
+
+function storeInlineLargeData(
+  kind: LargeDataKind,
+  key: string,
+  encoded: Uint8Array,
+) {
+  const handleId = getInlineHandleId(kind, key);
+  const previous = inlineLargeDataHandles.get(handleId);
+  const version = (previous?.version ?? 0) + 1;
+  const dataBuffer = new ArrayBuffer(encoded.byteLength);
+  new Uint8Array(dataBuffer).set(encoded);
+  const metaBuffer = new ArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 4);
+  const meta = new Int32Array(metaBuffer);
+  meta[GRAPH_SNAPSHOT_META_INDEX.schemaVersion] = GRAPH_SNAPSHOT_SCHEMA_VERSION;
+  meta[GRAPH_SNAPSHOT_META_INDEX.snapshotVersion] = version;
+  meta[GRAPH_SNAPSHOT_META_INDEX.byteLength] = encoded.byteLength;
+  meta[GRAPH_SNAPSHOT_META_INDEX.status] = GRAPH_SNAPSHOT_STATUS.READY;
+
+  const entry = {
+    kind,
+    key,
+    version,
+    dataBuffer,
+    metaBuffer,
+  };
+  inlineLargeDataHandles.set(handleId, entry);
+  broadcastLargeDataUpdate({
+    kind,
+    key,
+    snapshotVersion: version,
+    byteLength: encoded.byteLength,
+    status: GRAPH_SNAPSHOT_STATUS.READY,
+    handleChanged: true,
+  });
+  return buildHandleFromEntry(entry);
+}
+
+function readSnapshotData(sqlitePath: string): GraphSnapshotData {
+  return readGraphSnapshotFromSqlite(sqlitePath);
+}
+
+async function buildDiffAnalysisSnapshotData(
+  projectRoot: string,
+  selectedCommit: string | null,
+  subPath?: string,
+): Promise<GraphSnapshotData> {
+  const currentAnalysisPath = subPath
+    ? path.join(projectRoot, subPath)
+    : undefined;
+
+  let dataB: GraphSnapshotData;
+  let dataA: GraphSnapshotData;
+
+  if (selectedCommit) {
+    const { sqlitePath } = await resolveGitCommitSnapshotPath(
+      projectRoot,
+      selectedCommit,
+      subPath,
+    );
+    dataB = readSnapshotData(sqlitePath);
+
+    try {
+      const { sqlitePath: parentSqlitePath } =
+        await resolveGitCommitSnapshotPath(
+          projectRoot,
+          `${selectedCommit}^`,
+          subPath,
+        );
+      dataA = readSnapshotData(parentSqlitePath);
+    } catch {
+      dataA = {
+        ...createEmptyDatabaseData(),
+        uiState: {},
+      };
+    }
+  } else {
+    const { sqlitePath } = await resolveSqlitePath(
+      projectRoot,
+      currentAnalysisPath,
+    );
+    dataB = readSnapshotData(sqlitePath);
+    const { sqlitePath: headSqlitePath } = await resolveGitCommitSnapshotPath(
+      projectRoot,
+      "HEAD",
+      subPath,
+    );
+    dataA = readSnapshotData(headSqlitePath);
+  }
+
+  const diffResult = analyzeDatabaseDiff(
+    toDatabaseData(dataA),
+    toDatabaseData(dataB),
+  );
+
+  return {
+    ...dataB,
+    diff: diffResult.diff,
+    uiState: dataB.uiState ?? {},
+  };
+}
+
+function getDiffAnalysisKey(
+  projectRoot: string,
+  selectedCommit: string | null | undefined,
+  subPath?: string,
+) {
+  return `${projectRoot}::${selectedCommit ?? "current"}::${subPath || ""}`;
+}
+
+function getViewResultKey(args: GenerateViewRequest) {
+  return JSON.stringify({
+    projectRoot: args.projectRoot,
+    analysisPath: args.analysisPath ?? null,
+    selectedCommit: args.selectedCommit ?? null,
+    subPath: args.subPath ?? null,
+    view: args.view,
+  });
+}
+
+async function openInlineLargeData(
+  args: LargeDataRequestArgs & { kind: LargeDataKind },
+) {
+  if (args.kind === "diff-analysis") {
+    const key = getDiffAnalysisKey(
+      args.projectRoot,
+      args.selectedCommit,
+      args.subPath,
+    );
+    const cached = inlineLargeDataHandles.get(
+      getInlineHandleId(args.kind, key),
+    );
+    if (cached && !args.refreshHandle) {
+      return buildHandleFromEntry(cached);
+    }
+
+    const snapshotData = await buildDiffAnalysisSnapshotData(
+      args.projectRoot,
+      args.selectedCommit ?? null,
+      args.subPath,
+    );
+    return storeInlineLargeData(
+      args.kind,
+      key,
+      encodeGraphSnapshot(snapshotData),
+    );
+  }
+
+  if (args.kind === "view-result") {
+    if (!args.view) {
+      throw new Error("view is required for view-result handles");
+    }
+
+    const request: GenerateViewRequest = {
+      view: args.view,
+      projectRoot: args.projectRoot,
+      analysisPath: args.analysisPath,
+      selectedCommit: args.selectedCommit,
+      subPath: args.subPath,
+      refreshHandle: args.refreshHandle,
+    };
+    const key = getViewResultKey(request);
+    const cached = inlineLargeDataHandles.get(
+      getInlineHandleId(args.kind, key),
+    );
+    if (cached && !args.refreshHandle) {
+      return buildHandleFromEntry(cached);
+    }
+
+    let result: GraphViewResult;
+    if (args.selectedCommit !== undefined) {
+      const diffSnapshotData = await buildDiffAnalysisSnapshotData(
+        args.projectRoot,
+        args.selectedCommit ?? null,
+        args.subPath,
+      );
+      result = await generateGraphView({
+        ...request,
+        snapshotData: diffSnapshotData,
+      });
+    } else {
+      const { sqlitePath } = await resolveSqlitePath(
+        args.projectRoot,
+        args.analysisPath,
+      );
+      result = await generateGraphView({
+        ...request,
+        sqlitePath,
+      });
+    }
+
+    return storeInlineLargeData(
+      args.kind,
+      key,
+      encodeGraphViewSnapshot(result),
+    );
+  }
+
+  throw new Error(`Unsupported inline large data kind: ${args.kind}`);
+}
 
 function createWindow(projectPath?: string, forceEmpty: boolean = false) {
   if (projectPath) {
@@ -772,27 +1056,14 @@ ipcMain.handle(
 ipcMain.handle(
   "generate-view",
   async (_: IpcMainInvokeEvent, args: GenerateViewRequest) => {
-    const { data, projectRoot, analysisPath, view } = args;
-
-    if (!projectRoot) {
-      throw new Error("projectRoot is required to generate a view");
-    }
-
-    if (data) {
-      return generateGraphView({
-        view,
-        data,
-        projectRoot,
-        analysisPath,
-      });
-    }
-
-    const { sqlitePath } = await resolveSqlitePath(projectRoot, analysisPath);
-    return generateGraphView({
-      view,
-      projectRoot,
-      analysisPath,
-      sqlitePath,
+    return openInlineLargeData({
+      kind: "view-result",
+      projectRoot: args.projectRoot,
+      analysisPath: args.analysisPath,
+      selectedCommit: args.selectedCommit,
+      subPath: args.subPath,
+      view: args.view,
+      refreshHandle: args.refreshHandle,
     });
   },
 );
@@ -806,10 +1077,10 @@ async function resolveSqlitePath(projectRoot: string, analysisPath?: string) {
   let sqlitePath = projectSqlitePaths.get(targetPath);
 
   if (!sqlitePath || !fs.existsSync(sqlitePath)) {
-    const response = await requestBackend("open_project", {
+    const response = (await requestBackend("open_project", {
       projectPath: projectRoot,
       subProject: targetPath === projectRoot ? undefined : targetPath,
-    });
+    })) as unknown as { sqlitePath: string };
     if (response && response.sqlitePath) {
       sqlitePath = response.sqlitePath;
       projectSqlitePaths.set(targetPath, sqlitePath);
@@ -823,6 +1094,79 @@ async function resolveSqlitePath(projectRoot: string, analysisPath?: string) {
   return { targetPath, sqlitePath };
 }
 
+function getGitCommitSnapshotKey(
+  projectRoot: string,
+  commitHash: string,
+  subPath?: string,
+) {
+  return `${projectRoot}::${commitHash}::${subPath || ""}`;
+}
+
+async function resolveGitCommitSnapshotPath(
+  projectRoot: string,
+  commitHash: string,
+  subPath?: string,
+) {
+  const key = getGitCommitSnapshotKey(projectRoot, commitHash, subPath);
+  let sqlitePath = gitCommitSnapshotPaths.get(key);
+
+  if (!sqlitePath || !fs.existsSync(sqlitePath)) {
+    const response = (await requestBackend("git_analyze_commit", {
+      projectPath: projectRoot,
+      commitHash,
+      subPath,
+    })) as unknown as { sqlitePath: string };
+    if (response?.sqlitePath) {
+      const sp = response.sqlitePath;
+      sqlitePath = sp;
+      gitCommitSnapshotPaths.set(key, sp);
+    }
+  }
+
+  if (!sqlitePath || !fs.existsSync(sqlitePath)) {
+    throw new Error(`SQLite database not found for git commit: ${commitHash}`);
+  }
+
+  return { key, sqlitePath };
+}
+
+async function resolveLargeDataSnapshotPath(request: GraphSnapshotPortRequest) {
+  if (request.kind === "graph") {
+    const { targetPath, sqlitePath } = await resolveSqlitePath(
+      request.projectRoot,
+      request.analysisPath,
+    );
+    return {
+      kind: request.kind,
+      key: targetPath,
+      sqlitePath,
+    };
+  }
+
+  if (!request.commitHash) {
+    throw new Error("commitHash is required for git commit analysis snapshots");
+  }
+
+  const { key, sqlitePath } = await resolveGitCommitSnapshotPath(
+    request.projectRoot,
+    request.commitHash,
+    request.subPath,
+  );
+  return {
+    kind: request.kind,
+    key,
+    sqlitePath,
+  };
+}
+
+ipcMain.on("large-data-connect", (event) => {
+  const [port] = event.ports as MessagePortMain[];
+  if (!port) {
+    return;
+  }
+  graphSnapshotManager.attachPort(event.sender, port);
+});
+
 ipcMain.on("graph-snapshot-connect", (event) => {
   const [port] = event.ports as MessagePortMain[];
   if (!port) {
@@ -830,6 +1174,79 @@ ipcMain.on("graph-snapshot-connect", (event) => {
   }
   graphSnapshotManager.attachPort(event.sender, port);
 });
+
+ipcMain.handle(
+  "open-inline-large-data",
+  async (
+    _: IpcMainInvokeEvent,
+    args: LargeDataRequestArgs & { kind: LargeDataKind },
+  ) => {
+    return openInlineLargeData(args);
+  },
+);
+
+ipcMain.handle(
+  "get-inline-large-data-handle",
+  async (
+    _: IpcMainInvokeEvent,
+    args: LargeDataRequestArgs & { kind: LargeDataKind },
+  ) => {
+    if (args.kind === "graph" || args.kind === "git-commit-analysis") {
+      throw new Error(`Use port-backed large data for ${args.kind}`);
+    }
+
+    const key =
+      args.kind === "diff-analysis"
+        ? getDiffAnalysisKey(
+            args.projectRoot,
+            args.selectedCommit,
+            args.subPath,
+          )
+        : getViewResultKey({
+            projectRoot: args.projectRoot,
+            analysisPath: args.analysisPath,
+            selectedCommit: args.selectedCommit,
+            subPath: args.subPath,
+            view: args.view!,
+            refreshHandle: args.refreshHandle,
+          });
+    const cached = inlineLargeDataHandles.get(
+      getInlineHandleId(args.kind, key),
+    );
+    return cached ? buildHandleFromEntry(cached) : openInlineLargeData(args);
+  },
+);
+
+ipcMain.handle(
+  "refresh-large-data",
+  async (
+    _: IpcMainInvokeEvent,
+    args: {
+      kind: LargeDataKind;
+      projectRoot: string;
+      analysisPath?: string;
+      commitHash?: string;
+      subPath?: string;
+      selectedCommit?: string | null;
+      view?: GenerateViewRequest["view"];
+      refreshHandle?: boolean;
+    },
+  ) => {
+    if (args.kind === "diff-analysis" || args.kind === "view-result") {
+      await openInlineLargeData({
+        ...args,
+        refreshHandle: true,
+      });
+      return;
+    }
+    const { key, sqlitePath } = await resolveLargeDataSnapshotPath({
+      type: "open",
+      requestId: "refresh",
+      ...args,
+    });
+    await graphSnapshotManager.refresh(args.kind, key, sqlitePath);
+  },
+);
 
 ipcMain.handle(
   "refresh-graph-snapshot",
@@ -841,7 +1258,7 @@ ipcMain.handle(
       args.projectRoot,
       args.analysisPath,
     );
-    await graphSnapshotManager.refresh(targetPath, sqlitePath);
+    await graphSnapshotManager.refresh("graph", targetPath, sqlitePath);
   },
 );
 
@@ -852,12 +1269,13 @@ ipcMain.handle(
     projectRoot: string,
     commitHash: string,
     subPath?: string,
-  ): Promise<DatabaseData> => {
-    return requestBackend("git_analyze_commit", {
-      projectPath: projectRoot,
+  ): Promise<SharedLargeDataHandle> => {
+    const { key, sqlitePath } = await resolveGitCommitSnapshotPath(
+      projectRoot,
       commitHash,
       subPath,
-    });
+    );
+    return graphSnapshotManager.open("git-commit-analysis", key, sqlitePath);
   },
 );
 

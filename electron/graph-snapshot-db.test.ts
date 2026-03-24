@@ -183,6 +183,6 @@ describe("readGraphSnapshotFromSqlite", () => {
 
     expect(snapshot.packages).toHaveLength(1);
     expect(snapshot.package_dependencies).toHaveLength(1);
-    expect(snapshot.package_dependencies[0]?.dependency_name).toBe("react");
+    expect(snapshot.package_dependencies![0]?.dependency_name).toBe("react");
   });
 });
