@@ -7,21 +7,25 @@ import {
 } from "../src/graph-snapshot/constants";
 import { encodeGraphSnapshot } from "../src/graph-snapshot/codec";
 import { readGraphSnapshotFromSqlite } from "./graph-snapshot-db";
+import type { LargeDataKind } from "../src/graph-snapshot/types";
 
 interface InitializeMessage {
   type: "initialize";
+  kind: LargeDataKind;
   key: string;
   sqlitePath: string;
 }
 
 interface RefreshMessage {
   type: "refresh";
+  kind: LargeDataKind;
   sqlitePath?: string;
 }
 
 type WorkerMessage = InitializeMessage | RefreshMessage;
 
 let key = "";
+let kind: LargeDataKind = "graph";
 let sqlitePath = "";
 let dataBuffer = new SharedArrayBuffer(INITIAL_GRAPH_SNAPSHOT_BUFFER_BYTES);
 const metaBuffer = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 4);
@@ -77,6 +81,7 @@ function sendReady(payload: {
 }) {
   parentPort?.postMessage({
     type: "snapshot-updated",
+    kind,
     key,
     snapshotVersion: payload.snapshotVersion,
     byteLength: payload.byteLength,
@@ -96,6 +101,7 @@ function sendError(error: unknown) {
   );
   parentPort?.postMessage({
     type: "snapshot-error",
+    kind,
     key,
     status: GRAPH_SNAPSHOT_STATUS.ERROR,
     error: error instanceof Error ? error.message : String(error),
@@ -107,6 +113,7 @@ function sendError(error: unknown) {
 parentPort?.on("message", (message: WorkerMessage) => {
   try {
     if (message.type === "initialize") {
+      kind = message.kind;
       key = message.key;
       sqlitePath = message.sqlitePath;
       sendReady(writeSnapshot());

@@ -38,7 +38,12 @@ import { extractUIState } from "./graph/utils/ui-state";
 import type { GenerateViewRequest } from "./views/types";
 import {
   getGraphSnapshotKey,
+  openDiffAnalysisSnapshot,
+  openViewResultSnapshot,
+  readLargeData,
+  readViewResultData,
   refreshGraphSnapshot,
+  refreshLargeData,
   subscribeGraphSnapshot,
 } from "./graph-snapshot/client";
 
@@ -71,7 +76,6 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   const sidebarWidth = useAppStateStore((s) => s.sidebar.right.width);
 
   const status = useGitStore((s) => s.status);
-  const loadAnalyzedDiff = useGitStore((s) => s.loadAnalyzedDiff);
   const clearAnalyzedDiffCache = useGitStore((s) => s.clearAnalyzedDiffCache);
 
   const viewport = useAppStateStore((s) => s.viewport);
@@ -191,20 +195,40 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
 
       try {
         let request: GenerateViewRequest;
+        let resultHandle;
 
         if (selectedCommit || activeTab === "git") {
-          const diffData = await loadAnalyzedDiff(
-            projectPath,
-            selectedCommit,
+          const diffArgs = {
+            projectRoot: projectPath,
+            selectedCommit: selectedCommit ?? null,
             subPath,
-          );
-          if (!diffData) return;
+            refreshHandle: options?.refreshHandle,
+          };
+          if (options?.refreshHandle) {
+            await refreshLargeData("diff-analysis", diffArgs);
+          }
+          const diffHandle = options?.refreshHandle
+            ? await window.largeData.getHandle("diff-analysis", diffArgs)
+            : await openDiffAnalysisSnapshot(
+                projectPath,
+                selectedCommit ?? null,
+                subPath,
+              );
+          const diffData = readLargeData(diffHandle);
           rawDiffRef.current = diffData.diff ?? null;
           request = {
             view,
             projectRoot: projectPath,
-            data: diffData,
+            selectedCommit: selectedCommit ?? null,
+            subPath,
+            refreshHandle: options?.refreshHandle,
           };
+          if (options?.refreshHandle) {
+            await refreshLargeData("view-result", request);
+            resultHandle = await window.largeData.getHandle("view-result", request);
+          } else {
+            resultHandle = await openViewResultSnapshot(request);
+          }
         } else {
           const resolvedAnalysisPath =
             targetPath === projectPath ? undefined : targetPath;
@@ -220,12 +244,14 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
             analysisPath: resolvedAnalysisPath,
             refreshHandle: options?.refreshHandle,
           };
+          if (options?.refreshHandle) {
+            await refreshLargeData("view-result", request);
+            resultHandle = await window.largeData.getHandle("view-result", request);
+          } else {
+            resultHandle = await openViewResultSnapshot(request);
+          }
         }
-
-        const result = await window.ipcRenderer.invoke(
-          "generate-view",
-          request,
-        );
+        const result = readViewResultData(resultHandle);
         if (requestId !== viewRequestIdRef.current) {
           return;
         }
@@ -246,7 +272,6 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
       selectedSubProject,
       selectedCommit,
       activeTab,
-      loadAnalyzedDiff,
       subPath,
       view,
     ],
@@ -762,7 +787,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
         targetPath === projectPath ? undefined : targetPath,
       );
       clearAnalyzedDiffCache();
-      await loadData();
+      await loadData(undefined, { refreshHandle: true });
     } catch (e) {
       console.error("Failed to reload project", e);
     } finally {

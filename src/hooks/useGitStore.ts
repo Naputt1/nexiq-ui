@@ -5,7 +5,15 @@ import type {
   GitFileDiff,
   DatabaseData,
 } from "@nexiq/shared";
-import { openGraphSnapshot, readGraphSnapshotData } from "../graph-snapshot/client";
+import {
+  openGitCommitAnalysisSnapshot,
+  openGraphSnapshot,
+  readLargeData,
+} from "../graph-snapshot/client";
+import {
+  analyzeDatabaseDiff,
+  createEmptyDatabaseData,
+} from "../lib/diff-analysis";
 
 interface GitState {
   status: GitStatus | null;
@@ -137,61 +145,36 @@ export const useGitStore = create<GitState>((set, get) => ({
       let dataA: DatabaseData;
 
       if (commitHash) {
-        // 1. Analyze target commit
-        dataB = await window.ipcRenderer.invoke(
-          "git-analyze-commit",
-          projectRoot,
-          commitHash,
-          subPath,
+        dataB = readLargeData(
+          await openGitCommitAnalysisSnapshot(projectRoot, commitHash, subPath),
         );
 
-        // 2. Analyze parent commit (handle root commit)
         try {
           const parentHash = `${commitHash}^`;
-          dataA = await window.ipcRenderer.invoke(
-            "git-analyze-commit",
-            projectRoot,
-            parentHash,
-            subPath,
+          dataA = readLargeData(
+            await openGitCommitAnalysisSnapshot(
+              projectRoot,
+              parentHash,
+              subPath,
+            ),
           );
         } catch {
-          // Root commit, use empty graph as parent
-          dataA = {
-            packages: [],
-            package_dependencies: [],
-            files: [],
-            entities: [],
-            scopes: [],
-            symbols: [],
-            renders: [],
-            exports: [],
-            relations: [],
-          };
+          dataA = createEmptyDatabaseData();
         }
       } else {
-        // 1. Current state
-        dataB = readGraphSnapshotData(
+        dataB = readLargeData(
           await openGraphSnapshot(
             projectRoot,
             subPath ? `${projectRoot}/${subPath}` : undefined,
           ),
         );
 
-        // 2. HEAD commit
-        dataA = await window.ipcRenderer.invoke(
-          "git-analyze-commit",
-          projectRoot,
-          "HEAD",
-          subPath,
+        dataA = readLargeData(
+          await openGitCommitAnalysisSnapshot(projectRoot, "HEAD", subPath),
         );
       }
 
-      // 3. Compare them
-      const diffResult = await window.ipcRenderer.invoke(
-        "analyze-diff",
-        dataA,
-        dataB,
-      );
+      const diffResult = analyzeDatabaseDiff(dataA, dataB);
 
       set((state) => ({
         analyzedDiffs: { ...state.analyzedDiffs, [key]: diffResult },

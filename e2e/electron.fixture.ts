@@ -1,4 +1,9 @@
-import { _electron as electron, test as base, type Page } from "@playwright/test";
+import {
+  _electron as electron,
+  test as base,
+  type Page,
+  type ElectronApplication,
+} from "@playwright/test";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -6,7 +11,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 type ElectronFixture = {
-  electronApp: any;
+  electronApp: ElectronApplication;
   page: Page;
 };
 
@@ -15,7 +20,7 @@ export const test = base.extend<ElectronFixture>({
     // Determine path to main file
     // In dev mode, we point to the entry or the built dist-electron
     const electronPath = path.join(__dirname, "..", "dist-electron", "main.js");
-    
+
     const electronApp = await electron.launch({
       args: [electronPath],
       env: {
@@ -33,14 +38,16 @@ export const test = base.extend<ElectronFixture>({
   },
   page: async ({ electronApp }, use, testInfo) => {
     const page = await electronApp.firstWindow();
-    
+
     // Wait for the window to be ready
     await page.waitForLoadState("domcontentloaded");
 
     await use(page);
 
     // Collect coverage after each test
-    const coverage: any = await page.evaluate(() => (window as any).__coverage__);
+    const coverage = await page.evaluate(
+      () => (window as unknown as { __coverage__: unknown }).__coverage__,
+    );
     if (coverage) {
       const coverageDir = path.join(__dirname, "coverage");
       if (!fs.existsSync(coverageDir)) {

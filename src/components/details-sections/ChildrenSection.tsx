@@ -1,5 +1,5 @@
 import React from "react";
-import type { DetailSectionProps, GraphNodeData } from "@nexiq/extension-sdk";
+import type { DetailSectionProps } from "@nexiq/extension-sdk";
 import {
   getDisplayName,
   type ComponentInfoRenderDependency,
@@ -7,14 +7,16 @@ import {
 import { TypeRenderer } from "../type-renderer";
 import { useConfigStore } from "@/hooks/use-config-store";
 import { cn } from "@/lib/utils";
+import { type GraphNodeData } from "@/graph/hook";
 
 export const ChildrenSection: React.FC<DetailSectionProps> = ({
-  item,
+  item: baseItem,
   selectedId,
   typeData,
   renderNodes = [],
 }) => {
   const { customColors } = useConfigStore();
+  const item = baseItem as GraphNodeData;
 
   if (item.type !== "component" || !item.children) return null;
 

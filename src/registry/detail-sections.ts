@@ -4,6 +4,7 @@ import { PropsSection } from "@/components/details-sections/PropsSection";
 import { ChildrenSection } from "@/components/details-sections/ChildrenSection";
 import { HooksSection } from "@/components/details-sections/HooksSection";
 import { GitSection } from "@/components/details-sections/GitSection";
+import { type GraphNodeData } from "@/graph/hook";
 
 const registry: DetailSection[] = [
   {
@@ -19,8 +20,10 @@ const registry: DetailSection[] = [
     title: "Props",
     priority: 10,
     component: PropsSection,
-    shouldShow: (item) =>
-      !!(item.propType || (item.props && item.props.length > 0)),
+    shouldShow: (baseItem) => {
+      const item = baseItem as GraphNodeData;
+      return !!(item.propType || (item.props && item.props.length > 0));
+    },
     defaultOpen: true,
   },
   {
@@ -28,21 +31,30 @@ const registry: DetailSection[] = [
     title: "Children",
     priority: 20,
     component: ChildrenSection,
-    shouldShow: (item) => item.type === "component" && !!item.children,
+    shouldShow: (baseItem) => {
+      const item = baseItem as GraphNodeData;
+      return item.type === "component" && !!item.children;
+    },
   },
   {
     id: "hooks",
     title: "Hooks",
     priority: 30,
     component: HooksSection,
-    shouldShow: (item) => !!(item.hooks && item.hooks.length > 0),
+    shouldShow: (baseItem) => {
+      const item = baseItem as GraphNodeData;
+      return !!(item.hooks && item.hooks.length > 0);
+    },
   },
   {
     id: "git",
     title: "Git",
     priority: 40,
     component: GitSection,
-    shouldShow: (item) => !!item.gitStatus,
+    shouldShow: (baseItem) => {
+      const item = baseItem as GraphNodeData;
+      return !!item.gitStatus;
+    },
   },
 ];
 

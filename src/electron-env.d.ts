@@ -8,6 +8,10 @@ import {
   UIStateMap,
 } from "@nexiq/shared";
 import type {
+  LargeDataKind,
+  LargeDataRequestArgs,
+  LargeDataUpdateEvent,
+  SharedLargeDataHandle,
   GraphSnapshotUpdateEvent,
 } from "./graph-snapshot/types";
 import {
@@ -22,7 +26,6 @@ import type { GraphData } from "./graph/hook";
 import type { Extension } from "@nexiq/extension-sdk";
 import type {
   GenerateViewRequest,
-  GraphViewResult,
   SerializedViewRegistry,
 } from "./views/types";
 
@@ -50,6 +53,23 @@ declare global {
       refresh: (projectRoot: string, analysisPath?: string) => Promise<void>;
       onUpdate: (
         listener: (payload: GraphSnapshotUpdateEvent) => void,
+      ) => () => void;
+    };
+    largeData: {
+      open: (
+        kind: LargeDataKind,
+        args: LargeDataRequestArgs,
+      ) => Promise<SharedLargeDataHandle>;
+      getHandle: (
+        kind: LargeDataKind,
+        args: LargeDataRequestArgs,
+      ) => Promise<SharedLargeDataHandle>;
+      refresh: (
+        kind: LargeDataKind,
+        args: LargeDataRequestArgs,
+      ) => Promise<void>;
+      onUpdate: (
+        listener: (payload: LargeDataUpdateEvent) => void,
       ) => () => void;
     };
     ipcRenderer: {
@@ -81,7 +101,7 @@ declare global {
       invoke(
         channel: "generate-view",
         args: GenerateViewRequest,
-      ): Promise<GraphViewResult>;
+      ): Promise<SharedLargeDataHandle>;
       invoke(
         channel: "debug-get-view-registry",
       ): Promise<SerializedViewRegistry>;
@@ -125,7 +145,7 @@ declare global {
         projectRoot: string,
         commitHash: string,
         subPath?: string,
-      ): Promise<DatabaseData>;
+      ): Promise<SharedLargeDataHandle>;
       invoke(
         channel: "analyze-diff",
         dataA: DatabaseData,

@@ -9,6 +9,7 @@ import {
   serializeRegistry,
 } from "../src/views/registry";
 import { readGraphSnapshotFromSqlite } from "./graph-snapshot-db";
+import type { GraphSnapshotData } from "../src/graph-snapshot/types";
 import type {
   GenerateViewRequest,
   SerializedViewRegistry,
@@ -16,6 +17,7 @@ import type {
 
 interface GenerateGraphViewOptions extends GenerateViewRequest {
   sqlitePath?: string;
+  snapshotData?: GraphSnapshotData;
 }
 
 function applyUiState(
@@ -86,14 +88,11 @@ async function loadProjectExtensions(projectRoot: string) {
 export async function generateGraphView(
   options: GenerateGraphViewOptions,
 ): Promise<GraphViewResult> {
-  const { sqlitePath, data: inputData, view: viewType, projectRoot } = options;
-  if (!projectRoot) {
-    throw new Error("projectRoot is required for view generation");
-  }
+  const { sqlitePath, snapshotData, view: viewType, projectRoot } = options;
 
   await loadProjectExtensions(projectRoot);
 
-  if (inputData) {
+  if (snapshotData) {
     let result: GraphViewResult = {
       nodes: [],
       edges: [],
@@ -104,29 +103,25 @@ export async function generateGraphView(
     const tasks = getTasksForView(viewType);
     for (const task of tasks) {
       try {
-        result = task.run(inputData, result);
+        result = task.run(snapshotData, result);
       } catch (err) {
         console.error(`Task "${task.id}" failed:`, err);
       }
     }
 
     const uiState =
-      "uiState" in inputData &&
-      inputData.uiState &&
-      typeof inputData.uiState === "object"
-        ? (inputData.uiState as UIStateMap)
+      snapshotData.uiState && typeof snapshotData.uiState === "object"
+        ? (snapshotData.uiState as UIStateMap)
         : {};
 
     return applyUiState(uiState, result);
   }
 
   if (!sqlitePath) {
-    throw new Error(
-      "sqlitePath is required when raw view data is not provided",
-    );
+    throw new Error("sqlitePath is required when snapshotData is not provided");
   }
 
-  const snapshotData = readGraphSnapshotFromSqlite(sqlitePath);
+  const sqliteSnapshotData = readGraphSnapshotFromSqlite(sqlitePath);
 
   let result: GraphViewResult = {
     nodes: [],
@@ -138,13 +133,24 @@ export async function generateGraphView(
   const tasks = getTasksForView(viewType);
   const BATCH_SIZE = 100;
 
+  if (sqliteSnapshotData.entities.length === 0) {
+    for (const task of tasks) {
+      try {
+        result = task.run(sqliteSnapshotData, result);
+      } catch (err) {
+        console.error(`Task "${task.id}" failed:`, err);
+      }
+    }
+    return applyUiState(sqliteSnapshotData.uiState || {}, result);
+  }
+
   // Process entities in batches
-  for (let i = 0; i < snapshotData.entities.length; i += BATCH_SIZE) {
-    const entityBatch = snapshotData.entities.slice(i, i + BATCH_SIZE);
-    const symbolBatch = snapshotData.symbols.filter((s) =>
+  for (let i = 0; i < sqliteSnapshotData.entities.length; i += BATCH_SIZE) {
+    const entityBatch = sqliteSnapshotData.entities.slice(i, i + BATCH_SIZE);
+    const symbolBatch = sqliteSnapshotData.symbols.filter((s) =>
       entityBatch.some((e) => e.id === s.entity_id),
     );
-    const renderBatch = snapshotData.renders.filter((r) =>
+    const renderBatch = sqliteSnapshotData.renders.filter((r) =>
       entityBatch.some((e) => e.id === r.parent_entity_id),
     );
 
@@ -152,26 +158,26 @@ export async function generateGraphView(
       entities: entityBatch,
       symbols: symbolBatch,
       renders: renderBatch,
-      scopes: snapshotData.scopes.filter(
+      scopes: sqliteSnapshotData.scopes.filter(
         (s) =>
           entityBatch.some((e) => e.scope_id === s.id) ||
           entityBatch.some((e) => e.id === s.entity_id),
       ),
-      relations: snapshotData.relations.filter((r) =>
+      relations: sqliteSnapshotData.relations.filter((r) =>
         symbolBatch.some((s) => s.id === r.from_id || s.id === r.to_id),
       ),
     };
 
     for (const task of tasks) {
       try {
-        result = task.run(snapshotData, result, batch);
+        result = task.run(sqliteSnapshotData, result, batch);
       } catch (err) {
         console.error(`Task "${task.id}" failed:`, err);
       }
     }
   }
 
-  return applyUiState(snapshotData.uiState || {}, result);
+  return applyUiState(sqliteSnapshotData.uiState || {}, result);
 }
 
 export function getSerializedViewRegistry(): SerializedViewRegistry {

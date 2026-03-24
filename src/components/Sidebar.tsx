@@ -15,7 +15,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Files, GitBranch, Settings as SettingsIcon, Settings2 } from "lucide-react";
+import {
+  Files,
+  GitBranch,
+  Settings as SettingsIcon,
+  Settings2,
+} from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAppStateStore } from "@/hooks/use-app-state-store";
 import { GitPanel } from "./GitPanel";
@@ -102,17 +107,28 @@ export function ProjectSidebar({
   const currentConfig = status?.config;
   const filteredSubProjects = useMemo(() => {
     if (!currentConfig?.ignoreSubProjects) return subProjects;
-    return subProjects.filter((sp) => !currentConfig.ignoreSubProjects?.includes(sp.name));
+    return subProjects.filter(
+      (sp) => !currentConfig.ignoreSubProjects?.includes(sp.name),
+    );
   }, [subProjects, currentConfig]);
 
   return (
     <ShadcnSidebar collapsible="icon" className="border-r border-border">
       <SidebarHeader className="border-b border-border p-0">
         <div className="flex h-12 items-center px-4">
-          <div className={cn("flex items-center gap-2 font-semibold w-full", isCollapsed && "justify-center")}>
+          <div
+            className={cn(
+              "flex items-center gap-2 font-semibold w-full",
+              isCollapsed && "justify-center",
+            )}
+          >
             <div className="flex h-8 w-8 items-center justify-center rounded bg-primary text-primary-foreground shrink-0 overflow-hidden">
               {iconUrl ? (
-                <img src={iconUrl} alt={projectName} className="h-full w-full object-cover" />
+                <img
+                  src={iconUrl}
+                  alt={projectName}
+                  className="h-full w-full object-cover"
+                />
               ) : (
                 <span className="text-sm font-bold">{projectInitial}</span>
               )}
@@ -160,7 +176,9 @@ export function ProjectSidebar({
               onClick={() => setActiveTab("projects")}
               className={cn(
                 "p-2 rounded-md transition-colors",
-                activeTab === "projects" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/50"
+                activeTab === "projects"
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-accent/50",
               )}
             >
               <Files className="h-5 w-5" />
@@ -169,7 +187,9 @@ export function ProjectSidebar({
               onClick={() => setActiveTab("git")}
               className={cn(
                 "p-2 rounded-md transition-colors",
-                activeTab === "git" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/50"
+                activeTab === "git"
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-accent/50",
               )}
             >
               <GitBranch className="h-5 w-5" />
@@ -206,61 +226,66 @@ export function ProjectSidebar({
                     </SelectContent>
                   </Select>
                 </div>
-                
+
                 <ViewSwitcher />
               </SidebarGroupContent>
             </SidebarHeader>
           </SidebarGroup>
         ) : (
           <div className="flex-1 min-h-0">
-            <GitPanel 
-              projectRoot={projectRoot} 
-              onLocateFile={onLocateFile} 
+            <GitPanel
+              projectRoot={projectRoot}
+              onLocateFile={onLocateFile}
               onSelectNode={onSelectNode}
             />
           </div>
         )}
       </SidebarContent>
 
-      <SidebarFooter className={cn("p-4 border-t border-border flex flex-col gap-2", isCollapsed && "flex justify-center p-2")}>
+      <SidebarFooter
+        className={cn(
+          "p-4 border-t border-border flex flex-col gap-2",
+          isCollapsed && "flex justify-center p-2",
+        )}
+      >
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Link 
+              <Link
                 to={`/project-settings?projectPath=${encodeURIComponent(projectRoot)}`}
                 className={cn(
                   "flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors px-2",
-                  isCollapsed && "p-2 justify-center"
+                  isCollapsed && "p-2 justify-center",
                 )}
               >
                 <SettingsIcon className="h-4 w-4" />
-                <span className="group-data-[collapsible=icon]:hidden">Project Settings</span>
+                <span className="group-data-[collapsible=icon]:hidden">
+                  Project Settings
+                </span>
               </Link>
             </TooltipTrigger>
             {isCollapsed && (
-              <TooltipContent side="right">
-                Project Settings
-              </TooltipContent>
+              <TooltipContent side="right">Project Settings</TooltipContent>
             )}
           </Tooltip>
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Link 
+              <Link
                 to={`/global-settings?projectPath=${encodeURIComponent(projectRoot)}`}
                 className={cn(
                   "flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors px-2",
-                  isCollapsed && "p-2 justify-center"
+                  isCollapsed && "p-2 justify-center",
                 )}
               >
                 <Settings2 className="h-4 w-4" />
-                <span className="group-data-[collapsible=icon]:hidden">Global Settings</span>
+                <span className="group-data-[collapsible=icon]:hidden">
+                  Global Settings
+                </span>
               </Link>
             </TooltipTrigger>
             {isCollapsed && (
-              <TooltipContent side="right">
-                Global Settings
-              </TooltipContent>
+              <TooltipContent side="right">Global Settings</TooltipContent>
             )}
           </Tooltip>
         </TooltipProvider>

@@ -3,11 +3,13 @@ import type { DetailSectionProps } from "@nexiq/extension-sdk";
 import { useGitStore } from "@/hooks/useGitStore";
 import { useAppStateStore } from "@/hooks/use-app-state-store";
 import { GitDiffView } from "../GitDiffView";
+import { type GraphNodeData } from "@/graph/hook";
 
 export const GitSection: React.FC<DetailSectionProps> = ({
-  item,
+  item: baseItem,
   projectPath,
 }) => {
+  const item = baseItem as GraphNodeData;
   const diffs = useGitStore((s) => s.diffs);
   const loadDiff = useGitStore((s) => s.loadDiff);
   const selectedCommit = useAppStateStore((s) => s.selectedCommit);

@@ -11,6 +11,23 @@ import type {
   PackageRow,
   PackageDependencyRow,
 } from "@nexiq/shared";
+import type { GraphViewType } from "../../electron/types";
+
+export type LargeDataKind =
+  | "graph"
+  | "git-commit-analysis"
+  | "diff-analysis"
+  | "view-result";
+
+export interface LargeDataRequestArgs {
+  projectRoot: string;
+  analysisPath?: string;
+  commitHash?: string;
+  subPath?: string;
+  selectedCommit?: string | null;
+  view?: GraphViewType;
+  refreshHandle?: boolean;
+}
 
 export interface GraphSnapshotData extends Pick<
   DatabaseData,
@@ -28,37 +45,49 @@ export interface GraphSnapshotData extends Pick<
   uiState: UIStateMap;
 }
 
-export interface SharedGraphSnapshotHandle {
+export interface SharedLargeDataHandle {
   key: string;
-  dataBuffer: SharedArrayBuffer;
-  metaBuffer: SharedArrayBuffer;
+  kind: LargeDataKind;
+  version: number;
+  dataBuffer: ArrayBufferLike;
+  metaBuffer: ArrayBufferLike;
 }
 
-export interface GraphSnapshotUpdateEvent {
+export type SharedGraphSnapshotHandle = SharedLargeDataHandle;
+
+export interface LargeDataUpdateEvent {
   key: string;
+  kind: LargeDataKind;
   snapshotVersion: number;
   byteLength: number;
   status: number;
   handleChanged?: boolean;
   error?: string;
-  dataBuffer?: SharedArrayBuffer;
-  metaBuffer?: SharedArrayBuffer;
+  dataBuffer?: ArrayBufferLike;
+  metaBuffer?: ArrayBufferLike;
 }
+
+export type GraphSnapshotUpdateEvent = LargeDataUpdateEvent;
 
 export interface GraphSnapshotPortBaseMessage {
   requestId: string;
+  kind: LargeDataKind;
 }
 
 export interface GraphSnapshotPortOpenRequest extends GraphSnapshotPortBaseMessage {
   type: "open";
   projectRoot: string;
   analysisPath?: string;
+  commitHash?: string;
+  subPath?: string;
 }
 
 export interface GraphSnapshotPortGetHandleRequest extends GraphSnapshotPortBaseMessage {
   type: "get-handle";
   projectRoot: string;
   analysisPath?: string;
+  commitHash?: string;
+  subPath?: string;
 }
 
 export type GraphSnapshotPortRequest =
@@ -67,7 +96,7 @@ export type GraphSnapshotPortRequest =
 
 export interface GraphSnapshotPortHandleResponse extends GraphSnapshotPortBaseMessage {
   type: "handle";
-  handle: SharedGraphSnapshotHandle;
+  handle: SharedLargeDataHandle;
 }
 
 export interface GraphSnapshotPortErrorResponse extends GraphSnapshotPortBaseMessage {

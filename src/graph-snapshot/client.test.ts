@@ -2,14 +2,31 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   GraphSnapshotPortRequest,
   GraphSnapshotPortResponse,
+  LargeDataKind,
   SharedGraphSnapshotHandle,
 } from "./types";
 
 const open = vi.fn<
-  (projectRoot: string, analysisPath?: string) => Promise<SharedGraphSnapshotHandle>
+  (
+    kind: LargeDataKind,
+    args: {
+      projectRoot: string;
+      analysisPath?: string;
+      commitHash?: string;
+      subPath?: string;
+    },
+  ) => Promise<SharedGraphSnapshotHandle>
 >();
 const getHandle = vi.fn<
-  (projectRoot: string, analysisPath?: string) => Promise<SharedGraphSnapshotHandle>
+  (
+    kind: LargeDataKind,
+    args: {
+      projectRoot: string;
+      analysisPath?: string;
+      commitHash?: string;
+      subPath?: string;
+    },
+  ) => Promise<SharedGraphSnapshotHandle>
 >();
 
 describe("graph snapshot client", () => {
@@ -17,47 +34,44 @@ describe("graph snapshot client", () => {
     vi.resetModules();
     open.mockReset();
     getHandle.mockReset();
-    (
-      globalThis as typeof globalThis & {
-        window: Window & {
-          graphSnapshot: {
-            open: typeof open;
-            getHandle: typeof getHandle;
-          };
-        };
-      }
-    ).window = {
-      graphSnapshot: {
+    (globalThis as unknown as { window: unknown }).window = {
+      largeData: {
         open,
         getHandle,
       },
-    } as Window & {
-      graphSnapshot: {
-        open: typeof open;
-        getHandle: typeof getHandle;
-      };
     };
   });
 
   it("uses invoke-backed snapshot methods for open and get-handle", async () => {
-    open.mockImplementation(async (projectRoot, analysisPath) => ({
-      key: analysisPath || projectRoot,
+    open.mockImplementation(async (kind, args) => ({
+      key: args.analysisPath || args.projectRoot,
+      kind,
+      version: 1,
       dataBuffer: new SharedArrayBuffer(0),
       metaBuffer: new SharedArrayBuffer(0),
     }));
-    getHandle.mockImplementation(async (projectRoot, analysisPath) => ({
-      key: analysisPath || projectRoot,
+    getHandle.mockImplementation(async (kind, args) => ({
+      key: args.analysisPath || args.projectRoot,
+      kind,
+      version: 1,
       dataBuffer: new SharedArrayBuffer(0),
       metaBuffer: new SharedArrayBuffer(0),
     }));
 
-    const { getGraphSnapshotHandle, openGraphSnapshot } = await import("./client");
+    const { getGraphSnapshotHandle, openGraphSnapshot } =
+      await import("./client");
 
     const openHandle = await openGraphSnapshot("/repo", "/repo/pkg");
     const refreshedHandle = await getGraphSnapshotHandle("/repo", "/repo/pkg");
 
-    expect(open).toHaveBeenCalledWith("/repo", "/repo/pkg");
-    expect(getHandle).toHaveBeenCalledWith("/repo", "/repo/pkg");
+    expect(open).toHaveBeenCalledWith("graph", {
+      projectRoot: "/repo",
+      analysisPath: "/repo/pkg",
+    });
+    expect(getHandle).toHaveBeenCalledWith("graph", {
+      projectRoot: "/repo",
+      analysisPath: "/repo/pkg",
+    });
     expect(openHandle.key).toBe("/repo/pkg");
     expect(refreshedHandle.key).toBe("/repo/pkg");
   });
@@ -83,6 +97,8 @@ describe("graph snapshot client", () => {
 
     open.mockResolvedValue({
       key: "/repo/pkg",
+      kind: "graph",
+      version: 1,
       dataBuffer: new SharedArrayBuffer(0),
       metaBuffer: new SharedArrayBuffer(0),
     });
@@ -93,6 +109,7 @@ describe("graph snapshot client", () => {
     await port.onmessage?.({
       data: {
         type: "open",
+        kind: "graph",
         requestId: "req-1",
         projectRoot: "/repo",
         analysisPath: "/repo/pkg",
@@ -102,6 +119,7 @@ describe("graph snapshot client", () => {
     expect(postedMessages).toEqual([
       {
         type: "handle",
+        kind: "graph",
         requestId: "req-1",
         handle: expect.objectContaining({ key: "/repo/pkg" }),
       },
