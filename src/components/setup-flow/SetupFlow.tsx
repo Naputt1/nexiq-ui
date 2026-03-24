@@ -5,18 +5,23 @@ import type { ProjectStatus } from "./types";
 import { Button } from "../ui/button";
 
 interface SetupFlowProps {
-  onComplete: (path: string, analysisPath?: string) => void;
+  onComplete: (path: string, analysisPaths?: string[]) => void;
 }
 
 export function SetupFlow({ onComplete }: SetupFlowProps) {
   const [step, setStep] = useState<"welcome" | "config">("welcome");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [projectStatus, setProjectStatus] = useState<ProjectStatus | null>(null);
+  const [projectStatus, setProjectStatus] = useState<ProjectStatus | null>(
+    null,
+  );
 
   const handleSelectProject = async (path: string) => {
     setSelectedPath(path);
     try {
-      const status = await window.ipcRenderer.invoke("check-project-status", path);
+      const status = await window.ipcRenderer.invoke(
+        "check-project-status",
+        path,
+      );
       setProjectStatus(status);
       setStep("config");
     } catch (error) {
@@ -25,9 +30,9 @@ export function SetupFlow({ onComplete }: SetupFlowProps) {
     }
   };
 
-  const handleConfigConfirm = (analysisPath?: string) => {
+  const handleConfigConfirm = (analysisPaths?: string[]) => {
     if (selectedPath) {
-      onComplete(selectedPath, analysisPath);
+      onComplete(selectedPath, analysisPaths);
     }
   };
 
@@ -48,10 +53,14 @@ export function SetupFlow({ onComplete }: SetupFlowProps) {
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-zinc-950 text-white">
-      <div className="flex flex-col items-center justify-center min-h-[400px]">
+      <div className="flex flex-col items-center justify-center min-h-100">
         <div className="animate-spin text-primary mb-4 text-3xl">●</div>
         <p className="text-zinc-500">Loading...</p>
-        <Button onClick={() => setStep("welcome")} variant="link" className="mt-4 text-destructive">
+        <Button
+          onClick={() => setStep("welcome")}
+          variant="link"
+          className="mt-4 text-destructive"
+        >
           Go to welcome screen
         </Button>
       </div>

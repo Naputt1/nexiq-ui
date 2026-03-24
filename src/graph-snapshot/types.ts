@@ -22,6 +22,7 @@ export type LargeDataKind =
 export interface LargeDataRequestArgs {
   projectRoot: string;
   analysisPath?: string;
+  analysisPaths?: string[];
   commitHash?: string;
   subPath?: string;
   selectedCommit?: string | null;
@@ -78,6 +79,7 @@ export interface GraphSnapshotPortOpenRequest extends GraphSnapshotPortBaseMessa
   type: "open";
   projectRoot: string;
   analysisPath?: string;
+  analysisPaths?: string[];
   commitHash?: string;
   subPath?: string;
 }
@@ -86,6 +88,7 @@ export interface GraphSnapshotPortGetHandleRequest extends GraphSnapshotPortBase
   type: "get-handle";
   projectRoot: string;
   analysisPath?: string;
+  analysisPaths?: string[];
   commitHash?: string;
   subPath?: string;
 }

@@ -9,17 +9,11 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Files,
   GitBranch,
   Settings as SettingsIcon,
   Settings2,
+  Box,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAppStateStore } from "@/hooks/use-app-state-store";
@@ -27,17 +21,19 @@ import { GitPanel } from "./GitPanel";
 import { ViewSwitcher } from "./ViewSwitcher";
 import { cn } from "@/lib/utils";
 import type { ProjectStatus } from "../../electron/types";
+import { Button } from "@/components/ui/button";
+import { ProjectSelectionModal } from "./ProjectSelectionModal";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { ResizablePanel, ResizablePanelGroup } from "./ui/resizable";
 
 interface SidebarProps {
   currentPath: string;
   projectRoot: string;
-  onSelectProject: (path: string) => void | Promise<void>;
   onLocateFile?: (filePath: string) => void;
   onSelectNode?: (id: string) => void;
   isLoading?: boolean;
@@ -51,16 +47,18 @@ interface SubProject {
 export function ProjectSidebar({
   currentPath,
   projectRoot,
-  onSelectProject,
   onLocateFile,
   onSelectNode,
-  isLoading,
 }: SidebarProps) {
   const [subProjects, setSubProjects] = useState<SubProject[]>([]);
   const [status, setStatus] = useState<ProjectStatus | null>(null);
   const [iconUrl, setIconUrl] = useState<string | null>(null);
   const activeTab = useAppStateStore((s) => s.activeTab);
   const setActiveTab = useAppStateStore((s) => s.setActiveTab);
+  const selectedSubProjects = useAppStateStore((s) => s.selectedSubProjects);
+  const setSelectedSubProjects = useAppStateStore(
+    (s) => s.setSelectedSubProjects,
+  );
   const { state } = useSidebar();
   const isCollapsed = state === "collapsed";
 
@@ -112,8 +110,17 @@ export function ProjectSidebar({
     );
   }, [subProjects, currentConfig]);
 
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
   return (
     <ShadcnSidebar collapsible="icon" className="border-r border-border">
+      <ProjectSelectionModal
+        isOpen={isModalOpen}
+        onOpenChange={setIsModalOpen}
+        subProjects={filteredSubProjects}
+        initialSelected={selectedSubProjects}
+        onApply={(paths) => setSelectedSubProjects(paths)}
+      />
       <SidebarHeader className="border-b border-border p-0">
         <div className="flex h-12 items-center px-4">
           <div
@@ -197,39 +204,56 @@ export function ProjectSidebar({
             <ViewSwitcher isCollapsed={true} />
           </div>
         ) : activeTab === "projects" ? (
-          <SidebarGroup className="p-0 flex-1 min-h-0">
-            <SidebarHeader className="border-none">
-              <SidebarGroupContent className="flex flex-col gap-2 p-2 pt-4">
-                <div className="flex flex-col gap-2">
-                  <label className="text-[10px] font-bold uppercase text-muted-foreground px-2">
-                    Project
+          <SidebarGroup className="p-0 flex-1 min-h-0 flex flex-col">
+            <SidebarHeader className="border-none grow-0">
+              <SidebarGroupContent className="p-2 pt-4 flex flex-col gap-2">
+                <div className="flex items-center justify-between px-2">
+                  <label className="text-[10px] font-bold uppercase text-muted-foreground flex items-center gap-1.5">
+                    <Box className="h-3 w-3" />
+                    Analysis Targets
                   </label>
-                  <Select
-                    value={currentPath}
-                    onValueChange={(val) => onSelectProject(val)}
-                    disabled={isLoading}
-                  >
-                    <SelectTrigger className="w-full h-8 text-xs">
-                      <span>
-                        <SelectValue placeholder="Select Project" />
-                      </span>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={projectRoot}>
-                        Root ({projectName})
-                      </SelectItem>
-                      {filteredSubProjects.map((pkg: SubProject) => (
-                        <SelectItem key={pkg.path} value={pkg.path}>
-                          {pkg.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
                 </div>
-
-                <ViewSwitcher />
               </SidebarGroupContent>
             </SidebarHeader>
+
+            <div className="px-2 mb-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full h-8 text-xs justify-between group"
+                onClick={() => setIsModalOpen(true)}
+              >
+                <div className="flex items-center gap-2 truncate">
+                  <Box className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                  <span className="truncate">
+                    {selectedSubProjects.length === 0
+                      ? "No projects selected"
+                      : selectedSubProjects.length ===
+                          filteredSubProjects.length
+                        ? "All projects selected"
+                        : `${selectedSubProjects.length} projects selected`}
+                  </span>
+                </div>
+                <Settings2 className="h-3 w-3 opacity-50" />
+              </Button>
+            </div>
+
+            <ResizablePanelGroup
+              id="sidebar-resizable-group"
+              orientation="vertical"
+              className="flex-1 min-h-0"
+            >
+              <ResizablePanel
+                id="sidebar-switcher-panel"
+                defaultSize={100}
+                minSize={30}
+                className="flex flex-col"
+              >
+                <div className="p-2">
+                  <ViewSwitcher />
+                </div>
+              </ResizablePanel>
+            </ResizablePanelGroup>
           </SidebarGroup>
         ) : (
           <div className="flex-1 min-h-0">

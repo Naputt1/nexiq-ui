@@ -7,6 +7,7 @@ export type GenerateViewRequest = {
   view: GraphViewType;
   projectRoot: string;
   analysisPath?: string;
+  analysisPaths?: string[];
   selectedCommit?: string | null;
   subPath?: string;
   refreshHandle?: boolean;

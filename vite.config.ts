@@ -69,7 +69,13 @@ export default defineConfig(({ mode }) => ({
   ],
   optimizeDeps: {
     include: ["tslib"],
-    exclude: ["@node-rs/xxhash"],
+    exclude: [
+      "@node-rs/xxhash",
+      "@nexiq/shared",
+      "fast-glob",
+      "js-yaml",
+      "better-sqlite3",
+    ],
   },
   resolve: {
     alias: {

@@ -121,7 +121,10 @@ export async function generateGraphView(
     throw new Error("sqlitePath is required when snapshotData is not provided");
   }
 
-  const sqliteSnapshotData = readGraphSnapshotFromSqlite(sqlitePath);
+  const sqliteSnapshotData = readGraphSnapshotFromSqlite(
+    sqlitePath,
+    options.analysisPaths,
+  );
 
   let result: GraphViewResult = {
     nodes: [],

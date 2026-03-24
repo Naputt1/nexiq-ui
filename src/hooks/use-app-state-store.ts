@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { GraphViewType } from "../../electron/types";
 import debounce from "lodash.debounce";
 import { subscribeWithSelector } from "zustand/middleware";
+import type { AppStateData } from "@nexiq/shared";
 
 const DEFAULT = {
   SIDEBAR: {
@@ -20,7 +21,7 @@ const debouncedSave = debounce(
 );
 
 interface AppState {
-  selectedSubProject: string | null;
+  selectedSubProjects: string[];
   centeredItemId: string | null;
   selectedId: string | null;
   isSidebarOpen: boolean;
@@ -36,7 +37,8 @@ interface AppState {
     };
   };
 
-  setSelectedSubProject: (path: string | null) => void;
+  setSelectedSubProjects: (paths: string[]) => void;
+  toggleSubProject: (path: string) => void;
   setCenteredItemId: (id: string | null) => void;
   setSelectedId: (id: string | null) => void;
   setIsSidebarOpen: (open: boolean) => void;
@@ -52,7 +54,7 @@ interface AppState {
   // Persistence helpers
   loadState: (
     projectRoot: string,
-    overrideSubProject?: string | null,
+    overrideSubProjects?: string[] | null,
   ) => Promise<void>;
   saveState: (projectRoot: string) => Promise<void>;
   reset: () => void;
@@ -60,7 +62,7 @@ interface AppState {
 
 export const useAppStateStore = create<AppState>()(
   subscribeWithSelector((set, get) => ({
-    selectedSubProject: null,
+    selectedSubProjects: [],
     centeredItemId: null,
     selectedId: null,
     isSidebarOpen: false,
@@ -68,7 +70,7 @@ export const useAppStateStore = create<AppState>()(
     selectedCommit: null,
     isLoaded: false,
     viewport: null,
-    view: "component",
+    view: "component" as GraphViewType,
     sidebar: {
       right: {
         width: DEFAULT.SIDEBAR.RIGHT.WIDTH,
@@ -76,7 +78,13 @@ export const useAppStateStore = create<AppState>()(
       },
     },
 
-    setSelectedSubProject: (path) => set({ selectedSubProject: path }),
+    setSelectedSubProjects: (paths) => set({ selectedSubProjects: paths }),
+    toggleSubProject: (path) =>
+      set((state) => ({
+        selectedSubProjects: state.selectedSubProjects.includes(path)
+          ? state.selectedSubProjects.filter((p) => p !== path)
+          : [...state.selectedSubProjects, path],
+      })),
     setCenteredItemId: (id) => set({ centeredItemId: id }),
     setSelectedId: (id) => set({ selectedId: id }),
     setIsSidebarOpen: (open) => set({ isSidebarOpen: open }),
@@ -107,7 +115,7 @@ export const useAppStateStore = create<AppState>()(
 
     reset: () =>
       set({
-        selectedSubProject: null,
+        selectedSubProjects: [],
         centeredItemId: null,
         selectedId: null,
         activeTab: "projects",
@@ -125,50 +133,46 @@ export const useAppStateStore = create<AppState>()(
 
     loadState: async (
       projectRoot: string,
-      overrideSubProject?: string | null,
+      overrideSubProjects?: string[] | null,
     ) => {
       set({ isLoaded: false });
       try {
-        const state = await window.ipcRenderer.invoke(
+        const state = (await window.ipcRenderer.invoke(
           "read-state",
           projectRoot,
-        );
+        )) as AppStateData | null;
+
         if (state) {
           set({
-            selectedSubProject:
-              overrideSubProject || state.selectedSubProject || projectRoot,
+            selectedSubProjects: overrideSubProjects ||
+              state.selectedSubProjects || [projectRoot],
             centeredItemId: state.centeredItemId || null,
             selectedId: state.selectedId || null,
             isSidebarOpen: state.isSidebarOpen ?? false,
             activeTab: state.activeTab || "projects",
             selectedCommit: state.selectedCommit || null,
             viewport: state.viewport || null,
-            view: state.view || "component",
+            view: (state.view as GraphViewType) || "component",
             isLoaded: true,
             sidebar: {
               right: {
-                width: state.sidebar.right.width || DEFAULT.SIDEBAR.RIGHT.WIDTH,
+                width:
+                  state.sidebar?.right?.width || DEFAULT.SIDEBAR.RIGHT.WIDTH,
                 height:
-                  state.sidebar.right.height || DEFAULT.SIDEBAR.RIGHT.HEIGHT,
+                  state.sidebar?.right?.height || DEFAULT.SIDEBAR.RIGHT.HEIGHT,
               },
             },
           });
         } else {
-          const { reset } = get();
-          reset();
-          if (overrideSubProject) {
-            set({ selectedSubProject: overrideSubProject, isLoaded: true });
-          } else {
-            set({ selectedSubProject: projectRoot, isLoaded: true });
-          }
+          set({
+            selectedSubProjects: overrideSubProjects || [projectRoot],
+            isLoaded: true,
+          });
         }
       } catch (e) {
-        console.error("Failed to load app state from backend", e);
-        // Fallback to minimal working state
-        const { reset } = get();
-        reset();
+        console.error("Failed to load state", e);
         set({
-          selectedSubProject: overrideSubProject || projectRoot,
+          selectedSubProjects: overrideSubProjects || [projectRoot],
           isLoaded: true,
         });
       }
@@ -176,7 +180,7 @@ export const useAppStateStore = create<AppState>()(
 
     saveState: async (projectRoot: string) => {
       const {
-        selectedSubProject,
+        selectedSubProjects,
         centeredItemId,
         selectedId,
         isSidebarOpen,
@@ -189,25 +193,8 @@ export const useAppStateStore = create<AppState>()(
       } = get();
       if (!isLoaded) return; // Don't save until we've loaded
 
-      // Defensive check: ensure selectedSubProject is actually part of this projectRoot
-      if (
-        selectedSubProject &&
-        selectedSubProject !== projectRoot &&
-        !selectedSubProject.startsWith(projectRoot + "/") &&
-        !selectedSubProject.startsWith(projectRoot + "\\")
-      ) {
-        console.warn(
-          "Prevented saving stale subProject from different projectRoot",
-          {
-            selectedSubProject,
-            projectRoot,
-          },
-        );
-        return;
-      }
-
       await window.ipcRenderer.invoke("save-state", projectRoot, {
-        selectedSubProject,
+        selectedSubProjects,
         centeredItemId,
         selectedId,
         isSidebarOpen,
@@ -227,7 +214,7 @@ export const setupAutoSave = (projectRoot: string) => {
   return store.subscribe(
     (state) => ({
       // 👇 pick ONLY what should trigger saves
-      selectedSubProject: state.selectedSubProject,
+      selectedSubProjects: state.selectedSubProjects,
       centeredItemId: state.centeredItemId,
       selectedId: state.selectedId,
       isSidebarOpen: state.isSidebarOpen,
@@ -239,10 +226,12 @@ export const setupAutoSave = (projectRoot: string) => {
       isLoaded: state.isLoaded,
     }),
     (state) => {
-      if (!state.isLoaded) return;
-
-      const { saveState } = store.getState();
-      debouncedSave(projectRoot, saveState);
+      if (state.isLoaded) {
+        debouncedSave(projectRoot, store.getState().saveState);
+      }
+    },
+    {
+      equalityFn: (a, b) => JSON.stringify(a) === JSON.stringify(b),
     },
   );
 };
