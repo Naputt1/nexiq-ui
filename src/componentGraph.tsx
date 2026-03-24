@@ -4,6 +4,7 @@ import React, {
   useMemo,
   useRef,
   useState,
+  useTransition,
 } from "react";
 import { type AnalyzedDiff, type TypeDataDeclare } from "@nexiq/shared";
 import useGraph, {
@@ -53,10 +54,7 @@ interface ComponentGraphProps {
 }
 
 const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
-  const selectedSubProject = useAppStateStore((s) => s.selectedSubProject);
-  const setSelectedSubProject = useAppStateStore(
-    (s) => s.setSelectedSubProject,
-  );
+  const selectedSubProjects = useAppStateStore((s) => s.selectedSubProjects);
   const selectedId = useAppStateStore((s) => s.selectedId);
   const setSelectedId = useAppStateStore((s) => s.setSelectedId);
   const centeredItemId = useAppStateStore((s) => s.centeredItemId);
@@ -82,6 +80,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   const setBackendAvailable = useWorkerStore((s) => s.setBackendAvailable);
 
   const [isGeneratingView, setIsGeneratingView] = useState(false);
+  const [isPending, startTransition] = useTransition();
 
   // Persistence bridge for useDefaultLayout
   const storage = useMemo(
@@ -109,12 +108,13 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   });
 
   const subPath = useMemo(() => {
+    const selectedSubProject = selectedSubProjects[0];
     return selectedSubProject &&
       selectedSubProject !== projectPath &&
       selectedSubProject.startsWith(projectPath)
       ? selectedSubProject.replace(projectPath, "").replace(/^[/\\]/, "")
       : undefined;
-  }, [selectedSubProject, projectPath]);
+  }, [selectedSubProjects, projectPath]);
 
   const [size, setSize] = useState({
     width: window.innerWidth,
@@ -187,7 +187,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
         refreshHandle?: boolean;
       },
     ) => {
-      const targetPath = analysisPath || selectedSubProject || projectPath;
+      const targetPath = analysisPath || selectedSubProjects[0] || projectPath;
       if (!targetPath) return;
 
       const requestId = ++viewRequestIdRef.current;
@@ -225,7 +225,10 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
           };
           if (options?.refreshHandle) {
             await refreshLargeData("view-result", request);
-            resultHandle = await window.largeData.getHandle("view-result", request);
+            resultHandle = await window.largeData.getHandle(
+              "view-result",
+              request,
+            );
           } else {
             resultHandle = await openViewResultSnapshot(request);
           }
@@ -235,6 +238,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
           const snapshotKey = getGraphSnapshotKey(
             projectPath,
             resolvedAnalysisPath,
+            selectedSubProjects,
           );
           snapshotKeyRef.current = snapshotKey;
           rawDiffRef.current = null;
@@ -242,11 +246,15 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
             view,
             projectRoot: projectPath,
             analysisPath: resolvedAnalysisPath,
+            analysisPaths: selectedSubProjects,
             refreshHandle: options?.refreshHandle,
           };
           if (options?.refreshHandle) {
             await refreshLargeData("view-result", request);
-            resultHandle = await window.largeData.getHandle("view-result", request);
+            resultHandle = await window.largeData.getHandle(
+              "view-result",
+              request,
+            );
           } else {
             resultHandle = await openViewResultSnapshot(request);
           }
@@ -269,7 +277,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     },
     [
       projectPath,
-      selectedSubProject,
+      selectedSubProjects,
       selectedCommit,
       activeTab,
       subPath,
@@ -280,7 +288,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   const graph = useGraph({
     ...graphData,
     projectPath,
-    targetPath: selectedSubProject || projectPath,
+    targetPath: selectedSubProjects[0] || projectPath,
   });
 
   const debouncedRender = useMemo(
@@ -505,7 +513,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     const savePositions = debounce(() => {
       const positions = extractUIState(graph);
 
-      const targetPath = selectedSubProject || projectPath;
+      const targetPath = selectedSubProjects[0] || projectPath;
       if (Object.keys(positions).length > 0) {
         window.ipcRenderer.invoke(
           "update-graph-position",
@@ -533,7 +541,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     return () => {
       graph.unbind(unbind);
     };
-  }, [graph, projectPath, selectedSubProject]);
+  }, [graph, projectPath, selectedSubProjects]);
 
   // Initialize/Update Renderer
   useEffect(() => {
@@ -620,7 +628,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   useEffect(() => {
     hasRestoredViewport.current = false; // Reset flag when project changes
     resetState();
-    loadState(projectPath, subProject);
+    loadState(projectPath, subProject ? [subProject] : undefined);
 
     // Initial analysis to ensure sqlitePath is populated in main process
     const triggerInitialAnalysis = async () => {
@@ -631,7 +639,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
       try {
         await window.ipcRenderer.invoke(
           "analyze-project",
-          targetPath,
+          selectedSubProjects.length > 0 ? selectedSubProjects : targetPath,
           projectPath,
         );
         // Data will be reloaded by the other useEffect watching status/graph
@@ -643,12 +651,15 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     };
 
     triggerInitialAnalysis();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectPath, subProject, loadState, resetState]);
 
   // load data whenever sub-project selection or selected commit changes
   useEffect(() => {
-    loadData();
-  }, [selectedSubProject, selectedCommit, loadData]);
+    startTransition(() => {
+      loadData();
+    });
+  }, [selectedSubProjects, selectedCommit, loadData]);
 
   useEffect(() => {
     const unsubscribe = subscribeGraphSnapshot((payload) => {
@@ -658,11 +669,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
       if (!expectedKey || payload.key !== expectedKey) return;
 
       const rerenderFromHandle = async () => {
-        const analysisPath =
-          selectedSubProject && selectedSubProject !== projectPath
-            ? selectedSubProject
-            : undefined;
-        await loadData(analysisPath, {
+        await loadData(undefined, {
           refreshHandle: payload.handleChanged,
         });
       };
@@ -675,7 +682,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
       void rerenderFromHandle();
     });
     return () => unsubscribe();
-  }, [activeTab, loadData, projectPath, selectedCommit, selectedSubProject]);
+  }, [activeTab, loadData, projectPath, selectedCommit, selectedSubProjects]);
 
   // Resize observer for container
   const containerRef = useRef<HTMLDivElement>(null);
@@ -772,7 +779,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   };
 
   const handleReloadProject = useCallback(async () => {
-    const targetPath = selectedSubProject || projectPath;
+    const targetPath = selectedSubProjects[0] || projectPath;
     if (!targetPath) return;
 
     setIsAnalyzing(true);
@@ -793,7 +800,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [selectedSubProject, projectPath, loadData, clearAnalyzedDiffCache]);
+  }, [selectedSubProjects, projectPath, loadData, clearAnalyzedDiffCache]);
 
   useEffect(() => {
     const unsubscribe = window.ipcRenderer.on("reload-project", () => {
@@ -848,37 +855,12 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     [graph, onSelect],
   );
 
-  const handleProjectSwitch = useCallback(
-    async (path: string) => {
-      if (path === selectedSubProject) return; // No change
-
-      setIsAnalyzing(true);
-      setSelectedSubProject(path);
-      try {
-        // Trigger analysis on new path, storing config in projectRoot
-        await window.ipcRenderer.invoke("analyze-project", path, projectPath);
-        await refreshGraphSnapshot(
-          projectPath,
-          path === projectPath ? undefined : path,
-        );
-
-        // Data will be reloaded by the useEffect watching loadData/selectedSubProject
-      } catch (e) {
-        console.error("Failed to switch project", e);
-      } finally {
-        setIsAnalyzing(false);
-      }
-    },
-    [selectedSubProject, projectPath, setSelectedSubProject],
-  );
-
   return (
     <div className="w-screen h-screen relative bg-background overflow-hidden">
       <SidebarProvider open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
         <MemoizedProjectSidebar
-          currentPath={selectedSubProject || projectPath}
+          currentPath={selectedSubProjects[0] || projectPath}
           projectRoot={projectPath}
-          onSelectProject={handleProjectSwitch}
           onLocateFile={handleLocateFile}
           onSelectNode={handleSelectNode}
           isLoading={isAnalyzing}
@@ -986,7 +968,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
                       )}
                     />
                   )} */}
-                  {isGeneratingView && (
+                  {(isGeneratingView || isPending) && (
                     <div className="absolute inset-0 z-110 bg-background/50 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
                       <Loader2 className="h-10 w-10 animate-spin text-primary" />
                       <span className="text-sm font-medium text-muted-foreground animate-pulse">
@@ -995,7 +977,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
                     </div>
                   )}
                   {/* Zoom Slider */}
-                  <div className="absolute right-4 top-1/2 -translate-y-1/2 z-60">
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 z-40">
                     <ZoomSlider
                       value={viewport?.zoom || 1}
                       min={zoomRange.min}

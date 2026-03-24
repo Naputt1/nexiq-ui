@@ -28,6 +28,7 @@ export abstract class BaseNode implements Renderable {
   visible: boolean = true;
   combo?: string;
   name: VariableName | string;
+  projectPath?: string;
   fileName: string;
   pureFileName?: string;
   label?: LabelData;
@@ -74,6 +75,7 @@ export abstract class BaseNode implements Renderable {
     this.visible = data.visible ?? true;
     this.combo = data.combo;
     this.name = data.name;
+    this.projectPath = data.projectPath;
     this.fileName = data.fileName ?? "";
     this.pureFileName = data.pureFileName;
     this.label = data.label;

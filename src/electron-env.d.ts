@@ -95,7 +95,7 @@ declare global {
       invoke(channel: "get-project"): Promise<string | null>;
       invoke(
         channel: "analyze-project",
-        analysisPath: string,
+        analysisPaths: string | string[],
         projectPath: string,
       ): Promise<string>;
       invoke(

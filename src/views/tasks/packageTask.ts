@@ -29,6 +29,7 @@ export const packageTask: GraphViewTask = {
           id: pkg.id,
           name: pkg.name,
           type: "package",
+          projectPath: pkg.path,
           label: { text: pkg.id },
           color: "#4CAF50",
         });

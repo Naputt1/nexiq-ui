@@ -12,8 +12,21 @@ import type {
 } from "./types";
 import { decodeGraphViewSnapshot } from "../view-snapshot/codec";
 
-export function getGraphSnapshotKey(projectRoot: string, analysisPath?: string) {
-  return analysisPath || projectRoot;
+export function getGraphSnapshotKey(
+  projectRoot: string,
+  analysisPath?: string,
+  analysisPaths?: string[],
+) {
+  const paths =
+    analysisPaths && analysisPaths.length > 0
+      ? [...analysisPaths].sort()
+      : analysisPath
+        ? [analysisPath]
+        : [projectRoot];
+
+  return paths.length === 1 && paths[0] === projectRoot
+    ? projectRoot
+    : `${projectRoot}:${paths.join(",")}`;
 }
 
 export function getGitCommitAnalysisKey(
@@ -58,22 +71,29 @@ export function subscribeLargeData(
 export async function openGraphSnapshot(
   projectRoot: string,
   analysisPath?: string,
+  analysisPaths?: string[],
 ): Promise<SharedGraphSnapshotHandle> {
-  return openLargeData("graph", { projectRoot, analysisPath });
+  return openLargeData("graph", { projectRoot, analysisPath, analysisPaths });
 }
 
 export async function getGraphSnapshotHandle(
   projectRoot: string,
   analysisPath?: string,
+  analysisPaths?: string[],
 ): Promise<SharedGraphSnapshotHandle> {
-  return getLargeDataHandle("graph", { projectRoot, analysisPath });
+  return getLargeDataHandle("graph", {
+    projectRoot,
+    analysisPath,
+    analysisPaths,
+  });
 }
 
 export async function refreshGraphSnapshot(
   projectRoot: string,
   analysisPath?: string,
+  analysisPaths?: string[],
 ) {
-  await refreshLargeData("graph", { projectRoot, analysisPath });
+  await refreshLargeData("graph", { projectRoot, analysisPath, analysisPaths });
 }
 
 export function subscribeGraphSnapshot(
@@ -137,7 +157,11 @@ export function bridgeGraphSnapshotPort(port: MessagePort) {
         requestId: request.requestId,
         key:
           request.kind === "graph"
-            ? getGraphSnapshotKey(request.projectRoot, request.analysisPath)
+            ? getGraphSnapshotKey(
+                request.projectRoot,
+                request.analysisPath,
+                request.analysisPaths,
+              )
             : getGitCommitAnalysisKey(
                 request.projectRoot,
                 request.commitHash || "",

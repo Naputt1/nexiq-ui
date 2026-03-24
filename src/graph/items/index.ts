@@ -66,6 +66,7 @@ export interface PointData {
 export interface DetailItemData {
   id: string;
   name: VariableName | string;
+  projectPath?: string;
   fileName?: string;
   pureFileName?: string;
   scope?: VariableScope;

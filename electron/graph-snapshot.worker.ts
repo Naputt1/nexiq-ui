@@ -41,6 +41,7 @@ interface GenerateViewMessage {
   subPath?: string;
   view: GraphViewType;
   sqlitePath?: string;
+  analysisPaths?: string[];
 }
 
 interface DiffAnalysisMessage {
@@ -118,6 +119,7 @@ async function handleGenerateView(message: GenerateViewMessage) {
       view: message.view,
       projectRoot: message.projectRoot,
       analysisPath: message.analysisPath,
+      analysisPaths: message.analysisPaths,
       selectedCommit: message.selectedCommit,
       subPath: message.subPath,
       sqlitePath: message.sqlitePath,

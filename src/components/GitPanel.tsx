@@ -48,9 +48,9 @@ export function GitPanel({
 
   const selectedCommit = useAppStateStore((s) => s.selectedCommit);
   const setSelectedCommit = useAppStateStore((s) => s.setSelectedCommit);
-  const selectedSubProject = useAppStateStore((s) => s.selectedSubProject);
-  const setSelectedSubProject = useAppStateStore(
-    (s) => s.setSelectedSubProject,
+  const selectedSubProjects = useAppStateStore((s) => s.selectedSubProjects);
+  const setSelectedSubProjects = useAppStateStore(
+    (s) => s.setSelectedSubProjects,
   );
   const [subProjects, setSubProjects] = useState<SubProject[]>([]);
   const [analyzedData, setAnalyzedData] = useState<DatabaseData | null>(null);
@@ -79,6 +79,7 @@ export function GitPanel({
   }, [projectRoot]);
 
   const relativeFilterPath = useMemo(() => {
+    const selectedSubProject = selectedSubProjects[0];
     if (!selectedSubProject || selectedSubProject === projectRoot)
       return undefined;
     // Ensure we have a relative path for git commands
@@ -90,7 +91,7 @@ export function GitPanel({
       }
     }
     return rel || undefined;
-  }, [selectedSubProject, projectRoot]);
+  }, [selectedSubProjects, projectRoot]);
 
   useEffect(() => {
     refreshStatus(projectRoot);
@@ -181,9 +182,9 @@ export function GitPanel({
           </span>
         </div>
         <Select
-          value={selectedSubProject || projectRoot}
+          value={selectedSubProjects[0] || projectRoot}
           onValueChange={(val) =>
-            setSelectedSubProject(val === projectRoot ? null : val)
+            setSelectedSubProjects(val === projectRoot ? [] : [val])
           }
         >
           <SelectTrigger className="h-8 text-xs">

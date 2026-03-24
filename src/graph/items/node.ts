@@ -73,7 +73,7 @@ export class GraphNode extends BaseNode {
         window.ipcRenderer.invoke(
           "open-vscode",
           this.fileName,
-          context.graph.projectPath,
+          this.projectPath || context.graph.projectPath,
           this.loc?.line,
           this.loc?.column,
         );

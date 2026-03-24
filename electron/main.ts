@@ -411,6 +411,7 @@ function getViewResultKey(args: GenerateViewRequest) {
   return JSON.stringify({
     projectRoot: args.projectRoot,
     analysisPath: args.analysisPath ?? null,
+    analysisPaths: args.analysisPaths ? [...args.analysisPaths].sort() : null,
     selectedCommit: args.selectedCommit ?? null,
     subPath: args.subPath ?? null,
     view: args.view,
@@ -436,6 +437,7 @@ async function openInlineLargeData(
     const { targetPath } = await resolveSqlitePath(
       args.projectRoot,
       args.subPath ? path.join(args.projectRoot, args.subPath) : undefined,
+      args.analysisPaths,
     );
 
     let commitSqlitePath;
@@ -475,6 +477,7 @@ async function openInlineLargeData(
     const { sqlitePath } = await resolveSqlitePath(
       args.projectRoot,
       args.subPath ? path.join(args.projectRoot, args.subPath) : undefined,
+      args.analysisPaths,
     );
 
     // Ensure worker exists
@@ -504,6 +507,7 @@ async function openInlineLargeData(
       view: args.view,
       projectRoot: args.projectRoot,
       analysisPath: args.analysisPath,
+      analysisPaths: args.analysisPaths,
       selectedCommit: args.selectedCommit,
       subPath: args.subPath,
       refreshHandle: args.refreshHandle,
@@ -519,6 +523,7 @@ async function openInlineLargeData(
     const { targetPath, sqlitePath } = await resolveSqlitePath(
       args.projectRoot,
       args.analysisPath,
+      args.analysisPaths,
     );
 
     // Ensure worker exists
@@ -529,6 +534,7 @@ async function openInlineLargeData(
       kind: args.kind,
       projectRoot: args.projectRoot,
       analysisPath: args.analysisPath,
+      analysisPaths: args.analysisPaths,
       selectedCommit: args.selectedCommit,
       subPath: args.subPath,
       view: args.view,
@@ -997,15 +1003,16 @@ ipcMain.handle(
 
 ipcMain.handle(
   "analyze-project",
-  async (_: IpcMainInvokeEvent, analysisPath: string, projectPath: string) => {
-    const response = await requestBackend("open_project", {
-      projectPath,
-      subProject: analysisPath === projectPath ? undefined : analysisPath,
-    });
-    if (response && response.sqlitePath) {
-      projectSqlitePaths.set(analysisPath, response.sqlitePath);
-    }
-    return path.basename(analysisPath);
+  async (
+    _: IpcMainInvokeEvent,
+    analysisPaths: string | string[],
+    projectPath: string,
+  ) => {
+    const paths = Array.isArray(analysisPaths)
+      ? analysisPaths
+      : [analysisPaths];
+    await resolveSqlitePath(projectPath, undefined, paths);
+    return path.basename(paths[0] || projectPath);
   },
 );
 
@@ -1028,26 +1035,46 @@ ipcMain.handle("debug-get-view-registry", async () => {
   return getSerializedViewRegistry();
 });
 
-async function resolveSqlitePath(projectRoot: string, analysisPath?: string) {
-  const targetPath = analysisPath || projectRoot;
-  let sqlitePath = projectSqlitePaths.get(targetPath);
+async function resolveSqlitePath(
+  projectRoot: string,
+  analysisPath?: string,
+  analysisPaths?: string[],
+) {
+  const paths =
+    analysisPaths && analysisPaths.length > 0
+      ? [...analysisPaths].sort()
+      : analysisPath
+        ? [analysisPath]
+        : [projectRoot];
+
+  const targetId =
+    paths.length === 1 && paths[0] === projectRoot
+      ? projectRoot
+      : `${projectRoot}:${paths.join(",")}`;
+
+  let sqlitePath = projectSqlitePaths.get(targetId);
 
   if (!sqlitePath || !fs.existsSync(sqlitePath)) {
     const response = (await requestBackend("open_project", {
       projectPath: projectRoot,
-      subProject: targetPath === projectRoot ? undefined : targetPath,
+      subProject:
+        paths.length === 1 && paths[0] !== projectRoot ? paths[0] : undefined,
+      subProjects:
+        paths.length > 1 || (paths.length === 1 && paths[0] !== projectRoot)
+          ? paths
+          : undefined,
     })) as unknown as { sqlitePath: string };
     if (response && response.sqlitePath) {
       sqlitePath = response.sqlitePath;
-      projectSqlitePaths.set(targetPath, sqlitePath);
+      projectSqlitePaths.set(targetId, sqlitePath);
     }
   }
 
   if (!sqlitePath || !fs.existsSync(sqlitePath)) {
-    throw new Error(`SQLite database not found for path: ${targetPath}`);
+    throw new Error(`SQLite database not found for paths: ${paths.join(", ")}`);
   }
 
-  return { targetPath, sqlitePath };
+  return { targetPath: targetId, sqlitePath };
 }
 
 function getGitCommitSnapshotKey(
@@ -1091,6 +1118,7 @@ async function resolveLargeDataSnapshotPath(request: GraphSnapshotPortRequest) {
     const { targetPath, sqlitePath } = await resolveSqlitePath(
       request.projectRoot,
       request.analysisPath,
+      request.analysisPaths,
     );
     return {
       kind: request.kind,
@@ -1161,6 +1189,7 @@ ipcMain.handle(
         : getViewResultKey({
             projectRoot: args.projectRoot,
             analysisPath: args.analysisPath,
+            analysisPaths: args.analysisPaths,
             selectedCommit: args.selectedCommit,
             subPath: args.subPath,
             view: args.view!,
@@ -1208,7 +1237,11 @@ ipcMain.handle(
   "refresh-graph-snapshot",
   async (
     _: IpcMainInvokeEvent,
-    args: { projectRoot: string; analysisPath?: string },
+    args: {
+      projectRoot: string;
+      analysisPath?: string;
+      analysisPaths?: string[];
+    },
   ) => {
     const { targetPath, sqlitePath } = await resolveSqlitePath(
       args.projectRoot,
@@ -1306,14 +1339,11 @@ ipcMain.handle(
     let sqlitePath = projectSqlitePaths.get(analysisPath);
     if (!sqlitePath) {
       // If not in cache, try to get it from backend
-      const response = await requestBackend("open_project", {
-        projectPath: projectRoot,
-        subProject: analysisPath === projectRoot ? undefined : analysisPath,
-      });
-      if (response && response.sqlitePath) {
-        sqlitePath = response.sqlitePath;
-        projectSqlitePaths.set(analysisPath, sqlitePath);
-      }
+      const { sqlitePath: sp } = await resolveSqlitePath(
+        projectRoot,
+        analysisPath === projectRoot ? undefined : analysisPath,
+      );
+      sqlitePath = sp;
     }
 
     if (sqlitePath && fs.existsSync(sqlitePath)) {
@@ -1370,7 +1400,7 @@ ipcMain.handle(
       }
     }
 
-    return iconPath;
+    return iconPath || null;
   },
 );
 

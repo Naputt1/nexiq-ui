@@ -35,7 +35,8 @@ function App() {
       setProjectRoot(urlProjectPath);
     }
     if (urlSubProject) {
-      useAppStateStore.getState().setSelectedSubProject(urlSubProject);
+      const paths = urlSubProject.split(",").filter(Boolean);
+      useAppStateStore.getState().setSelectedSubProjects(paths);
     }
   }, [urlProjectPath, urlSubProject, setProjectRoot]);
 
@@ -51,7 +52,10 @@ function App() {
     }
   }, [projectRoot]);
 
-  const handleProjectComplete = async (path: string, analysisPath?: string) => {
+  const handleProjectComplete = async (
+    path: string,
+    analysisPaths?: string[],
+  ) => {
     // Save to main process first
     const wasFocusedElsewhere = await window.ipcRenderer.invoke(
       "set-last-project",
@@ -61,8 +65,11 @@ function App() {
 
     // Use hash-based navigation for compatibility with HashRouter
     let url = `/?projectPath=${encodeURIComponent(path)}`;
-    if (analysisPath && analysisPath !== path) {
-      url += `&subProject=${encodeURIComponent(analysisPath)}`;
+    if (analysisPaths && analysisPaths.length > 0) {
+      const filtered = analysisPaths.filter((p) => p !== path);
+      if (filtered.length > 0) {
+        url += `&subProject=${encodeURIComponent(filtered.join(","))}`;
+      }
     }
     window.location.hash = url;
   };

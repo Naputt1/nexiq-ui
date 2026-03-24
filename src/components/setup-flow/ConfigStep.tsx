@@ -1,19 +1,14 @@
 import { useState, useEffect } from "react";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
+import { Checkbox } from "../ui/checkbox";
 import type { ProjectStatus } from "./types";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../ui/select";
+import { useAppStateStore } from "../../hooks/use-app-state-store";
 
 interface ConfigStepProps {
   path: string;
   status: ProjectStatus;
-  onConfirm: (analysisPath?: string) => void;
+  onConfirm: (analysisPaths?: string[]) => void;
   onBack: () => void;
 }
 
@@ -24,59 +19,39 @@ export function ConfigStep({
   onBack,
 }: ConfigStepProps) {
   const [isSaving, setIsSaving] = useState(false);
-  // Initialize analysisPath from existing config if available, otherwise default to projectPath
-  const [analysisPath, setAnalysisPath] = useState(
-    initialStatus.config?.analysisPath || projectPath,
+  const selectedSubProjects = useAppStateStore(
+    (state) => state.selectedSubProjects,
   );
-  const [currentStatus, setCurrentStatus] =
-    useState<ProjectStatus>(initialStatus);
+  const setSelectedSubProjects = useAppStateStore(
+    (state) => state.setSelectedSubProjects,
+  );
+  const toggleSubProject = useAppStateStore((state) => state.toggleSubProject);
 
-  // Update status when analysis path changes
+  // Initialize selectedSubProjects if empty and it's a monorepo
   useEffect(() => {
-    let active = true;
-    const updateStatus = async () => {
-      try {
-        const newStatus = await window.ipcRenderer.invoke(
-          "check-project-status",
-          analysisPath,
-        );
-        if (active) {
-          setCurrentStatus(newStatus);
-        }
-      } catch (e) {
-        console.error("Failed to check status for", analysisPath, e);
-      }
-    };
-
-    updateStatus();
-    return () => {
-      active = false;
-    };
-  }, [analysisPath]);
-
-  const handleBrowseAnalysis = async () => {
-    try {
-      const path = await window.ipcRenderer.invoke("select-directory");
-      if (path && typeof path === "string") {
-        setAnalysisPath(path);
-      }
-    } catch (e) {
-      console.error(e);
+    if (
+      initialStatus.isMonorepo &&
+      initialStatus.subProjects &&
+      selectedSubProjects.length === 0
+    ) {
+      // By default, select all sub-projects
+      setSelectedSubProjects(initialStatus.subProjects.map((p) => p.path));
+    } else if (!initialStatus.isMonorepo && selectedSubProjects.length === 0) {
+      setSelectedSubProjects([projectPath]);
     }
-  };
+  }, [initialStatus, projectPath]);
 
   const handleConfirm = async () => {
     setIsSaving(true);
     try {
-      // Merge existing config with new analysis settings
-      const baseConfig = currentStatus.config ||
-        initialStatus.config || {
-          entry: "src/index.tsx",
-        };
+      const baseConfig = initialStatus.config || {
+        entry: "src/index.tsx",
+      };
 
       const configToSave = {
         ...baseConfig,
-        analysisPath: analysisPath !== projectPath ? analysisPath : undefined,
+        analysisPaths:
+          selectedSubProjects.length > 0 ? selectedSubProjects : [projectPath],
       };
 
       await window.ipcRenderer.invoke("save-project-config", {
@@ -84,14 +59,14 @@ export function ConfigStep({
         directoryPath: projectPath,
       });
 
-      // Trigger analysis
+      // Trigger analysis for all selected projects
       await window.ipcRenderer.invoke(
         "analyze-project",
-        analysisPath,
+        selectedSubProjects,
         projectPath,
       );
 
-      onConfirm(analysisPath);
+      onConfirm(selectedSubProjects);
     } catch (error) {
       console.error("Failed to save config:", error);
     } finally {
@@ -101,7 +76,7 @@ export function ConfigStep({
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground p-8 w-screen">
-      <div className="w-full max-w-5xl flex flex-col gap-6">
+      <div className="w-full max-w-2xl flex flex-col gap-6">
         <Button
           onClick={onBack}
           variant="ghost"
@@ -110,138 +85,163 @@ export function ConfigStep({
           ← Back
         </Button>
 
-        <Card className="p-6 bg-card border-border">
-          <h2 className="text-2xl font-bold mb-4 text-primary">
-            Configure Project
-          </h2>
-
-          <div className="space-y-4 mb-6">
-            {/* Main Project Path (Read Only) */}
-            <div className="p-4 bg-muted/30 rounded border border-border">
-              <label className="text-xs text-muted-foreground uppercase tracking-wider block mb-1">
-                Project Root
-              </label>
-              <div className="font-mono text-sm text-muted-foreground break-all">
-                {projectPath}
-              </div>
-            </div>
-
-            {/* Analysis Directory Selector */}
-            <div className="p-4 bg-muted/30 rounded border border-border">
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-xs text-muted-foreground uppercase tracking-wider">
-                  Analysis Target
-                </label>
-                <div className="flex gap-2">
-                  {initialStatus.subProjects &&
-                    initialStatus.subProjects.length > 0 && (
-                      <Select
-                        // className="bg-zinc-900 border border-zinc-700 text-xs rounded px-2 py-1 outline-none focus:border-blue-500"
-                        value={
-                          initialStatus.subProjects.find(
-                            (p) => p.path === analysisPath,
-                          )
-                            ? analysisPath
-                            : "custom"
-                        }
-                        onValueChange={(e) => {
-                          if (e !== "custom") {
-                            setAnalysisPath(e);
-                          }
-                        }}
-                      >
-                        <SelectTrigger className="w-full group-data-[collapsible=icon]:px-1 group-data-[collapsible=icon]:justify-center">
-                          <span className="group-data-[collapsible=icon]:hidden">
-                            <SelectValue placeholder="Select Project" />
-                          </span>
-                        </SelectTrigger>
-
-                        <SelectContent>
-                          <SelectItem value={projectPath}>
-                            Root ({projectPath.split("/").pop()})
-                          </SelectItem>
-                          {initialStatus.subProjects.map((pkg) => (
-                            <SelectItem key={pkg.path} value={pkg.path}>
-                              {pkg.name}
-                            </SelectItem>
-                          ))}
-                          <SelectItem value="custom">Custom...</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    )}
-                  <Button
-                    onClick={handleBrowseAnalysis}
-                    variant="outline"
-                    size="sm"
-                    className="h-6 text-xs border-border"
-                  >
-                    Browse
-                  </Button>
-                </div>
-              </div>
-              <div className="font-mono text-sm text-muted-foreground break-all">
-                {analysisPath}
-              </div>
-              {analysisPath !== projectPath && (
-                <p className="text-xs text-amber-500/80 mt-2">
-                  Analyzing: {analysisPath}
-                  <br />
-                  Saving Config to: {projectPath}
-                </p>
-              )}
-            </div>
-
-            {/* Derived Status */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="p-4 bg-muted/30 rounded border border-border">
-                <label className="text-xs text-muted-foreground uppercase tracking-wider block mb-1">
-                  Type
-                </label>
-                <div className="text-sm font-medium capitalize text-muted-foreground">
-                  {currentStatus.projectType}
-                </div>
-              </div>
-              <div className="p-4 bg-muted/30 rounded border border-border">
-                <label className="text-xs text-muted-foreground uppercase tracking-wider block mb-1">
-                  Structure
-                </label>
-                <div className="text-sm font-medium text-muted-foreground">
-                  {currentStatus.isMonorepo ? "Monorepo" : "Single Project"}
-                </div>
-              </div>
-            </div>
-
-            {/* Config found status */}
-            {initialStatus.hasConfig && (
-              <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-                <span className="text-sm text-emerald-500/80">
-                  Updating existing configuration
-                </span>
-              </div>
-            )}
-
-            {!initialStatus.hasConfig && (
-              <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-amber-500"></div>
-                <span className="text-sm text-amber-500/80">
-                  New configuration will be created
-                </span>
-              </div>
-            )}
+        <Card className="p-8 bg-card border-border shadow-xl">
+          <div className="flex flex-col gap-2 mb-8">
+            <h2 className="text-3xl font-bold tracking-tight text-primary">
+              Configure Analysis
+            </h2>
+            <p className="text-muted-foreground">
+              Select which sub-projects you want to analyze in this monorepo.
+            </p>
           </div>
 
-          <Button
-            onClick={handleConfirm}
-            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
-            disabled={isSaving}
-          >
-            {isSaving
-              ? "Setting up..."
-              : initialStatus.hasConfig
-                ? "Save & Load"
-                : "Initialize Project"}
-          </Button>
+          <div className="space-y-6 mb-8">
+            {/* Project Info Section */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-4 bg-muted/30 rounded-lg border border-border">
+                <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest block mb-1">
+                  Structure
+                </label>
+                <div className="text-sm font-semibold">
+                  {initialStatus.isMonorepo ? "Monorepo" : "Single Project"}
+                </div>
+              </div>
+              <div className="p-4 bg-muted/30 rounded-lg border border-border">
+                <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest block mb-1">
+                  Type
+                </label>
+                <div className="text-sm font-semibold capitalize">
+                  {initialStatus.projectType}
+                </div>
+              </div>
+            </div>
+
+            {/* Sub-projects Selection */}
+            {initialStatus.isMonorepo &&
+              initialStatus.subProjects &&
+              initialStatus.subProjects.length > 1 && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">
+                      Sub-Projects ({initialStatus.subProjects.length})
+                    </label>
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0 text-[10px] uppercase font-bold text-primary"
+                      onClick={() => {
+                        if (
+                          selectedSubProjects.length ===
+                          initialStatus.subProjects?.length
+                        ) {
+                          setSelectedSubProjects([]);
+                        } else {
+                          setSelectedSubProjects(
+                            initialStatus.subProjects?.map((p) => p.path) || [],
+                          );
+                        }
+                      }}
+                    >
+                      {selectedSubProjects.length ===
+                      initialStatus.subProjects?.length
+                        ? "Deselect All"
+                        : "Select All"}
+                    </Button>
+                  </div>
+
+                  <div className="border border-border rounded-lg overflow-hidden bg-muted/10 divide-y divide-border max-h-100 overflow-y-auto">
+                    {initialStatus.subProjects.map((pkg) => (
+                      <div
+                        key={pkg.path}
+                        className="flex items-center gap-3 p-4 hover:bg-muted/30 transition-colors cursor-pointer"
+                        onClick={() => toggleSubProject(pkg.path)}
+                      >
+                        <Checkbox
+                          id={`pkg-${pkg.path}`}
+                          checked={selectedSubProjects.includes(pkg.path)}
+                          onCheckedChange={() => toggleSubProject(pkg.path)}
+                        />
+                        <div className="flex flex-col flex-1 min-w-0">
+                          <label
+                            htmlFor={`pkg-${pkg.path}`}
+                            className="text-sm font-medium leading-none cursor-pointer truncate"
+                          >
+                            {pkg.name}
+                          </label>
+                          <span className="text-[10px] text-muted-foreground font-mono truncate mt-1 opacity-60">
+                            {pkg.path.replace(projectPath, "") || "/"}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+            {!initialStatus.isMonorepo && (
+              <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg flex items-center gap-3">
+                <Checkbox checked disabled />
+                <div>
+                  <div className="text-sm font-medium">
+                    Standard Project Analysis
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    The entire project will be analyzed.
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Config Status */}
+            <div
+              className={`p-4 rounded-lg flex items-start gap-3 border ${
+                initialStatus.hasConfig
+                  ? "bg-emerald-500/5 border-emerald-500/20"
+                  : "bg-amber-500/5 border-amber-500/20"
+              }`}
+            >
+              <div
+                className={`w-2 h-2 rounded-full mt-1.5 ${
+                  initialStatus.hasConfig ? "bg-emerald-500" : "bg-amber-500"
+                }`}
+              />
+              <div>
+                <div
+                  className={`text-sm font-bold ${
+                    initialStatus.hasConfig
+                      ? "text-emerald-500/90"
+                      : "text-amber-500/90"
+                  }`}
+                >
+                  {initialStatus.hasConfig
+                    ? "Existing Config Found"
+                    : "New Config Required"}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {initialStatus.hasConfig
+                    ? "We'll update your existing nexiq.config.json with the new selections."
+                    : "A nexiq.config.json will be created in your project root."}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-4">
+            <Button
+              onClick={handleConfirm}
+              className="flex-1 h-12 bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-lg shadow-primary/20"
+              disabled={
+                isSaving ||
+                (initialStatus.isMonorepo && selectedSubProjects.length === 0)
+              }
+            >
+              {isSaving
+                ? "Analyzing..."
+                : initialStatus.hasConfig
+                  ? "Update & Re-analyze"
+                  : "Start Analysis"}
+            </Button>
+          </div>
         </Card>
       </div>
     </div>
