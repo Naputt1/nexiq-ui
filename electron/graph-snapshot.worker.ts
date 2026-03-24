@@ -8,6 +8,15 @@ import {
 import { encodeGraphSnapshot } from "../src/graph-snapshot/codec";
 import { readGraphSnapshotFromSqlite } from "./graph-snapshot-db";
 import type { LargeDataKind } from "../src/graph-snapshot/types";
+import { generateGraphView } from "./view-generator";
+import { encodeGraphViewSnapshot } from "../src/view-snapshot/codec";
+import {
+  analyzeDatabaseDiff,
+  createEmptyDatabaseData,
+} from "../src/lib/diff-analysis";
+import { toDatabaseData } from "../src/graph-snapshot/types";
+import fs from "node:fs";
+import type { GraphViewType } from "./types";
 
 interface InitializeMessage {
   type: "initialize";
@@ -22,7 +31,36 @@ interface RefreshMessage {
   sqlitePath?: string;
 }
 
-type WorkerMessage = InitializeMessage | RefreshMessage;
+interface GenerateViewMessage {
+  type: "generate-view";
+  requestId: string;
+  kind: "view-result";
+  projectRoot: string;
+  analysisPath?: string;
+  selectedCommit?: string | null;
+  subPath?: string;
+  view: GraphViewType;
+  sqlitePath?: string;
+}
+
+interface DiffAnalysisMessage {
+  type: "diff-analysis";
+  requestId: string;
+  kind: "diff-analysis";
+  projectRoot: string;
+  selectedCommit: string | null;
+  subPath?: string;
+  sqlitePath?: string;
+  headSqlitePath?: string;
+  commitSqlitePath?: string;
+  parentSqlitePath?: string;
+}
+
+type WorkerMessage =
+  | InitializeMessage
+  | RefreshMessage
+  | GenerateViewMessage
+  | DiffAnalysisMessage;
 
 let key = "";
 let kind: LargeDataKind = "graph";
@@ -74,6 +112,83 @@ function writeSnapshot(): {
   };
 }
 
+async function handleGenerateView(message: GenerateViewMessage) {
+  try {
+    const result = await generateGraphView({
+      view: message.view,
+      projectRoot: message.projectRoot,
+      analysisPath: message.analysisPath,
+      selectedCommit: message.selectedCommit,
+      subPath: message.subPath,
+      sqlitePath: message.sqlitePath,
+    });
+
+    const encoded = encodeGraphViewSnapshot(result);
+    parentPort?.postMessage({
+      type: "inline-result",
+      requestId: message.requestId,
+      kind: message.kind,
+      encoded,
+    });
+  } catch (error) {
+    parentPort?.postMessage({
+      type: "inline-error",
+      requestId: message.requestId,
+      kind: message.kind,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function handleDiffAnalysis(message: DiffAnalysisMessage) {
+  try {
+    let dataB;
+    let dataA;
+
+    if (message.selectedCommit) {
+      if (!message.commitSqlitePath)
+        throw new Error("Missing commitSqlitePath");
+      dataB = readGraphSnapshotFromSqlite(message.commitSqlitePath);
+      if (message.parentSqlitePath && fs.existsSync(message.parentSqlitePath)) {
+        dataA = readGraphSnapshotFromSqlite(message.parentSqlitePath);
+      } else {
+        dataA = { ...createEmptyDatabaseData(), uiState: {} };
+      }
+    } else {
+      if (!message.sqlitePath) throw new Error("Missing sqlitePath");
+      if (!message.headSqlitePath) throw new Error("Missing headSqlitePath");
+      dataB = readGraphSnapshotFromSqlite(message.sqlitePath);
+      dataA = readGraphSnapshotFromSqlite(message.headSqlitePath);
+    }
+
+    const diffResult = analyzeDatabaseDiff(
+      toDatabaseData(dataA),
+      toDatabaseData(dataB),
+    );
+
+    const snapshotData = {
+      ...dataB,
+      diff: diffResult.diff,
+      uiState: dataB.uiState ?? {},
+    };
+
+    const encoded = encodeGraphSnapshot(snapshotData);
+    parentPort?.postMessage({
+      type: "inline-result",
+      requestId: message.requestId,
+      kind: message.kind,
+      encoded,
+    });
+  } catch (error) {
+    parentPort?.postMessage({
+      type: "inline-error",
+      requestId: message.requestId,
+      kind: message.kind,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 function sendReady(payload: {
   snapshotVersion: number;
   byteLength: number;
@@ -120,10 +235,23 @@ parentPort?.on("message", (message: WorkerMessage) => {
       return;
     }
 
-    if (message.sqlitePath) {
-      sqlitePath = message.sqlitePath;
+    if (message.type === "refresh") {
+      if (message.sqlitePath) {
+        sqlitePath = message.sqlitePath;
+      }
+      sendReady(writeSnapshot());
+      return;
     }
-    sendReady(writeSnapshot());
+
+    if (message.type === "generate-view") {
+      void handleGenerateView(message);
+      return;
+    }
+
+    if (message.type === "diff-analysis") {
+      void handleDiffAnalysis(message);
+      return;
+    }
   } catch (error) {
     sendError(error);
   }

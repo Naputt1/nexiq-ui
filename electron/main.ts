@@ -21,17 +21,13 @@ import { spawn, ChildProcess } from "node:child_process";
 import Database from "better-sqlite3";
 import { UISqliteDB } from "./ui-sqlite-db";
 import { GraphSnapshotManager } from "./graph-snapshot-manager";
-import { encodeGraphSnapshot } from "../src/graph-snapshot/codec";
 import {
   GRAPH_SNAPSHOT_META_INDEX,
   GRAPH_SNAPSHOT_SCHEMA_VERSION,
   GRAPH_SNAPSHOT_STATUS,
 } from "../src/graph-snapshot/constants";
-import {
-  toDatabaseData,
-  type GraphSnapshotData,
-} from "../src/graph-snapshot/types";
-import { generateGraphView, getSerializedViewRegistry } from "./view-generator";
+
+import { getSerializedViewRegistry } from "./view-generator";
 import type { GenerateViewRequest } from "../src/views/types";
 import type {
   GraphSnapshotPortRequest,
@@ -39,12 +35,6 @@ import type {
   LargeDataRequestArgs,
   SharedLargeDataHandle,
 } from "../src/graph-snapshot/types";
-import { readGraphSnapshotFromSqlite } from "./graph-snapshot-db";
-import {
-  analyzeDatabaseDiff,
-  createEmptyDatabaseData,
-} from "../src/lib/diff-analysis";
-import { encodeGraphViewSnapshot } from "../src/view-snapshot/codec";
 
 const BACKEND_PORT = 3030;
 let backendProcess: ChildProcess | null = null;
@@ -304,7 +294,6 @@ import type {
   BackendRequestMap,
   BackendMessageType,
 } from "@nexiq/shared";
-import type { GraphViewResult } from "@nexiq/extension-sdk";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -335,18 +324,6 @@ const graphSnapshotManager = new GraphSnapshotManager(
   resolveLargeDataSnapshotPath,
 );
 
-function cloneBuffer(buffer: ArrayBufferLike) {
-  if (
-    typeof SharedArrayBuffer !== "undefined" &&
-    buffer instanceof SharedArrayBuffer
-  ) {
-    const copy = new SharedArrayBuffer(buffer.byteLength);
-    new Uint8Array(copy).set(new Uint8Array(buffer));
-    return copy;
-  }
-  return buffer.slice(0);
-}
-
 function getInlineHandleId(kind: LargeDataKind, key: string) {
   return `${kind}:${key}`;
 }
@@ -362,8 +339,8 @@ function buildHandleFromEntry(entry: {
     kind: entry.kind,
     key: entry.key,
     version: entry.version,
-    dataBuffer: cloneBuffer(entry.dataBuffer),
-    metaBuffer: cloneBuffer(entry.metaBuffer),
+    dataBuffer: entry.dataBuffer,
+    metaBuffer: entry.metaBuffer,
   };
 }
 
@@ -422,70 +399,6 @@ function storeInlineLargeData(
   return buildHandleFromEntry(entry);
 }
 
-function readSnapshotData(sqlitePath: string): GraphSnapshotData {
-  return readGraphSnapshotFromSqlite(sqlitePath);
-}
-
-async function buildDiffAnalysisSnapshotData(
-  projectRoot: string,
-  selectedCommit: string | null,
-  subPath?: string,
-): Promise<GraphSnapshotData> {
-  const currentAnalysisPath = subPath
-    ? path.join(projectRoot, subPath)
-    : undefined;
-
-  let dataB: GraphSnapshotData;
-  let dataA: GraphSnapshotData;
-
-  if (selectedCommit) {
-    const { sqlitePath } = await resolveGitCommitSnapshotPath(
-      projectRoot,
-      selectedCommit,
-      subPath,
-    );
-    dataB = readSnapshotData(sqlitePath);
-
-    try {
-      const { sqlitePath: parentSqlitePath } =
-        await resolveGitCommitSnapshotPath(
-          projectRoot,
-          `${selectedCommit}^`,
-          subPath,
-        );
-      dataA = readSnapshotData(parentSqlitePath);
-    } catch {
-      dataA = {
-        ...createEmptyDatabaseData(),
-        uiState: {},
-      };
-    }
-  } else {
-    const { sqlitePath } = await resolveSqlitePath(
-      projectRoot,
-      currentAnalysisPath,
-    );
-    dataB = readSnapshotData(sqlitePath);
-    const { sqlitePath: headSqlitePath } = await resolveGitCommitSnapshotPath(
-      projectRoot,
-      "HEAD",
-      subPath,
-    );
-    dataA = readSnapshotData(headSqlitePath);
-  }
-
-  const diffResult = analyzeDatabaseDiff(
-    toDatabaseData(dataA),
-    toDatabaseData(dataB),
-  );
-
-  return {
-    ...dataB,
-    diff: diffResult.diff,
-    uiState: dataB.uiState ?? {},
-  };
-}
-
 function getDiffAnalysisKey(
   projectRoot: string,
   selectedCommit: string | null | undefined,
@@ -520,16 +433,66 @@ async function openInlineLargeData(
       return buildHandleFromEntry(cached);
     }
 
-    const snapshotData = await buildDiffAnalysisSnapshotData(
+    const { targetPath } = await resolveSqlitePath(
       args.projectRoot,
-      args.selectedCommit ?? null,
-      args.subPath,
+      args.subPath ? path.join(args.projectRoot, args.subPath) : undefined,
     );
-    return storeInlineLargeData(
-      args.kind,
-      key,
-      encodeGraphSnapshot(snapshotData),
+
+    let commitSqlitePath;
+    let parentSqlitePath;
+    let headSqlitePath;
+
+    if (args.selectedCommit) {
+      const res = await resolveGitCommitSnapshotPath(
+        args.projectRoot,
+        args.selectedCommit,
+        args.subPath,
+      );
+      commitSqlitePath = res.sqlitePath;
+      try {
+        const parentRes = await resolveGitCommitSnapshotPath(
+          args.projectRoot,
+          `${args.selectedCommit}^`,
+          args.subPath,
+        );
+        parentSqlitePath = parentRes.sqlitePath;
+      } catch {
+        // Parent might not exist
+      }
+    } else {
+      await resolveSqlitePath(
+        args.projectRoot,
+        args.subPath ? path.join(args.projectRoot, args.subPath) : undefined,
+      );
+      const headRes = await resolveGitCommitSnapshotPath(
+        args.projectRoot,
+        "HEAD",
+        args.subPath,
+      );
+      headSqlitePath = headRes.sqlitePath;
+    }
+
+    const { sqlitePath } = await resolveSqlitePath(
+      args.projectRoot,
+      args.subPath ? path.join(args.projectRoot, args.subPath) : undefined,
     );
+
+    // Ensure worker exists
+    await graphSnapshotManager.open("graph", targetPath, sqlitePath);
+
+    const encoded = await graphSnapshotManager.requestInlineResult(targetPath, {
+      type: "diff-analysis",
+      kind: args.kind,
+      projectRoot: args.projectRoot,
+      selectedCommit: args.selectedCommit,
+      subPath: args.subPath,
+      sqlitePath,
+      commitSqlitePath,
+      parentSqlitePath,
+      headSqlitePath,
+    });
+
+    return storeInlineLargeData(args.kind, key, encoded);
   }
 
   if (args.kind === "view-result") {
@@ -553,33 +516,26 @@ async function openInlineLargeData(
       return buildHandleFromEntry(cached);
     }
 
-    let result: GraphViewResult;
-    if (args.selectedCommit !== undefined) {
-      const diffSnapshotData = await buildDiffAnalysisSnapshotData(
-        args.projectRoot,
-        args.selectedCommit ?? null,
-        args.subPath,
-      );
-      result = await generateGraphView({
-        ...request,
-        snapshotData: diffSnapshotData,
-      });
-    } else {
-      const { sqlitePath } = await resolveSqlitePath(
-        args.projectRoot,
-        args.analysisPath,
-      );
-      result = await generateGraphView({
-        ...request,
-        sqlitePath,
-      });
-    }
-
-    return storeInlineLargeData(
-      args.kind,
-      key,
-      encodeGraphViewSnapshot(result),
+    const { targetPath, sqlitePath } = await resolveSqlitePath(
+      args.projectRoot,
+      args.analysisPath,
     );
+
+    // Ensure worker exists
+    await graphSnapshotManager.open("graph", targetPath, sqlitePath);
+
+    const encoded = await graphSnapshotManager.requestInlineResult(targetPath, {
+      type: "generate-view",
+      kind: args.kind,
+      projectRoot: args.projectRoot,
+      analysisPath: args.analysisPath,
+      selectedCommit: args.selectedCommit,
+      subPath: args.subPath,
+      view: args.view,
+      sqlitePath,
+    });
+
+    return storeInlineLargeData(args.kind, key, encoded);
   }
 
   throw new Error(`Unsupported inline large data kind: ${args.kind}`);

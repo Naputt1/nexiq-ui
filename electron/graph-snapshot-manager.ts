@@ -31,6 +31,31 @@ interface SnapshotPortSession {
   port: MessagePortMain;
 }
 
+interface IncomingWorkerMessage extends LargeDataUpdateEvent {
+  type:
+    | "snapshot-updated"
+    | "inline-result"
+    | "inline-error"
+    | "snapshot-error";
+  requestId?: string;
+  encoded?: Uint8Array;
+}
+
+interface OutgoingWorkerMessage {
+  type: "initialize" | "refresh" | "generate-view" | "diff-analysis";
+  kind?: LargeDataKind;
+  key?: string;
+  sqlitePath?: string;
+  requestId?: string;
+  [key: string]: unknown;
+}
+
+interface InlineRequest {
+  resolve: (encoded: Uint8Array) => void;
+  reject: (reason?: unknown) => void;
+  timeout: ReturnType<typeof setTimeout>;
+}
+
 interface ResolvedSnapshotPath {
   kind: LargeDataKind;
   key: string;
@@ -56,6 +81,7 @@ const bundledWorkerPath = path.resolve(
 export class GraphSnapshotManager {
   private controllers = new Map<string, SnapshotController>();
   private portSessions = new Map<number, Set<SnapshotPortSession>>();
+  private inlineRequests = new Map<string, InlineRequest>();
   private readonly getWindows: () => BrowserWindow[];
   private readonly resolveSnapshotPath: (
     request: GraphSnapshotPortRequest,
@@ -106,29 +132,52 @@ export class GraphSnapshotManager {
       rejectReady: readyDeferred.reject,
     };
 
-    worker.on(
-      "message",
-      (message: LargeDataUpdateEvent & { type: string }) => {
-        if (message.dataBuffer) {
-          controller.dataBuffer = message.dataBuffer;
-        }
-        if (message.metaBuffer) {
-          controller.metaBuffer = message.metaBuffer;
-        }
+    worker.on("message", (message: IncomingWorkerMessage) => {
+      if (message.dataBuffer) {
+        controller.dataBuffer = message.dataBuffer;
+      }
+      if (message.metaBuffer) {
+        controller.metaBuffer = message.metaBuffer;
+      }
 
-        if (message.type === "snapshot-updated") {
-          controller.resolveReady();
-          this.broadcast({
-            kind,
-            key,
-            snapshotVersion: message.snapshotVersion,
-            byteLength: message.byteLength,
-            status: message.status,
-            handleChanged: message.handleChanged,
-          });
-          return;
-        }
+      if (message.type === "snapshot-updated") {
+        controller.resolveReady();
+        this.broadcast({
+          kind,
+          key,
+          snapshotVersion: message.snapshotVersion,
+          byteLength: message.byteLength,
+          status: message.status,
+          handleChanged: message.handleChanged,
+        });
+        return;
+      }
 
+      if (
+        message.type === "inline-result" &&
+        message.requestId &&
+        message.encoded
+      ) {
+        const request = this.inlineRequests.get(message.requestId);
+        if (request) {
+          clearTimeout(request.timeout);
+          this.inlineRequests.delete(message.requestId);
+          request.resolve(message.encoded);
+        }
+        return;
+      }
+
+      if (message.type === "inline-error" && message.requestId) {
+        const request = this.inlineRequests.get(message.requestId);
+        if (request) {
+          clearTimeout(request.timeout);
+          this.inlineRequests.delete(message.requestId);
+          request.reject(new Error(message.error));
+        }
+        return;
+      }
+
+      if (message.type === "snapshot-error") {
         controller.rejectReady(
           new Error(message.error ?? "Snapshot worker failed"),
         );
@@ -141,8 +190,9 @@ export class GraphSnapshotManager {
           handleChanged: message.handleChanged,
           error: message.error,
         });
-      },
-    );
+        return;
+      }
+    });
 
     worker.on("error", (error: unknown) => {
       controller.rejectReady(error);
@@ -204,6 +254,32 @@ export class GraphSnapshotManager {
     port.start();
   }
 
+  async requestInlineResult(
+    key: string,
+    message: OutgoingWorkerMessage,
+  ): Promise<Uint8Array> {
+    const controller = this.controllers.get(this.getControllerId("graph", key));
+    if (!controller) {
+      throw new Error(`No worker found for key: ${key}`);
+    }
+
+    await controller.ready;
+
+    return new Promise((resolve, reject) => {
+      const requestId = `inline-${Math.random().toString(36).substring(7)}`;
+      const timeout = setTimeout(() => {
+        this.inlineRequests.delete(requestId);
+        reject(new Error(`Worker inline request timed out: ${message.type}`));
+      }, 60000);
+
+      this.inlineRequests.set(requestId, { resolve, reject, timeout });
+      controller.worker.postMessage({
+        ...message,
+        requestId,
+      });
+    });
+  }
+
   private postPortMessage(
     session: SnapshotPortSession,
     response: GraphSnapshotPortResponse,
@@ -253,18 +329,6 @@ export class GraphSnapshotManager {
 
     await controller.ready;
 
-    function cloneBuffer(buffer: ArrayBufferLike) {
-      if (
-        typeof SharedArrayBuffer !== "undefined" &&
-        buffer instanceof SharedArrayBuffer
-      ) {
-        const copy = new SharedArrayBuffer(buffer.byteLength);
-        new Uint8Array(copy).set(new Uint8Array(buffer));
-        return copy;
-      }
-      return buffer.slice(0);
-    }
-
     return {
       key,
       kind,
@@ -272,8 +336,8 @@ export class GraphSnapshotManager {
         new Int32Array(controller.metaBuffer)[
           GRAPH_SNAPSHOT_META_INDEX.snapshotVersion
         ] ?? 0,
-      dataBuffer: cloneBuffer(controller.dataBuffer),
-      metaBuffer: cloneBuffer(controller.metaBuffer),
+      dataBuffer: controller.dataBuffer,
+      metaBuffer: controller.metaBuffer,
     };
   }
 
