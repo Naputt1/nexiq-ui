@@ -1347,9 +1347,30 @@ ipcMain.handle(
     _: IpcMainInvokeEvent,
     projectRoot: string,
   ): Promise<string | null> => {
-    return requestBackend("get_project_icon", {
+    const response = await requestBackend("get_project_icon", {
       projectPath: projectRoot,
     });
+    const iconPath = response?.icon;
+
+    if (
+      iconPath &&
+      typeof iconPath === "string" &&
+      !iconPath.startsWith("data:") &&
+      path.isAbsolute(iconPath)
+    ) {
+      if (fs.existsSync(iconPath)) {
+        try {
+          const ext = path.extname(iconPath).toLowerCase().slice(1);
+          const buffer = fs.readFileSync(iconPath);
+          const mimeType = ext === "svg" ? "image/svg+xml" : `image/${ext}`;
+          return `data:${mimeType};base64,${buffer.toString("base64")}`;
+        } catch (e) {
+          console.error("Failed to read project icon file:", e);
+        }
+      }
+    }
+
+    return iconPath;
   },
 );
 
