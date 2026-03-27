@@ -8,11 +8,12 @@ import {
   registerTask,
   serializeRegistry,
 } from "../src/views/registry";
-import { readGraphSnapshotFromSqlite } from "./graph-snapshot-db";
+import { openUnifiedDatabase, readUIState } from "./graph-snapshot-db";
 import type { GraphSnapshotData } from "../src/graph-snapshot/types";
 import type {
   GenerateViewRequest,
   SerializedViewRegistry,
+  TaskContext,
 } from "../src/views/types";
 
 interface GenerateGraphViewOptions extends GenerateViewRequest {
@@ -24,19 +25,22 @@ function applyUiState(
   uiState: UIStateMap,
   result: GraphViewResult,
 ): GraphViewResult {
+  // Optimization: Return original if no UI state
+  if (!uiState || Object.keys(uiState).length === 0) {
+    return result;
+  }
+
   return {
     ...result,
     nodes: result.nodes.map((node) => {
       const state = uiState[node.id];
-      return state
-        ? { ...node, ...state, ui: { ...(node.ui || {}), ...state } }
-        : node;
+      if (!state) return node;
+      return { ...node, ...state, ui: { ...(node.ui || {}), ...state } };
     }),
     combos: result.combos.map((combo) => {
       const state = uiState[combo.id];
-      return state
-        ? { ...combo, ...state, ui: { ...(combo.ui || {}), ...state } }
-        : combo;
+      if (!state) return combo;
+      return { ...combo, ...state, ui: { ...(combo.ui || {}), ...state } };
     }),
   };
 }
@@ -88,43 +92,15 @@ async function loadProjectExtensions(projectRoot: string) {
 export async function generateGraphView(
   options: GenerateGraphViewOptions,
 ): Promise<GraphViewResult> {
-  const { sqlitePath, snapshotData, view: viewType, projectRoot } = options;
+  const {
+    sqlitePath,
+    snapshotData,
+    view: viewType,
+    projectRoot,
+    analysisPaths,
+  } = options;
 
   await loadProjectExtensions(projectRoot);
-
-  if (snapshotData) {
-    let result: GraphViewResult = {
-      nodes: [],
-      edges: [],
-      combos: [],
-      typeData: {},
-    };
-
-    const tasks = getTasksForView(viewType);
-    for (const task of tasks) {
-      try {
-        result = task.run(snapshotData, result);
-      } catch (err) {
-        console.error(`Task "${task.id}" failed:`, err);
-      }
-    }
-
-    const uiState =
-      snapshotData.uiState && typeof snapshotData.uiState === "object"
-        ? (snapshotData.uiState as UIStateMap)
-        : {};
-
-    return applyUiState(uiState, result);
-  }
-
-  if (!sqlitePath) {
-    throw new Error("sqlitePath is required when snapshotData is not provided");
-  }
-
-  const sqliteSnapshotData = readGraphSnapshotFromSqlite(
-    sqlitePath,
-    options.analysisPaths,
-  );
 
   let result: GraphViewResult = {
     nodes: [],
@@ -134,102 +110,37 @@ export async function generateGraphView(
   };
 
   const tasks = getTasksForView(viewType);
-  const BATCH_SIZE = 100;
 
-  if (sqliteSnapshotData.entities.length === 0) {
-    for (const task of tasks) {
-      try {
-        result = task.run(sqliteSnapshotData, result);
-      } catch (err) {
-        console.error(`Task "${task.id}" failed:`, err);
-      }
-    }
-    return applyUiState(sqliteSnapshotData.uiState || {}, result);
-  }
+  const db = sqlitePath
+    ? openUnifiedDatabase(sqlitePath, analysisPaths)
+    : undefined;
 
-  // Pre-index symbols and renders by entity_id for O(1) lookup
-  const symbolsByEntityId = new Map<
-    string,
-    typeof sqliteSnapshotData.symbols
-  >();
-  for (const symbol of sqliteSnapshotData.symbols) {
-    if (!symbolsByEntityId.has(symbol.entity_id)) {
-      symbolsByEntityId.set(symbol.entity_id, []);
-    }
-    symbolsByEntityId.get(symbol.entity_id)!.push(symbol);
-  }
-
-  const rendersByEntityId = new Map<
-    string,
-    typeof sqliteSnapshotData.renders
-  >();
-  for (const render of sqliteSnapshotData.renders) {
-    if (!rendersByEntityId.has(render.parent_entity_id)) {
-      rendersByEntityId.set(render.parent_entity_id, []);
-    }
-    rendersByEntityId.get(render.parent_entity_id)!.push(render);
-  }
-
-  const scopesById = new Map<string, (typeof sqliteSnapshotData.scopes)[0]>();
-  for (const scope of sqliteSnapshotData.scopes) {
-    scopesById.set(scope.id, scope);
-  }
-
-  const scopesByEntityId = new Map<
-    string,
-    (typeof sqliteSnapshotData.scopes)[0]
-  >();
-  for (const scope of sqliteSnapshotData.scopes) {
-    if (scope.entity_id) {
-      scopesByEntityId.set(scope.entity_id, scope);
-    }
-  }
-
-  // Process entities in batches
-  for (let i = 0; i < sqliteSnapshotData.entities.length; i += BATCH_SIZE) {
-    const entityBatch = sqliteSnapshotData.entities.slice(i, i + BATCH_SIZE);
-
-    const symbolBatch: typeof sqliteSnapshotData.symbols = [];
-    const renderBatch: typeof sqliteSnapshotData.renders = [];
-    const scopeBatchSet = new Set<(typeof sqliteSnapshotData.scopes)[0]>();
-
-    for (const entity of entityBatch) {
-      const symbols = symbolsByEntityId.get(entity.id);
-      if (symbols) symbolBatch.push(...symbols);
-
-      const renders = rendersByEntityId.get(entity.id);
-      if (renders) renderBatch.push(...renders);
-
-      const scopeByEntity = scopesByEntityId.get(entity.id);
-      if (scopeByEntity) scopeBatchSet.add(scopeByEntity);
-
-      const scope = scopesById.get(entity.scope_id);
-      if (scope) scopeBatchSet.add(scope);
-    }
-
-    const symbolIds = new Set(symbolBatch.map((s) => s.id));
-    const relationBatch = sqliteSnapshotData.relations.filter(
-      (r) => symbolIds.has(r.from_id) || symbolIds.has(r.to_id),
-    );
-
-    const batch = {
-      entities: entityBatch,
-      symbols: symbolBatch,
-      renders: renderBatch,
-      scopes: Array.from(scopeBatchSet),
-      relations: relationBatch,
+  try {
+    const context: TaskContext = {
+      db: db,
+      projectRoot,
+      analysisPaths,
+      viewType,
+      snapshotData,
     };
 
     for (const task of tasks) {
       try {
-        result = task.run(sqliteSnapshotData, result, batch);
+        result = task.run(result, context);
       } catch (err) {
         console.error(`Task "${task.id}" failed:`, err);
       }
     }
-  }
 
-  return applyUiState(sqliteSnapshotData.uiState || {}, result);
+    const uiState =
+      (snapshotData?.uiState && typeof snapshotData.uiState === "object"
+        ? (snapshotData.uiState as UIStateMap)
+        : undefined) || (db ? readUIState(db) : {});
+
+    return applyUiState(uiState, result);
+  } finally {
+    if (db) db.close();
+  }
 }
 
 export function getSerializedViewRegistry(): SerializedViewRegistry {

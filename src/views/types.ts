@@ -1,7 +1,11 @@
-import { type GraphViewResult, type GraphViewTask } from "@nexiq/extension-sdk";
+import {
+  type GraphViewResult,
+  type TaskContext,
+  type GraphViewTask,
+} from "@nexiq/extension-sdk";
 import type { GraphViewType } from "../../electron/types";
 
-export type { GraphViewResult, GraphViewTask };
+export type { GraphViewResult, TaskContext, GraphViewTask };
 
 export type GenerateViewRequest = {
   view: GraphViewType;

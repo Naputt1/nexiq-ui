@@ -53,7 +53,7 @@ function optionalRows<T>(db: Database.Database, table: string): T[] {
   return db.prepare(`SELECT * FROM ${table}`).all() as T[];
 }
 
-function readUIState(db: Database.Database): UIStateMap {
+export function readUIState(db: Database.Database): UIStateMap {
   if (!tableExists(db, "ui_state")) {
     return {};
   }
@@ -74,16 +74,50 @@ function readUIState(db: Database.Database): UIStateMap {
   return state;
 }
 
+export interface ReadOptions {
+  includePackages?: boolean;
+  includePackageDependencies?: boolean;
+  includeFiles?: boolean;
+  includeEntities?: boolean;
+  includeScopes?: boolean;
+  includeSymbols?: boolean;
+  includeRenders?: boolean;
+  includeExports?: boolean;
+  includeRelations?: boolean;
+  includeUiState?: boolean;
+}
+
+export function openUnifiedDatabase(
+  sqlitePath: string,
+  _analysisPaths?: string[], // analysisPaths not needed for simple open
+): Database.Database {
+  return new Database(sqlitePath, { readonly: true });
+}
+
 export function readGraphSnapshotFromSqlite(
   sqlitePath: string,
   analysisPaths?: string[],
+  options: ReadOptions = {
+    includePackages: true,
+    includePackageDependencies: true,
+    includeFiles: true,
+    includeEntities: true,
+    includeScopes: true,
+    includeSymbols: true,
+    includeRenders: true,
+    includeExports: true,
+    includeRelations: true,
+    includeUiState: true,
+  },
 ): GraphSnapshotData {
   const db = new Database(sqlitePath, { readonly: true });
   try {
     // Check if this is a workspace database
     if (tableExists(db, "workspace_packages")) {
-      const workspacePackages =
-        optionalRows<WorkspacePackageRow>(db, "workspace_packages");
+      const workspacePackages = optionalRows<WorkspacePackageRow>(
+        db,
+        "workspace_packages",
+      );
       const filteredPackages =
         analysisPaths && analysisPaths.length > 0
           ? workspacePackages.filter((p) => analysisPaths.includes(p.path))
@@ -99,7 +133,7 @@ export function readGraphSnapshotFromSqlite(
         renders: [],
         exports: [],
         relations: [],
-        uiState: readUIState(db),
+        uiState: options.includeUiState ? readUIState(db) : {},
         diff: undefined,
       };
 
@@ -112,109 +146,124 @@ export function readGraphSnapshotFromSqlite(
           const pkgPath = pkg.path;
           const fileIdOffset = (index + 1) * 1000000;
 
-          // Helper to qualify string IDs
-          const qualify = (id: string | null | undefined) => {
-            if (!id) return null;
-            if (id.startsWith("workspace:")) return id;
-            return `workspace:${pkgPath}:${id}`;
-          };
+          const pkgPrefix = `workspace:${pkgPath}:`;
 
-          // 1. Packages & Dependencies (Add from pkgDb if available, otherwise use pkg from workspaceDb)
-          const pRows = optionalRows<PackageRow>(pkgDb, "packages");
-          if (pRows.length > 0) {
-            aggregated.packages!.push(...pRows);
-          } else {
-            aggregated.packages!.push({
-              id: pkg.package_id,
-              name: pkg.name,
-              version: pkg.version || "0.0.0",
-              path: pkg.path,
-            });
+          // 1. Packages & Dependencies
+          if (options.includePackages) {
+            const pRows = optionalRows<PackageRow>(pkgDb, "packages");
+            if (pRows.length > 0) {
+              aggregated.packages!.push(...pRows);
+            } else {
+              aggregated.packages!.push({
+                id: pkg.package_id,
+                name: pkg.name,
+                version: pkg.version || "0.0.0",
+                path: pkg.path,
+              });
+            }
           }
-          aggregated.package_dependencies!.push(
-            ...optionalRows<PackageDependencyRow>(
-              pkgDb,
-              "package_dependencies",
-            ),
-          );
+          if (options.includePackageDependencies) {
+            aggregated.package_dependencies!.push(
+              ...optionalRows<PackageDependencyRow>(
+                pkgDb,
+                "package_dependencies",
+              ),
+            );
+          }
 
-          // 2. Files (Offset IDs)
-          const fRows = requiredRows<FileRow>(pkgDb, "files");
-          aggregated.files.push(
-            ...fRows.map((f) => ({
-              ...f,
-              id: fileIdOffset + f.id,
-              package_id: f.package_id || pkg.package_id,
-            })),
-          );
+          // 2. Files
+          if (options.includeFiles) {
+            const fRows = requiredRows<FileRow>(pkgDb, "files");
+            for (const f of fRows) {
+              aggregated.files.push({
+                ...f,
+                id: fileIdOffset + f.id,
+                package_id: f.package_id || pkg.package_id,
+              });
+            }
+          }
 
-          // 3. Scopes (Qualify IDs, Offset file_id, Qualify parent_id & entity_id)
-          const sRows = requiredRows<ScopeRow>(pkgDb, "scopes");
-          aggregated.scopes.push(
-            ...sRows.map((s) => ({
-              ...s,
-              id: qualify(s.id)!,
-              file_id: fileIdOffset + s.file_id,
-              parent_id: qualify(s.parent_id),
-              entity_id: qualify(s.entity_id),
-            })),
-          );
+          // 3. Scopes
+          if (options.includeScopes) {
+            const sRows = requiredRows<ScopeRow>(pkgDb, "scopes");
+            aggregated.scopes.push(
+              ...sRows.map((s) => ({
+                ...s,
+                id: `${pkgPrefix}${s.id}`,
+                file_id: fileIdOffset + s.file_id,
+                parent_id: s.parent_id ? `${pkgPrefix}${s.parent_id}` : null,
+                entity_id: s.entity_id ? `${pkgPrefix}${s.entity_id}` : null,
+              })),
+            );
+          }
 
-          // 4. Entities (Qualify IDs, Qualify scope_id)
-          const eRows = requiredRows<EntityRow>(pkgDb, "entities");
-          aggregated.entities.push(
-            ...eRows.map((e) => ({
-              ...e,
-              id: qualify(e.id)!,
-              scope_id: qualify(e.scope_id)!,
-            })),
-          );
+          // 4. Entities
+          if (options.includeEntities) {
+            const eRows = requiredRows<EntityRow>(pkgDb, "entities");
+            aggregated.entities.push(
+              ...eRows.map((e) => ({
+                ...e,
+                id: `${pkgPrefix}${e.id}`,
+                scope_id: `${pkgPrefix}${e.scope_id}`,
+              })),
+            );
+          }
 
-          // 5. Symbols (Qualify IDs, Qualify entity_id, Qualify scope_id)
-          const symRows = requiredRows<SymbolRow>(pkgDb, "symbols");
-          aggregated.symbols.push(
-            ...symRows.map((s) => ({
-              ...s,
-              id: qualify(s.id)!,
-              entity_id: qualify(s.entity_id)!,
-              scope_id: qualify(s.scope_id)!,
-            })),
-          );
+          // 5. Symbols
+          if (options.includeSymbols) {
+            const symRows = requiredRows<SymbolRow>(pkgDb, "symbols");
+            aggregated.symbols.push(
+              ...symRows.map((s) => ({
+                ...s,
+                id: `${pkgPrefix}${s.id}`,
+                entity_id: `${pkgPrefix}${s.entity_id}`,
+                scope_id: `${pkgPrefix}${s.scope_id}`,
+              })),
+            );
+          }
 
-          // 6. Renders (Qualify IDs, Offset file_id, Qualify parent_entity_id, Qualify parent_render_id, Qualify symbol_id)
-          const rRows = requiredRows<RenderRow>(pkgDb, "renders");
-          aggregated.renders.push(
-            ...rRows.map((r) => ({
-              ...r,
-              id: qualify(r.id)!,
-              file_id: fileIdOffset + r.file_id,
-              parent_entity_id: qualify(r.parent_entity_id)!,
-              parent_render_id: qualify(r.parent_render_id),
-              symbol_id: qualify(r.symbol_id),
-            })),
-          );
+          // 6. Renders
+          if (options.includeRenders) {
+            const rRows = requiredRows<RenderRow>(pkgDb, "renders");
+            aggregated.renders.push(
+              ...rRows.map((r) => ({
+                ...r,
+                id: `${pkgPrefix}${r.id}`,
+                file_id: fileIdOffset + r.file_id,
+                parent_entity_id: `${pkgPrefix}${r.parent_entity_id}`,
+                parent_render_id: r.parent_render_id
+                  ? `${pkgPrefix}${r.parent_render_id}`
+                  : null,
+                symbol_id: r.symbol_id ? `${pkgPrefix}${r.symbol_id}` : null,
+              })),
+            );
+          }
 
-          // 7. Exports (Qualify IDs, Qualify scope_id, Qualify symbol_id, Qualify entity_id)
-          const expRows = requiredRows<ExportRow>(pkgDb, "exports");
-          aggregated.exports.push(
-            ...expRows.map((e) => ({
-              ...e,
-              id: qualify(e.id)!,
-              scope_id: qualify(e.scope_id)!,
-              symbol_id: qualify(e.symbol_id),
-              entity_id: qualify(e.entity_id),
-            })),
-          );
+          // 7. Exports
+          if (options.includeExports) {
+            const expRows = requiredRows<ExportRow>(pkgDb, "exports");
+            aggregated.exports.push(
+              ...expRows.map((e) => ({
+                ...e,
+                id: `${pkgPrefix}${e.id}`,
+                scope_id: `${pkgPrefix}${e.scope_id}`,
+                symbol_id: e.symbol_id ? `${pkgPrefix}${e.symbol_id}` : null,
+                entity_id: e.entity_id ? `${pkgPrefix}${e.entity_id}` : null,
+              })),
+            );
+          }
 
-          // 8. Relations (Qualify from_id & to_id)
-          const relRows = requiredRows<RelationRow>(pkgDb, "relations");
-          aggregated.relations.push(
-            ...relRows.map((r) => ({
-              ...r,
-              from_id: qualify(r.from_id)!,
-              to_id: qualify(r.to_id)!,
-            })),
-          );
+          // 8. Relations
+          if (options.includeRelations) {
+            const relRows = requiredRows<RelationRow>(pkgDb, "relations");
+            aggregated.relations.push(
+              ...relRows.map((r) => ({
+                ...r,
+                from_id: `${pkgPrefix}${r.from_id}`,
+                to_id: `${pkgPrefix}${r.to_id}`,
+              })),
+            );
+          }
         } finally {
           pkgDb.close();
         }
@@ -225,19 +274,30 @@ export function readGraphSnapshotFromSqlite(
 
     // Default: Single project database
     return {
-      packages: optionalRows<PackageRow>(db, "packages"),
-      package_dependencies: optionalRows<PackageDependencyRow>(
-        db,
-        "package_dependencies",
-      ),
-      files: requiredRows<FileRow>(db, "files"),
-      entities: requiredRows<EntityRow>(db, "entities"),
-      scopes: requiredRows<ScopeRow>(db, "scopes"),
-      symbols: requiredRows<SymbolRow>(db, "symbols"),
-      renders: requiredRows<RenderRow>(db, "renders"),
-      exports: requiredRows<ExportRow>(db, "exports"),
-      relations: requiredRows<RelationRow>(db, "relations"),
-      uiState: readUIState(db),
+      packages: options.includePackages
+        ? optionalRows<PackageRow>(db, "packages")
+        : [],
+      package_dependencies: options.includePackageDependencies
+        ? optionalRows<PackageDependencyRow>(db, "package_dependencies")
+        : [],
+      files: options.includeFiles ? requiredRows<FileRow>(db, "files") : [],
+      entities: options.includeEntities
+        ? requiredRows<EntityRow>(db, "entities")
+        : [],
+      scopes: options.includeScopes ? requiredRows<ScopeRow>(db, "scopes") : [],
+      symbols: options.includeSymbols
+        ? requiredRows<SymbolRow>(db, "symbols")
+        : [],
+      renders: options.includeRenders
+        ? requiredRows<RenderRow>(db, "renders")
+        : [],
+      exports: options.includeExports
+        ? requiredRows<ExportRow>(db, "exports")
+        : [],
+      relations: options.includeRelations
+        ? requiredRows<RelationRow>(db, "relations")
+        : [],
+      uiState: options.includeUiState ? readUIState(db) : {},
       diff: undefined,
     };
   } finally {
