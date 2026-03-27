@@ -1,6 +1,9 @@
-import { type DatabaseData, type PackageRow } from "@nexiq/shared";
-import { type GraphViewResult, type GraphViewTask } from "../types";
-import { type GraphComboData, type GraphNodeData } from "../../graph/hook";
+import {
+  type GraphViewResult,
+  type GraphViewTask,
+  type TaskContext,
+  getTaskData,
+} from "@nexiq/extension-sdk";
 
 /**
  * Task that groups components and hooks by their directory and file structure.
@@ -8,28 +11,21 @@ import { type GraphComboData, type GraphNodeData } from "../../graph/hook";
 export const fileTask: GraphViewTask = {
   id: "file-view",
   priority: 10,
-  run: (
-    data: DatabaseData,
-    result: GraphViewResult,
-    batch?: Partial<DatabaseData>,
-  ): GraphViewResult => {
-    const combos: GraphComboData[] = [...result.combos];
-    const nodes: GraphNodeData[] = [...result.nodes];
+  run: (result: GraphViewResult, context: TaskContext): GraphViewResult => {
+    const { combos, nodes } = result;
+    const data = getTaskData(context);
 
-    const files = batch?.files || data.files;
-    const symbols = batch?.symbols || data.symbols;
-    const indexedData = data as DatabaseData & {
-      __indexes?: {
-        entityById: Map<string, (typeof data.entities)[number]>;
-        scopeById: Map<string, (typeof data.scopes)[number]>;
-        fileById: Map<number, (typeof data.files)[number]>;
-        packageById: Map<string, PackageRow>;
-      };
-    };
-    const indexes = indexedData.__indexes;
-    const packageMap =
-      indexes?.packageById ||
-      new Map((data.packages || []).map((p) => [p.id, p]));
+    const files = data.files || [];
+    const symbols = data.symbols || [];
+    const entities = data.entities || [];
+    const scopes = data.scopes || [];
+    const packages = data.packages || [];
+
+    const packageMap = new Map(packages.map((p) => [p.id, p]));
+    const entityMap = new Map(entities.map((e) => [e.id, e]));
+    const scopeMap = new Map(scopes.map((s) => [s.id, s]));
+    const fileMap = new Map(files.map((f) => [f.id, f]));
+
     const existingComboIds = new Set(combos.map((combo) => combo.id));
     const existingNodeIds = new Set(nodes.map((node) => node.id));
 
@@ -68,7 +64,6 @@ export const fileTask: GraphViewTask = {
       const parts = filePath.split("/").filter(Boolean);
       let currentPath = "";
 
-      // The last part is the file itself, we want to create combos for directories
       for (let i = 0; i < parts.length - 1; i++) {
         const part = parts[i]!;
         const parentPath = currentPath;
@@ -79,7 +74,7 @@ export const fileTask: GraphViewTask = {
             id: `dir:${currentPath}`,
             label: { text: part },
             combo: parentPath ? `dir:${parentPath}` : packageComboId,
-            type: "normal", // generic combo type
+            type: "normal",
             fileName: currentPath,
             projectPath: pkg?.path,
             name: {
@@ -122,20 +117,14 @@ export const fileTask: GraphViewTask = {
     for (const symbol of symbols) {
       if (existingNodeIds.has(symbol.id)) continue;
 
-      const entity =
-        indexes?.entityById.get(symbol.entity_id) ||
-        data.entities.find((e) => e.id === symbol.entity_id);
+      const entity = entityMap.get(symbol.entity_id);
       if (!entity || (entity.kind !== "component" && entity.kind !== "hook"))
         continue;
 
-      const scope =
-        indexes?.scopeById.get(symbol.scope_id) ||
-        data.scopes.find((s) => s.id === symbol.scope_id);
+      const scope = scopeMap.get(symbol.scope_id);
       if (!scope) continue;
 
-      const file =
-        indexes?.fileById.get(scope.file_id) ||
-        data.files.find((f) => f.id === scope.file_id);
+      const file = fileMap.get(scope.file_id);
       if (!file) continue;
 
       nodes.push({
@@ -155,10 +144,6 @@ export const fileTask: GraphViewTask = {
       existingNodeIds.add(symbol.id);
     }
 
-    return {
-      ...result,
-      nodes,
-      combos,
-    };
+    return result;
   },
 };

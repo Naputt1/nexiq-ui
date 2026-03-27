@@ -232,7 +232,7 @@ export class GraphRenderer {
   private setupStageEvents() {
     const stage = this.stage;
 
-    let wheelTimeout: number | null = null;
+    let wheelTimeout: NodeJS.Timeout | null = null;
 
     stage.on("wheel", (e) => {
       e.evt.preventDefault();

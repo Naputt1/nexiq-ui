@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DatabaseData } from "@nexiq/shared";
 
-const { mockReadGraphSnapshotFromSqlite } = vi.hoisted(() => ({
+const { mockReadGraphSnapshotFromSqlite, mockOpenUnifiedDatabase } = vi.hoisted(() => ({
   mockReadGraphSnapshotFromSqlite: vi.fn(),
+  mockOpenUnifiedDatabase: vi.fn(),
 }));
 
 vi.mock("./graph-snapshot-db", () => ({
   readGraphSnapshotFromSqlite: mockReadGraphSnapshotFromSqlite,
+  openUnifiedDatabase: mockOpenUnifiedDatabase,
 }));
 
 vi.mock("../src/views/registry", () => ({
@@ -38,6 +40,11 @@ import {
 describe("view-generator", () => {
   beforeEach(() => {
     mockReadGraphSnapshotFromSqlite.mockReset();
+    mockOpenUnifiedDatabase.mockReset();
+    mockOpenUnifiedDatabase.mockReturnValue({
+      prepare: vi.fn().mockReturnValue({ all: vi.fn().mockReturnValue([]) }),
+      close: vi.fn(),
+    });
   });
 
   it("applies UI state for sqlite-backed generation", async () => {
@@ -78,6 +85,19 @@ describe("view-generator", () => {
     });
     expect(mockReadGraphSnapshotFromSqlite).toHaveBeenCalledWith(
       "/tmp/test.sqlite",
+      undefined,
+      {
+        includePackages: true,
+        includePackageDependencies: true,
+        includeFiles: true,
+        includeEntities: true,
+        includeScopes: true,
+        includeSymbols: true,
+        includeRenders: true,
+        includeExports: true,
+        includeRelations: true,
+        includeUiState: true,
+      },
     );
   });
 

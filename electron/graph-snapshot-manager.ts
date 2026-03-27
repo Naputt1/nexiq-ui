@@ -270,7 +270,7 @@ export class GraphSnapshotManager {
       const timeout = setTimeout(() => {
         this.inlineRequests.delete(requestId);
         reject(new Error(`Worker inline request timed out: ${message.type}`));
-      }, 60000);
+      }, 1800000);
 
       this.inlineRequests.set(requestId, { resolve, reject, timeout });
       controller.worker.postMessage({
