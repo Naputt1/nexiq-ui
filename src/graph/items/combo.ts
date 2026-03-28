@@ -231,7 +231,7 @@ export class GraphCombo extends BaseNode {
     }
 
     return Math.max(
-      maxR + this.padding * this.scale,
+      maxR + (this.padding + 40) * this.scale,
       this.collapsedRadius,
       configMaxRadius * this.scale,
     );

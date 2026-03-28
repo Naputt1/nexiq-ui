@@ -128,6 +128,8 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     nodes: [],
     edges: [],
     combos: [],
+    layoutType: "fcose",
+    comboLayouts: {},
   });
 
   const rendererRef = useRef<GraphRenderer | null>(null);
@@ -267,9 +269,9 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
           return;
         }
 
-        const { nodes, edges, combos, typeData: newTypeData } = result;
+        const { nodes, edges, combos, typeData: newTypeData, layout, comboLayouts } = result;
         settypeData(newTypeData);
-        setGraphData({ nodes, edges, combos });
+        setGraphData({ nodes, edges, combos, layoutType: layout, comboLayouts });
       } catch (err) {
         console.error(err);
       } finally {

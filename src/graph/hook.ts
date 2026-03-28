@@ -32,6 +32,8 @@ export type useGraphProps = {
   config?: GraphDataConfig;
   projectPath?: string;
   targetPath?: string;
+  layoutType?: string;
+  comboLayouts?: Record<string, string>;
 };
 
 export type GraphDataCallbackParams =
@@ -132,6 +134,9 @@ export class GraphData {
   private layoutInProgress: Set<string> = new Set();
   private draggingId: string | null = null;
 
+  private layoutType: string = "fcose";
+  private comboLayouts: Record<string, string> = {};
+
   public lastModified: number = Date.now();
   private cachedAbsolutePositions: Map<string, { x: number; y: number }> =
     new Map();
@@ -158,6 +163,26 @@ export class GraphData {
       if (type === "layout-result") {
         this.layoutInProgress.delete(id);
         this.batch(() => {
+          // Center the result if it's a combo layout
+          if (id !== "root" && nodes.length > 0) {
+            let minX = Infinity,
+              minY = Infinity,
+              maxX = -Infinity,
+              maxY = -Infinity;
+            for (const n of nodes) {
+              minX = Math.min(minX, n.x);
+              minY = Math.min(minY, n.y);
+              maxX = Math.max(maxX, n.x);
+              maxY = Math.max(maxY, n.y);
+            }
+            const centerX = (minX + maxX) / 2;
+            const centerY = (minY + maxY) / 2;
+            for (const n of nodes) {
+              n.x -= centerX;
+              n.y -= centerY;
+            }
+          }
+
           if (id === "root") {
             for (const n of nodes) {
               if (n.id === this.draggingId) continue;
@@ -263,6 +288,11 @@ export class GraphData {
     this.addEdges(edges);
   }
 
+  public setLayoutConfig(layoutType?: string, comboLayouts?: Record<string, string>) {
+    if (layoutType) this.layoutType = layoutType;
+    if (comboLayouts) this.comboLayouts = comboLayouts;
+  }
+
   private markModified() {
     this.lastModified = Date.now();
     this.cachedAbsolutePositions.clear();
@@ -341,9 +371,12 @@ export class GraphData {
     combos: GraphComboData[],
     projectPath?: string,
     targetPath?: string,
+    layoutType?: string,
+    comboLayouts?: Record<string, string>,
   ) {
     if (projectPath) this.projectPath = projectPath;
     if (targetPath) this.targetPath = targetPath;
+    this.setLayoutConfig(layoutType, comboLayouts);
 
     this.batch(() => {
       this.clear();
@@ -505,30 +538,40 @@ export class GraphData {
     }
 
     for (const e of Object.values(combo.child?.edges ?? {})) {
+      const srcNode = this.getPointByID(e.source);
+      const targetNode = this.getPointByID(e.target);
+      const r1 = srcNode?.radius ?? 20;
+      const r2 = targetNode?.radius ?? 20;
+      const nodeSeparation = 300;
+
       edges.push({
         id: e.id,
         source: e.source,
         target: e.target,
+        idealLength: r1 + r2 + nodeSeparation,
       });
     }
+
+    const nodeIds = new Set(nodes.map((n) => n.id));
+    const filteredEdges = edges.filter(
+      (e) => nodeIds.has(e.source) && nodeIds.has(e.target),
+    );
+
+    this.layoutInProgress.add(combo.id);
 
     this.worker.postMessage({
       type: "layout",
       id: combo.id,
       nodes,
-      edges,
+      edges: filteredEdges,
+      layoutType: this.comboLayouts[combo.id] ?? this.layoutType,
       options: {
-        repulsionStrength: 250 * combo.scale,
-        linkDistance: 25 * combo.scale,
-        damping: 0.8,
-        gravity: 0.05,
-        timeStep: 0.02,
-        minNodeDistance: 25 * combo.scale,
-        collisionStrength: 2,
-        alpha: 1.0,
-        alphaDecay: 0.005,
+        nodeRepulsion: 45000,
+        idealEdgeLength: 300,
+        gravity: 0.2,
+        numIter: 2500,
+        nodeSeparation: 300,
       },
-      iterations: 2000,
     } as LayoutRequest);
   }
 
@@ -987,8 +1030,8 @@ export class GraphData {
             color: c.color ?? this.config.combo.color,
             collapsedRadius: c.ui?.collapsedRadius ?? collapsedRadius,
             expandedRadius: c.ui?.expandedRadius ?? expandedRadius,
-            x: c.ui?.x ?? c.x ?? (Math.random() - 0.5) * combos.length * 10,
-            y: c.ui?.y ?? c.y ?? (Math.random() - 0.5) * combos.length * 10,
+            x: c.ui?.x ?? c.x ?? (Math.random() - 0.5) * combos.length * 100,
+            y: c.ui?.y ?? c.y ?? (Math.random() - 0.5) * combos.length * 100,
             padding: c.padding ?? this.config.combo.padding,
             isLayoutCalculated: !!c.ui?.isLayoutCalculated,
             scale: 1,
@@ -1132,7 +1175,7 @@ export class GraphData {
     }
 
     return Math.max(
-      maxRadius + combo.padding * combo.scale,
+      maxRadius + (combo.padding + 40) * combo.scale,
       combo.collapsedRadius,
       this.config.combo.maxRadius * combo.scale,
     );
@@ -1669,31 +1712,45 @@ export class GraphData {
         id: c.id,
         x: c.x,
         y: c.y,
-        radius: c.expandedRadius,
+        radius: c.radius,
         fixed: c.id === this.draggingId || c.id === fixedId,
       });
     }
 
     for (const e of Array.from(this.edges.values())) {
+      const srcNode = this.getPointByID(e.source);
+      const targetNode = this.getPointByID(e.target);
+      const r1 = srcNode?.radius ?? 20;
+      const r2 = targetNode?.radius ?? 20;
+      const nodeSeparation = 800;
+
       edges.push({
         id: e.id,
         source: e.source,
         target: e.target,
+        idealLength: r1 + r2 + nodeSeparation,
       });
     }
+
+    const nodeIds = new Set(nodes.map((n) => n.id));
+    const filteredEdges = edges.filter(
+      (e) => nodeIds.has(e.source) && nodeIds.has(e.target),
+    );
+
+    this.layoutInProgress.add("root");
 
     this.worker.postMessage({
       type: "layout",
       id: "root",
       nodes,
-      edges,
-      iterations: 2000,
+      edges: filteredEdges,
+      layoutType: this.layoutType,
       options: {
-        minNodeDistance: 200,
-        gravity: 0.5,
-        repulsionStrength: 1000,
-        alpha: 1.0,
-        alphaDecay: 0.001,
+        nodeRepulsion: 250000,
+        idealEdgeLength: 800,
+        gravity: 0.1,
+        numIter: 5000,
+        nodeSeparation: 800,
       },
     });
 
@@ -1820,14 +1877,20 @@ const useGraph: (option: useGraphProps) => GraphData = ({
   config,
   projectPath,
   targetPath,
+  layoutType,
+  comboLayouts,
 }) => {
   const [data] = useState(
     () => new GraphData(nodes, edges, combos, config, projectPath, targetPath),
   );
 
   useEffect(() => {
-    data.setData(nodes, edges, combos, projectPath, targetPath);
-  }, [nodes, edges, combos, projectPath, targetPath, data]);
+    data.setLayoutConfig(layoutType, comboLayouts);
+  }, [layoutType, comboLayouts, data]);
+
+  useEffect(() => {
+    data.setData(nodes, edges, combos, projectPath, targetPath, layoutType, comboLayouts);
+  }, [nodes, edges, combos, projectPath, targetPath, layoutType, comboLayouts, data]);
 
   // Register graph instance for devtools
   useEffect(() => {
