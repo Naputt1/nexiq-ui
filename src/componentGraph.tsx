@@ -57,6 +57,9 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   const selectedSubProjects = useAppStateStore((s) => s.selectedSubProjects);
   const selectedId = useAppStateStore((s) => s.selectedId);
   const setSelectedId = useAppStateStore((s) => s.setSelectedId);
+  const selectedEdgeId = useAppStateStore((s) => s.selectedEdgeId);
+  const setSelectedEdgeId = useAppStateStore((s) => s.setSelectedEdgeId);
+  const selectedItemType = useAppStateStore((s) => s.selectedItemType);
   const centeredItemId = useAppStateStore((s) => s.centeredItemId);
   const setCenteredItemId = useAppStateStore((s) => s.setCenteredItemId);
   const isSidebarOpen = useAppStateStore((s) => s.isSidebarOpen);
@@ -383,7 +386,176 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
         graph.updateNode(node);
       }
     }
+    const edges = graph.getAllEdges();
+    for (const edge of Object.values(edges)) {
+      if (edge.highlighted || edge.dimmed || edge.flowRole) {
+        edge.highlighted = false;
+        edge.dimmed = false;
+        edge.flowRole = null;
+      }
+    }
+    graph.refresh(true);
   }, [graph]);
+
+  const applyFlowHighlights = useCallback(
+    (rootNodeId?: string, rootEdgeId?: string) => {
+      const usageEdges = graph
+        .getAllEdges()
+        .filter((edge) => String(edge.category || "").startsWith("usage-"));
+
+      if (!rootNodeId && !rootEdgeId) {
+        resetHighlights();
+        return;
+      }
+
+      const highlightedEdgeIds = new Set<string>();
+      const highlightedNodeIds = new Set<string>();
+      const queue: string[] = [];
+      const adjacency = new Map<string, typeof usageEdges>();
+      const rootNodeIds = new Set<string>();
+
+      for (const edge of usageEdges) {
+        const sourceEdges = adjacency.get(edge.source) || [];
+        sourceEdges.push(edge);
+        adjacency.set(edge.source, sourceEdges);
+        const targetEdges = adjacency.get(edge.target) || [];
+        targetEdges.push(edge);
+        adjacency.set(edge.target, targetEdges);
+      }
+
+      if (rootNodeId) {
+        highlightedNodeIds.add(rootNodeId);
+        queue.push(rootNodeId);
+        rootNodeIds.add(rootNodeId);
+      }
+
+      if (rootEdgeId) {
+        const rootEdge = graph.getEdge(rootEdgeId);
+        if (rootEdge) {
+          highlightedEdgeIds.add(rootEdge.id);
+          highlightedNodeIds.add(rootEdge.source);
+          highlightedNodeIds.add(rootEdge.target);
+          queue.push(rootEdge.source, rootEdge.target);
+          rootNodeIds.add(rootEdge.source);
+          rootNodeIds.add(rootEdge.target);
+        }
+      }
+
+      while (queue.length > 0) {
+        const nodeId = queue.shift()!;
+        for (const edge of adjacency.get(nodeId) || []) {
+          if (!highlightedEdgeIds.has(edge.id)) {
+            highlightedEdgeIds.add(edge.id);
+          }
+          if (!highlightedNodeIds.has(edge.source)) {
+            highlightedNodeIds.add(edge.source);
+            queue.push(edge.source);
+          }
+          if (!highlightedNodeIds.has(edge.target)) {
+            highlightedNodeIds.add(edge.target);
+            queue.push(edge.target);
+          }
+        }
+      }
+
+      const directEdgeIds = new Set<string>();
+      const writeCandidateNodeIds = new Set<string>();
+      for (const edge of usageEdges) {
+        if (edge.edgeKind === "usage-write") {
+          writeCandidateNodeIds.add(edge.source);
+          writeCandidateNodeIds.add(edge.target);
+        }
+      }
+
+      for (const nodeId of highlightedNodeIds) {
+        const point = graph.getPointByID(nodeId);
+        if (point?.type === "state") {
+          writeCandidateNodeIds.add(nodeId);
+        }
+      }
+
+      const visited = new Set<string>(rootNodeIds);
+      const parentEdge = new Map<string, string>();
+      const parentNode = new Map<string, string>();
+      const pathQueue = Array.from(rootNodeIds);
+      let nearestTargetId: string | null = null;
+
+      while (pathQueue.length > 0 && !nearestTargetId) {
+        const nodeId = pathQueue.shift()!;
+        if (writeCandidateNodeIds.has(nodeId) && !rootNodeIds.has(nodeId)) {
+          nearestTargetId = nodeId;
+          break;
+        }
+
+        for (const edge of adjacency.get(nodeId) || []) {
+          const nextNode = edge.source === nodeId ? edge.target : edge.source;
+          if (visited.has(nextNode)) continue;
+          visited.add(nextNode);
+          parentNode.set(nextNode, nodeId);
+          parentEdge.set(nextNode, edge.id);
+          pathQueue.push(nextNode);
+        }
+      }
+
+      if (nearestTargetId) {
+        let current = nearestTargetId;
+        while (parentEdge.has(current)) {
+          directEdgeIds.add(parentEdge.get(current)!);
+          current = parentNode.get(current)!;
+        }
+      } else {
+        for (const rootId of rootNodeIds) {
+          for (const edge of adjacency.get(rootId) || []) {
+            if (edge.edgeKind === "usage-write") {
+              directEdgeIds.add(edge.id);
+            }
+          }
+        }
+      }
+
+      if (rootEdgeId && highlightedEdgeIds.has(rootEdgeId)) {
+        directEdgeIds.add(rootEdgeId);
+      }
+
+      graph.batch(() => {
+        for (const combo of graph.getAllCombos()) {
+          const nextHighlighted = highlightedNodeIds.has(combo.id);
+          if (combo.highlighted !== nextHighlighted) {
+            combo.highlighted = nextHighlighted;
+            graph.updateCombo(combo);
+          }
+        }
+        for (const node of graph.getAllNodes()) {
+          const nextHighlighted = highlightedNodeIds.has(node.id);
+          if (node.highlighted !== nextHighlighted) {
+            node.highlighted = nextHighlighted;
+            graph.updateNode(node);
+          }
+        }
+        for (const edge of graph.getAllEdges()) {
+          const nextHighlighted = highlightedEdgeIds.has(edge.id);
+          const nextDimmed =
+            highlightedEdgeIds.size > 0 ? !highlightedEdgeIds.has(edge.id) : false;
+          const nextFlowRole = directEdgeIds.has(edge.id)
+            ? "direct"
+            : nextHighlighted
+              ? "side-effect"
+              : null;
+          if (
+            edge.highlighted !== nextHighlighted ||
+            edge.dimmed !== nextDimmed ||
+            edge.flowRole !== nextFlowRole
+          ) {
+            edge.highlighted = nextHighlighted;
+            edge.dimmed = nextDimmed;
+            edge.flowRole = nextFlowRole;
+          }
+        }
+      });
+      graph.refresh(true);
+    },
+    [graph, resetHighlights],
+  );
 
   const performSearch = useCallback(
     (value: string) => {
@@ -484,6 +656,8 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
         }
       }
 
+      applyFlowHighlights(id, undefined);
+
       // Expand all ancestors to make sure the node is visible
       graph.expandAncestors(id);
 
@@ -495,7 +669,22 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
         }, 50);
       }
     },
-    [setSelectedId, setCenteredItemId, graph, resetHighlights],
+    [setSelectedId, setCenteredItemId, graph, resetHighlights, applyFlowHighlights],
+  );
+
+  const onSelectEdge = useCallback(
+    (id: string, center = false) => {
+      setSelectedEdgeId(id);
+      applyFlowHighlights(undefined, id);
+      if (center) {
+        const edge = graph.getEdge(id);
+        if (edge) {
+          graph.expandAncestors(edge.source);
+          graph.expandAncestors(edge.target);
+        }
+      }
+    },
+    [setSelectedEdgeId, applyFlowHighlights, graph],
   );
 
   // Clear search and highlights when search bar is closed
@@ -513,7 +702,10 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     const savePositions = debounce(() => {
       const positions = extractUIState(graph);
 
-      const targetPath = selectedSubProjects[0] || projectPath;
+      const targetPath =
+        selectedSubProjects.length === 1
+          ? selectedSubProjects[0] || projectPath
+          : projectPath;
       if (Object.keys(positions).length > 0) {
         window.ipcRenderer.invoke(
           "update-graph-position",
@@ -555,6 +747,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
         size.width,
         size.height,
         onSelect,
+        onSelectEdge,
         (vp) => {
           if (!rendererRef.current?.viewportChangeInProgress) {
             setViewport(vp);
@@ -566,6 +759,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     } else {
       rendererRef.current.resize(size.width, size.height);
       rendererRef.current.onSelect = onSelect;
+      rendererRef.current.onSelectEdge = onSelectEdge;
     }
 
     if (rendererRef.current && !hasRestoredViewport.current && isLoaded) {
@@ -584,6 +778,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     size.width,
     size.height,
     onSelect,
+    onSelectEdge,
     isLoaded,
     setViewport,
     customColors,
@@ -718,7 +913,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
       const { width, height } = containerRef.current.getBoundingClientRect();
       setSize({ width, height });
     }
-  }, [isSidebarOpen, selectedId]);
+  }, [isSidebarOpen, selectedId, selectedEdgeId]);
 
   // handle global shortcuts
   useEffect(() => {
@@ -816,6 +1011,11 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     return graph.getPointByID(selectedId);
   }, [selectedId, graph]);
 
+  const selectedEdge = useMemo(() => {
+    if (!selectedEdgeId) return undefined;
+    return graph.getEdge(selectedEdgeId);
+  }, [selectedEdgeId, graph]);
+
   const renderNodes = useMemo(() => {
     if (!selectedId || selectedItem?.type !== "component") return [];
     const renderComboId = selectedId + "-render";
@@ -826,7 +1026,9 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
 
   const handleClose = useCallback(() => {
     setSelectedId(null);
-  }, [setSelectedId]);
+    setSelectedEdgeId(null);
+    resetHighlights();
+  }, [setSelectedId, setSelectedEdgeId, resetHighlights]);
 
   const handleZoomChange = useCallback((zoom: number) => {
     rendererRef.current?.setZoom(zoom);
@@ -988,12 +1190,15 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
                 </div>
               </div>
             </ResizablePanel>
-            {selectedId && (
+            {(selectedId || selectedEdgeId) && (
               <>
                 <ResizableHandle withHandle />
                 <ResizablePanel id="sidebar" minSize="15%" maxSize="50%">
                   <RightSidebar
                     selectedId={selectedId}
+                    selectedEdgeId={selectedEdgeId}
+                    selectedItemType={selectedItemType}
+                    selectedEdge={selectedEdge}
                     graph={graph}
                     typeData={typeData}
                     projectPath={projectPath}

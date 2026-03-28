@@ -16,6 +16,7 @@ import type {
   Renderable,
   RenderContext,
 } from ".";
+import type { AppearanceOverride } from "@nexiq/extension-sdk";
 
 export abstract class BaseNode implements Renderable {
   id: string;
@@ -36,6 +37,7 @@ export abstract class BaseNode implements Renderable {
   highlighted: boolean = false;
   isLayoutCalculated: boolean = false;
   displayName?: string;
+  appearanceOverride?: AppearanceOverride;
   [key: string]: unknown;
 
   // From DetailItemData
@@ -94,6 +96,7 @@ export abstract class BaseNode implements Renderable {
     this.extends = data.extends;
     this.children = data.children;
     this.ui = data.ui;
+    this.appearanceOverride = data.appearanceOverride;
   }
 
   abstract render(

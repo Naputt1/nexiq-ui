@@ -4,8 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ArrowLeft, Save, Loader2 } from "lucide-react";
-import type { CustomColors } from "../../electron/types";
+import type { GraphAppearance } from "../../electron/types";
 import { Input } from "@/components/ui/input";
+import { normalizeGraphAppearance } from "@nexiq/extension-sdk";
 
 interface GlobalSettingsProps {
   projectPath?: string;
@@ -17,7 +18,9 @@ export function GlobalSettings({ projectPath }: GlobalSettingsProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [appTheme, setAppTheme] = useState<"dark" | "light">("dark");
   const [autoReload, setAutoReload] = useState<boolean>(true);
-  const [customColors, setCustomColors] = useState<CustomColors>({});
+  const [appearance, setAppearance] = useState<GraphAppearance>(
+    normalizeGraphAppearance(),
+  );
 
   const goBack = () => {
     if (projectPath) {
@@ -40,7 +43,7 @@ export function GlobalSettings({ projectPath }: GlobalSettingsProps) {
               ? globalConfig.autoReload
               : true,
           );
-          setCustomColors(globalConfig.customColors || {});
+          setAppearance(normalizeGraphAppearance(globalConfig.appearance));
         }
       } catch (e) {
         console.error("Failed to fetch global config", e);
@@ -57,7 +60,7 @@ export function GlobalSettings({ projectPath }: GlobalSettingsProps) {
       await window.ipcRenderer.invoke("save-global-config", {
         theme: appTheme,
         autoReload: autoReload,
-        customColors: customColors,
+        appearance,
       });
 
       // Apply app theme immediately
@@ -76,15 +79,70 @@ export function GlobalSettings({ projectPath }: GlobalSettingsProps) {
     }
   };
 
-  const ColorInput = ({ label, colorKey, defaultValue }: { label: string; colorKey: keyof CustomColors; defaultValue: string }) => (
+  const updateNodeAppearance = (
+    key: keyof NonNullable<GraphAppearance["nodes"]>,
+    field: "color" | "radius",
+    value: string | number,
+  ) => {
+    setAppearance((current: GraphAppearance) => ({
+      ...current,
+      nodes: {
+        ...current.nodes,
+        [key]: {
+          ...current.nodes?.[key],
+          [field]: value,
+        },
+      },
+    }));
+  };
+
+  const ColorInput = ({ label, colorKey, defaultValue }: { label: string; colorKey: keyof GraphAppearance; defaultValue: string }) => (
     <div className="flex items-center gap-4">
       <Input
         type="color"
-        value={customColors[colorKey] || defaultValue}
-        onChange={(e) => setCustomColors({ ...customColors, [colorKey]: e.target.value })}
+        value={(appearance[colorKey] as string | undefined) || defaultValue}
+        onChange={(e) => setAppearance({ ...appearance, [colorKey]: e.target.value })}
         className="w-12 h-8 p-1"
       />
       <label className="text-xs">{label}</label>
+    </div>
+  );
+
+  const NodeAppearanceInput = ({
+    label,
+    nodeKey,
+    defaultColor,
+    defaultRadius,
+  }: {
+    label: string;
+    nodeKey: keyof NonNullable<GraphAppearance["nodes"]>;
+    defaultColor: string;
+    defaultRadius: number;
+  }) => (
+    <div className="rounded-md border border-border/60 p-3 space-y-3">
+      <div className="text-xs font-medium">{label}</div>
+      <div className="flex items-center gap-3">
+        <Input
+          type="color"
+          value={appearance.nodes?.[nodeKey]?.color || defaultColor}
+          onChange={(e) => updateNodeAppearance(nodeKey, "color", e.target.value)}
+          className="w-12 h-8 p-1"
+        />
+        <Input
+          type="number"
+          min={8}
+          max={80}
+          step={1}
+          value={appearance.nodes?.[nodeKey]?.radius || defaultRadius}
+          onChange={(e) =>
+            updateNodeAppearance(
+              nodeKey,
+              "radius",
+              Number.parseInt(e.target.value || `${defaultRadius}`, 10),
+            )}
+          className="w-20 h-8"
+        />
+      </div>
     </div>
   );
 
@@ -171,22 +229,25 @@ export function GlobalSettings({ projectPath }: GlobalSettingsProps) {
                 <ColorInput label="Node Highlight" colorKey="nodeHighlight" defaultValue={isDark ? "#3b82f6" : "#2563eb"} />
                 <ColorInput label="Combo Highlight" colorKey="comboHighlight" defaultValue={isDark ? "#3b82f6" : "#2563eb"} />
                 <ColorInput label="Arrow Color" colorKey="arrowColor" defaultValue={isDark ? "#888888" : "#424242"} />
+                <ColorInput label="Direct Flow" colorKey="directFlowColor" defaultValue={isDark ? "#60a5fa" : "#2563eb"} />
+                <ColorInput label="Side Effect" colorKey="sideEffectFlowColor" defaultValue="#f59e0b" />
                 <ColorInput label="Label Color" colorKey="labelColor" defaultValue={isDark ? "#ffffff" : "#000000"} />
               </div>
             </div>
 
             <div className="space-y-4 pt-4 border-t border-border/50">
               <h3 className="text-sm font-semibold opacity-70">Graph Node Types</h3>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                <ColorInput label="Component" colorKey="componentNode" defaultValue={isDark ? "#3b82f6" : "#2563eb"} />
-                <ColorInput label="Hook" colorKey="hookNode" defaultValue={isDark ? "#8b5cf6" : "#7c3aed"} />
-                <ColorInput label="Callback" colorKey="callbackNode" defaultValue="#ef4444" />
-                <ColorInput label="State" colorKey="stateNode" defaultValue="#ef4444" />
-                <ColorInput label="Memo" colorKey="memoNode" defaultValue="#ef4444" />
-                <ColorInput label="Ref" colorKey="refNode" defaultValue="#ef4444" />
-                <ColorInput label="Effect" colorKey="effectNode" defaultValue="#eab308" />
-                <ColorInput label="Prop" colorKey="propNode" defaultValue="#22c55e" />
-                <ColorInput label="Render" colorKey="renderNode" defaultValue="#3b82f6" />
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <NodeAppearanceInput label="Package" nodeKey="package" defaultColor="#0f766e" defaultRadius={24} />
+                <NodeAppearanceInput label="Component" nodeKey="component" defaultColor={isDark ? "#3b82f6" : "#2563eb"} defaultRadius={20} />
+                <NodeAppearanceInput label="Hook" nodeKey="hook" defaultColor={isDark ? "#8b5cf6" : "#7c3aed"} defaultRadius={18} />
+                <NodeAppearanceInput label="Callback" nodeKey="callback" defaultColor="#ef4444" defaultRadius={14} />
+                <NodeAppearanceInput label="State" nodeKey="state" defaultColor="#ef4444" defaultRadius={16} />
+                <NodeAppearanceInput label="Memo" nodeKey="memo" defaultColor="#ef4444" defaultRadius={14} />
+                <NodeAppearanceInput label="Ref" nodeKey="ref" defaultColor="#ef4444" defaultRadius={14} />
+                <NodeAppearanceInput label="Effect" nodeKey="effect" defaultColor="#eab308" defaultRadius={14} />
+                <NodeAppearanceInput label="Prop" nodeKey="prop" defaultColor="#22c55e" defaultRadius={12} />
+                <NodeAppearanceInput label="Render" nodeKey="render" defaultColor="#3b82f6" defaultRadius={14} />
               </div>
             </div>
 

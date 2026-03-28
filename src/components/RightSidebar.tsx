@@ -12,6 +12,7 @@ import {
   GraphData,
   GraphNode,
   GraphCombo,
+  GraphArrow,
   type GraphNodeData,
 } from "@/graph/hook";
 import { cn } from "@/lib/utils";
@@ -32,6 +33,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "./ui/resizable";
+import { EdgeDetailsContent } from "./edge-details-content";
 
 interface FlatTreeNode {
   id: string;
@@ -44,7 +46,10 @@ interface FlatTreeNode {
 }
 
 interface RightSidebarProps {
-  selectedId: string;
+  selectedId: string | null;
+  selectedEdgeId?: string | null;
+  selectedItemType?: "node" | "edge" | null;
+  selectedEdge?: GraphArrow;
   graph: GraphData;
   typeData: Record<string, TypeDataDeclare>;
   projectPath: string;
@@ -55,6 +60,9 @@ interface RightSidebarProps {
 
 export const RightSidebar = React.memo(function RightSidebar({
   selectedId,
+  selectedEdgeId,
+  selectedItemType,
+  selectedEdge,
   graph,
   typeData,
   projectPath,
@@ -106,6 +114,7 @@ export const RightSidebar = React.memo(function RightSidebar({
 
   // Initialize/Sync expanded state with path to selectedId
   useEffect(() => {
+    if (!selectedId) return;
     const item = graph.getPointByID(selectedId);
     if (!item) return;
 
@@ -149,6 +158,7 @@ export const RightSidebar = React.memo(function RightSidebar({
   }, []);
 
   const flatTree = useMemo(() => {
+    if (!selectedId) return [];
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     forceUpdate; // trigger re-render
     const item = graph.getPointByID(selectedId);
@@ -193,10 +203,41 @@ export const RightSidebar = React.memo(function RightSidebar({
   }, [selectedId, graph, expandedIds, forceUpdate]);
 
   const selectedItem = useMemo(() => {
+    if (!selectedId) return undefined;
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     forceUpdate; // trigger re-render
     return graph.getPointByID(selectedId);
   }, [selectedId, graph, forceUpdate]);
+
+  if (selectedItemType === "edge" && selectedEdgeId && selectedEdge) {
+    return (
+      <div className="h-full bg-background z-40 flex flex-col">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-muted/30 shrink-0">
+          <div className="flex items-center gap-2">
+            <Info className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              Edge Details
+            </span>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onClose}
+            className="h-6 w-6 text-muted-foreground hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="flex-1 min-h-0 overflow-auto">
+          <EdgeDetailsContent
+            edge={selectedEdge}
+            graph={graph}
+            onSelect={onSelect}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <ResizablePanelGroup
@@ -259,7 +300,7 @@ export const RightSidebar = React.memo(function RightSidebar({
           </div>
         </div>
         <MemoizedDetailsContent
-          selectedId={selectedId}
+          selectedId={selectedId!}
           item={selectedItem}
           renderNodes={renderNodes}
           typeData={typeData}

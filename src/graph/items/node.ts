@@ -1,6 +1,7 @@
 import Konva from "konva";
 import { BaseNode } from "./baseNode";
 import type { GraphNodeData, RenderContext } from ".";
+import { resolveNodeAppearance } from "../appearance";
 
 export class GraphNode extends BaseNode {
   [key: string]: unknown;
@@ -68,7 +69,7 @@ export class GraphNode extends BaseNode {
     });
 
     group.on("click", (e) => {
-      if (e.evt.ctrlKey) {
+      if (e.evt.ctrlKey || e.evt.metaKey) {
         e.cancelBubble = true;
         window.ipcRenderer.invoke(
           "open-vscode",
@@ -78,7 +79,7 @@ export class GraphNode extends BaseNode {
           this.loc?.column,
         );
       } else {
-        e.cancelBubble = true;
+        // Don't cancel bubble for single clicks unless necessary
         context.onSelect?.(this.id, false);
       }
     });
@@ -87,6 +88,15 @@ export class GraphNode extends BaseNode {
       context.customColors?.nodeHighlight ||
       (context.theme === "dark" ? "#3b82f6" : "#2563eb");
 
+    const appearance = resolveNodeAppearance(
+      context.customColors,
+      this.type,
+      this.id,
+      this.appearanceOverride,
+    );
+    if (appearance.radius != null) {
+      this.radius = appearance.radius * this.scale;
+    }
     const fillColor = this.getFillColor(context);
 
     const circle = new Konva.Circle({
@@ -119,54 +129,14 @@ export class GraphNode extends BaseNode {
   }
 
   getFillColor(context: RenderContext): string {
-    let fillColor = this.color;
-    if (context.customColors) {
-      switch (this.type) {
-        case "state":
-          fillColor = context.customColors.stateNode || "#ef4444";
-          break;
-        case "memo":
-          fillColor = context.customColors.memoNode || "#ef4444";
-          break;
-        case "callback":
-          fillColor = context.customColors.callbackNode || "#ef4444";
-          break;
-        case "ref":
-          fillColor = context.customColors.refNode || "#ef4444";
-          break;
-        case "effect":
-          fillColor = context.customColors.effectNode || "#eab308";
-          break;
-        case "prop":
-          fillColor = context.customColors.propNode || "#22c55e";
-          break;
-        case "render":
-          fillColor =
-            context.customColors.renderNode ||
-            (context.theme === "dark" ? "#3b82f6" : "#2563eb");
-          break;
-        case "component":
-          fillColor =
-            context.customColors.componentNode ||
-            (context.theme === "dark" ? "#3b82f6" : "#2563eb");
-          break;
-        case "hook":
-          fillColor =
-            context.customColors.hookNode ||
-            (context.theme === "dark" ? "#8b5cf6" : "#7c3aed");
-          break;
-        case "jsx":
-          fillColor = "#f97316";
-          break; // orange
-        case "type":
-        case "interface":
-        case "normal":
-        case undefined:
-          break;
-        default:
-          break;
-      }
-    }
-    return fillColor;
+    if (this.type === "jsx") return "#f97316";
+    return (
+      resolveNodeAppearance(
+        context.customColors,
+        this.type,
+        this.id,
+        this.appearanceOverride,
+      ).color || this.color
+    );
   }
 }

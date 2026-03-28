@@ -1,20 +1,21 @@
 import type {
   NexiqConfig,
   SubProject,
-  CustomColors,
   ProjectStatus,
   AppStateData,
   GraphViewType as SharedGraphViewType,
 } from "@nexiq/shared";
+import type { GraphAppearance } from "@nexiq/extension-sdk";
 import type { GraphSnapshotUpdateEvent, LargeDataUpdateEvent } from "../src/graph-snapshot/types";
 
 export type {
   NexiqConfig,
   SubProject,
-  CustomColors,
   ProjectStatus,
   AppStateData,
 };
+export type { GraphAppearance };
+export type CustomColors = GraphAppearance;
 
 export type GraphViewType = SharedGraphViewType | "package";
 
@@ -37,6 +38,6 @@ export interface IpcEvents {
 
 export interface GlobalSettings {
   theme: "dark" | "light";
-  customColors?: CustomColors;
+  appearance?: GraphAppearance;
   autoReload?: boolean;
 }

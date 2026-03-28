@@ -7,6 +7,7 @@ import type {
   GraphComboData,
 } from ".";
 import { BaseNode } from "./baseNode";
+import { resolveNodeAppearance } from "../appearance";
 
 export class GraphCombo extends BaseNode {
   [key: string]: unknown;
@@ -22,6 +23,7 @@ export class GraphCombo extends BaseNode {
     this.collapsedRadius = data.collapsedRadius ?? 20;
     this.expandedRadius = data.expandedRadius ?? 40;
     this.padding = data.padding ?? 10;
+    this.appearanceOverride = data.appearanceOverride;
     this.radius =
       data.radius ??
       (this.collapsed ? this.collapsedRadius : this.expandedRadius);
@@ -30,6 +32,11 @@ export class GraphCombo extends BaseNode {
 
   render(context: RenderContext, parent: Konva.Container): Konva.Group {
     if (this.visible === false) return new Konva.Group();
+
+    const toggleCollapsed = (e: Konva.KonvaEventObject<MouseEvent>) => {
+      e.cancelBubble = true;
+      context.graph.comboCollapsed(this.id);
+    };
 
     const group = new Konva.Group({
       id: this.id,
@@ -64,7 +71,24 @@ export class GraphCombo extends BaseNode {
     });
 
     // Background Circle
+    const appearance = resolveNodeAppearance(
+      context.customColors,
+      this.type,
+      this.id,
+      this.appearanceOverride,
+    );
+    const baseRadius =
+      (this.appearanceOverride?.collapsedRadius ??
+        appearance.radius ??
+        this.collapsedRadius / this.scale) * this.scale;
+    this.collapsedRadius = baseRadius;
+    if (this.appearanceOverride?.expandedRadius != null) {
+      this.expandedRadius = this.appearanceOverride.expandedRadius * this.scale;
+    } else if (this.expandedRadius < baseRadius) {
+      this.expandedRadius = baseRadius;
+    }
     const radius = this.collapsed ? this.collapsedRadius : this.expandedRadius;
+    this.radius = radius;
     const highlightColor =
       context.customColors?.comboHighlight ||
       (context.theme === "dark" ? "#3b82f6" : "#2563eb");
@@ -114,14 +138,21 @@ export class GraphCombo extends BaseNode {
       context.stage.container().style.cursor = "grab";
     });
 
-    bg.on("dblclick", (e) => {
-      e.cancelBubble = true;
-      context.graph.comboCollapsed(this.id);
-    });
+    group.on("dblclick", toggleCollapsed);
+    group.on("dbltap", toggleCollapsed);
+    bg.on("dblclick", toggleCollapsed);
+    bg.on("dbltap", toggleCollapsed);
 
     bg.on("click", (e) => {
-      if (e.cancelBubble) return;
-      if (e.evt.ctrlKey) {
+      // Don't swallow propagation to allow dblclick detection on parent groups if needed
+      // and prevent collision with selection highlighting causing destructing re-renders.
+      if (e.evt.detail === 2) {
+        // Fallback for when dblclick event doesn't fire due to internal Konva re-renders
+        toggleCollapsed(e);
+        return;
+      }
+
+      if (e.evt.ctrlKey || e.evt.metaKey) {
         e.cancelBubble = true;
         window.ipcRenderer.invoke(
           "open-vscode",
@@ -131,7 +162,6 @@ export class GraphCombo extends BaseNode {
           this.loc?.column,
         );
       } else {
-        e.cancelBubble = true;
         context.onSelect?.(this.id, false);
       }
     });
@@ -172,32 +202,15 @@ export class GraphCombo extends BaseNode {
   }
 
   getFillColor(context: RenderContext): string {
-    let fillColor = this.color;
-    if (context.customColors) {
-      if (this.type === "component") {
-        fillColor =
-          context.customColors.componentNode ||
-          (context.theme === "dark" ? "#3b82f6" : "#2563eb");
-      }
-      if (this.type === "hook") {
-        fillColor =
-          context.customColors.hookNode ||
-          (context.theme === "dark" ? "#8b5cf6" : "#7c3aed"); // Purple for hooks
-      }
-      // Add other combo types if they exist, e.g. props combo
-      if (this.id.endsWith("-props")) {
-        fillColor = context.customColors.propNode || "#22c55e";
-      }
-      if (this.id.endsWith("-render")) {
-        fillColor =
-          context.customColors.renderNode ||
-          (context.theme === "dark" ? "#3b82f6" : "#2563eb");
-      }
-      if (this.type === "jsx") {
-        fillColor = "#f97316"; // orange
-      }
-    }
-    return fillColor;
+    if (this.type === "jsx") return "#f97316";
+    return (
+      resolveNodeAppearance(
+        context.customColors,
+        this.type,
+        this.id,
+        this.appearanceOverride,
+      ).color || this.color
+    );
   }
 
   calculateRadius(configMaxRadius: number): number {

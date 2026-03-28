@@ -15,6 +15,7 @@ import type { GraphArrow } from "./arrow";
 import type { GraphCombo } from "./combo";
 import type { GraphNode } from "./node";
 import type { CustomColors } from "../../../electron/types";
+import type { AppearanceOverride } from "@nexiq/extension-sdk";
 
 export * from "./arrow";
 export * from "./combo";
@@ -31,14 +32,29 @@ export interface CurRender {
   combos: Record<string, GraphCombo>;
 }
 
+export interface UsageOccurrenceData {
+  usageId: string;
+  filePath: string;
+  line: number;
+  column: number;
+  ownerId: string;
+  ownerKind: string;
+  accessPath?: string[] | undefined;
+  isOptional?: boolean | undefined;
+  isComputed?: boolean | undefined;
+  hiddenIntermediate?: string | undefined;
+  displayLabel?: string | undefined;
+}
+
 export type ComboChild = CurRender;
 
 export interface RenderContext {
   graph: GraphData;
   onSelect?: (id: string, center?: boolean, highlight?: boolean) => void;
+  onSelectEdge?: (id: string, center?: boolean) => void;
   registerItem?: (
     id: string,
-    item: Konva.Group | Konva.Circle | Konva.Arrow,
+    item: Konva.Group | Konva.Circle | Konva.Arrow | Konva.Line,
   ) => void;
   hasGitChanges: boolean;
   stage: Konva.Stage;
@@ -108,6 +124,7 @@ export interface DetailItemData {
     children?: Record<string, UIItemState>;
     vars?: Record<string, UIItemState>;
   };
+  appearanceOverride?: AppearanceOverride;
   [key: string]: unknown;
 }
 
@@ -131,6 +148,15 @@ export interface GraphArrowData {
   id: string;
   source: string;
   target: string;
+  label?: string;
+  edgeKind?: string;
+  category?: string;
+  flowRole?: "direct" | "side-effect" | null;
+  usageCount?: number;
+  usages?: UsageOccurrenceData[];
+  highlighted?: boolean;
+  dimmed?: boolean;
+  opensTo?: { fileName: string; line: number; column: number };
   points?: number[];
   scale?: number;
   combo?: string;

@@ -7,6 +7,11 @@ import {
   type RenderContext,
 } from "./items/index";
 import type { CustomColors } from "../../electron/types";
+import {
+  getDefaultArrowColor,
+  getDirectFlowColor,
+  getSideEffectFlowColor,
+} from "./appearance";
 
 export class GraphRenderer {
   stage: Konva.Stage;
@@ -14,11 +19,15 @@ export class GraphRenderer {
   minimapLayer: Konva.Layer;
   graph: GraphData;
   onSelect?: (id: string, center?: boolean, highlight?: boolean) => void;
+  onSelectEdge?: (id: string, center?: boolean) => void;
   onViewportChange?: (viewport: { x: number; y: number; zoom: number }) => void;
   theme: "dark" | "light" = "dark";
   customColors?: CustomColors;
 
-  private items = new Map<string, Konva.Group | Konva.Circle | Konva.Arrow>();
+  private items = new Map<
+    string,
+    Konva.Group | Konva.Circle | Konva.Arrow | Konva.Line
+  >();
   private edges = new Map<string, Konva.Arrow>();
   private combos = new Map<string, Konva.Group>();
   private nodes = new Map<string, Konva.Circle>();
@@ -42,6 +51,7 @@ export class GraphRenderer {
     width: number,
     height: number,
     onSelect?: (id: string, center?: boolean, highlight?: boolean) => void,
+    onSelectEdge?: (id: string, center?: boolean) => void,
     onViewportChange?: (viewport: {
       x: number;
       y: number;
@@ -50,6 +60,9 @@ export class GraphRenderer {
     theme: "dark" | "light" = "dark",
     customColors?: CustomColors,
   ) {
+    // Standardize dragging threshold to improve double-click reliability
+    Konva.dragDistance = 10;
+
     this.stage = new Konva.Stage({
       container,
       width,
@@ -69,6 +82,7 @@ export class GraphRenderer {
 
     this.graph = graph;
     this.onSelect = onSelect;
+    this.onSelectEdge = onSelectEdge;
     this.onViewportChange = onViewportChange;
     this.theme = theme;
     this.customColors = customColors;
@@ -493,7 +507,7 @@ export class GraphRenderer {
         break;
       case "layout-change":
       case "child-moved":
-        this.handleLayoutChange();
+        this.updateAllItems();
         break;
     }
   }
@@ -528,6 +542,7 @@ export class GraphRenderer {
     const context: RenderContext = {
       graph: this.graph,
       onSelect: this.onSelect,
+      onSelectEdge: this.onSelectEdge,
       registerItem: (id, item) => {
         this.items.set(id, item);
         if (item instanceof Konva.Group && item.id() === id) {
@@ -689,54 +704,148 @@ export class GraphRenderer {
     for (const eid of edgeIds) {
       const edgeData = this.graph.getEdge(eid);
       const arrow = this.edges.get(eid);
+      const hitArea = this.items.get(`${eid}:hit`);
       if (edgeData && arrow) {
         if (edgeData.points.length < 4) {
           arrow.visible(false);
+          if (hitArea instanceof Konva.Line) {
+            hitArea.visible(false);
+          }
         } else {
           arrow.visible(true);
           arrow.points(edgeData.points);
-          arrow.strokeWidth(0.5 * edgeData.scale);
+          const stroke =
+            edgeData.flowRole === "direct"
+              ? getDirectFlowColor(this.customColors, this.theme)
+              : edgeData.flowRole === "side-effect"
+                ? getSideEffectFlowColor(this.customColors, this.theme)
+                : edgeData.highlighted
+                  ? this.customColors?.nodeHighlight || "#2563eb"
+                  : getDefaultArrowColor(this.customColors, this.theme);
+          arrow.stroke(stroke);
+          arrow.fill(stroke);
+          arrow.opacity(edgeData.dimmed ? 0.15 : edgeData.opacity ?? 1);
+          arrow.strokeWidth(
+            ((edgeData.highlighted ? 2 : 0.5) +
+              (edgeData.flowRole ? 0.5 : 0)) *
+              edgeData.scale,
+          );
           arrow.pointerWidth(6 * edgeData.scale);
           arrow.pointerLength(6 * edgeData.scale);
+
+          if (hitArea instanceof Konva.Line) {
+            hitArea.points(edgeData.points);
+            hitArea.visible(true);
+          }
         }
       }
     }
   }
 
-  private handleLayoutChange() {
+  private updateAllItems() {
+    const combos = this.graph.getCurCombos();
+    const nodes = this.graph.getCurNodes();
+
+    const hasGitChanges =
+      Object.values(combos).some((c) => !!c.gitStatus) ||
+      Object.values(nodes).some((n) => !!n.gitStatus);
+
+    const context: RenderContext = {
+      graph: this.graph,
+      onSelect: this.onSelect,
+      onSelectEdge: this.onSelectEdge,
+      registerItem: (id, item) => {
+        this.items.set(id, item);
+      },
+      hasGitChanges,
+      stage: this.stage,
+      theme: this.theme,
+      customColors: this.customColors,
+    };
+
+    // Update Combos
     this.combos.forEach((group, id) => {
       const combo = this.graph.getCombo(id);
       if (combo) {
         group.position({ x: combo.x, y: combo.y });
-        // Also update radius if not animating
-        if (!this.animatingCombos.has(id)) {
-          const circle = group.findOne(`#bg-${id}`) as Konva.Circle;
-          if (circle) {
-            const radius = combo.collapsed
-              ? combo.collapsedRadius
-              : combo.expandedRadius;
-            circle.radius(radius);
-            const label = group.findOne(`#label-${id}`) as Konva.Text;
-            if (label) label.y(radius + 10 * combo.scale);
+        group.opacity(hasGitChanges && !combo.gitStatus ? 0.2 : 1);
 
-            // Update Git Status Indicator position
-            const indicator = group.findOne(
-              `#git-status-${id}`,
-            ) as Konva.Circle;
-            if (indicator) {
-              indicator.x(radius * 0.7);
-              indicator.y(-radius * 0.7);
-            }
+        const circle = group.findOne(`#bg-${id}`) as Konva.Circle;
+        if (circle) {
+          const radius = combo.collapsed
+            ? combo.collapsedRadius
+            : combo.expandedRadius;
+
+          if (!this.animatingCombos.has(id)) {
+            circle.radius(radius);
+          }
+
+          const highlightColor =
+            this.customColors?.comboHighlight ||
+            (this.theme === "dark" ? "#3b82f6" : "#2563eb");
+          const fillColor = combo.getFillColor(context);
+
+          circle.fill(combo.collapsed ? fillColor : "transparent");
+          circle.stroke(
+            combo.highlighted
+              ? highlightColor
+              : this.theme === "dark"
+                ? "#555"
+                : fillColor,
+          );
+          circle.strokeWidth(combo.highlighted ? 4 * combo.scale : 2 * combo.scale);
+          circle.shadowEnabled(!!combo.highlighted);
+          circle.shadowColor(highlightColor);
+          circle.shadowBlur(40 * combo.scale);
+
+          const label = group.findOne(`#label-${id}`) as Konva.Text;
+          if (label) {
+            label.y(radius + 10 * combo.scale);
+            label.fill(
+              combo.label?.fill ||
+                this.customColors?.labelColor ||
+                (this.theme === "dark" ? "white" : "black"),
+            );
+          }
+
+          const indicator = group.findOne(`#git-status-${id}`) as Konva.Circle;
+          if (indicator) {
+            indicator.x(radius * 0.7);
+            indicator.y(-radius * 0.7);
           }
         }
       }
     });
 
-    this.items.forEach((item, id) => {
-      if (item instanceof Konva.Group && !this.combos.has(id)) {
-        const node = this.graph.getNode(id);
-        if (node) {
-          item.position({ x: node.x, y: node.y });
+    // Update Nodes
+    this.nodes.forEach((circle, id) => {
+      const node = this.graph.getNode(id);
+      const group = this.items.get(id) as Konva.Group;
+      if (node && group) {
+        group.position({ x: node.x, y: node.y });
+        group.opacity(hasGitChanges && !node.gitStatus ? 0.2 : 1);
+
+        const highlightColor =
+          this.customColors?.nodeHighlight ||
+          (this.theme === "dark" ? "#3b82f6" : "#2563eb");
+        const fillColor = node.getFillColor(context);
+
+        circle.fill(fillColor);
+        circle.stroke(node.highlighted ? highlightColor : undefined);
+        circle.strokeWidth(node.highlighted ? 2 * node.scale : 0);
+        circle.shadowEnabled(!!node.highlighted);
+        circle.shadowColor(highlightColor);
+        circle.shadowBlur(20 * node.scale);
+        circle.radius(node.radius);
+
+        const label = group.findOne(`#label-${id}`) as Konva.Text;
+        if (label) {
+          label.y(node.radius + 10 * node.scale);
+          label.fill(
+            node.label?.fill ||
+              this.customColors?.labelColor ||
+              (this.theme === "dark" ? "white" : "black"),
+          );
         }
       }
     });

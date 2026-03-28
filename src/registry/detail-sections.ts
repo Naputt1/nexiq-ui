@@ -4,6 +4,7 @@ import { PropsSection } from "@/components/details-sections/PropsSection";
 import { ChildrenSection } from "@/components/details-sections/ChildrenSection";
 import { HooksSection } from "@/components/details-sections/HooksSection";
 import { GitSection } from "@/components/details-sections/GitSection";
+import { UsagesSection } from "@/components/details-sections/UsagesSection";
 import { type GraphNodeData } from "@/graph/hook";
 
 const registry: DetailSection[] = [
@@ -45,6 +46,13 @@ const registry: DetailSection[] = [
       const item = baseItem as GraphNodeData;
       return !!(item.hooks && item.hooks.length > 0);
     },
+  },
+  {
+    id: "usages",
+    title: "Usages",
+    priority: 35,
+    component: UsagesSection,
+    shouldShow: (_baseItem) => true,
   },
   {
     id: "git",

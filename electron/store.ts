@@ -1,7 +1,8 @@
 import { app } from "electron";
 import path from "node:path";
 import fs from "node:fs";
-import type { CustomColors } from "./types";
+import type { GraphAppearance } from "./types";
+import { normalizeGraphAppearance } from "@nexiq/extension-sdk";
 
 const DATA_FILE = "recent-projects.json";
 
@@ -9,7 +10,7 @@ interface StoreData {
   recentProjects: string[];
   openProjects: string[];
   theme: "dark" | "light";
-  customColors?: CustomColors;
+  appearance?: GraphAppearance;
   autoReload: boolean;
 }
 
@@ -29,7 +30,9 @@ export class Store {
         recentProjects: parsed.recentProjects || [],
         openProjects: parsed.openProjects || [],
         theme: parsed.theme || parsed.graphTheme || "dark",
-        customColors: parsed.customColors,
+        appearance: normalizeGraphAppearance(
+          parsed.appearance || parsed.customColors,
+        ),
         autoReload: parsed.autoReload !== undefined ? parsed.autoReload : true,
       };
     } catch {
@@ -84,23 +87,25 @@ export class Store {
 
   getGlobalConfig(): {
     theme: "dark" | "light";
-    customColors?: CustomColors;
+    appearance?: GraphAppearance;
     autoReload: boolean;
   } {
     return {
       theme: this.data.theme,
-      customColors: this.data.customColors,
+      appearance: this.data.appearance,
       autoReload: this.data.autoReload,
     };
   }
 
   saveGlobalConfig(config: {
     theme: "dark" | "light";
-    customColors?: CustomColors;
+    appearance?: GraphAppearance;
     autoReload?: boolean;
   }) {
     if (config.theme) this.data.theme = config.theme;
-    if (config.customColors) this.data.customColors = config.customColors;
+    if (config.appearance) {
+      this.data.appearance = normalizeGraphAppearance(config.appearance);
+    }
     if (config.autoReload !== undefined)
       this.data.autoReload = config.autoReload;
     this.save();
