@@ -35,12 +35,48 @@ function applyUiState(
     nodes: result.nodes.map((node) => {
       const state = uiState[node.id];
       if (!state) return node;
-      return { ...node, ...state, ui: { ...(node.ui || {}), ...state } };
+
+      // For nodes, we prioritize appearanceOverride, then semantic radius,
+      // and we generally want to ignore saved UI radius to avoid "stale oversized" issues
+      // unless we explicitly want to support manual resizing in the future.
+      const appliedState = { ...state };
+      if (node.appearanceOverride) {
+        // If we have an override, we definitely don't want the saved radius
+        delete appliedState.radius;
+      }
+
+      // Special case: ALWAYS ignore saved radius for nodes to ensure semantic sizing wins
+      // unless it's an explicit override (which is handled above).
+      delete appliedState.radius;
+
+      return {
+        ...node,
+        ...appliedState,
+        ui: { ...(node.ui || {}), ...state },
+      };
     }),
     combos: result.combos.map((combo) => {
       const state = uiState[combo.id];
       if (!state) return combo;
-      return { ...combo, ...state, ui: { ...(combo.ui || {}), ...state } };
+
+      // For combos, appearanceOverride wins over saved state
+      const finalAppliedState = { ...state };
+      const override = combo.appearanceOverride;
+
+      if (override) {
+        if (override.radius != null || override.collapsedRadius != null)
+          delete finalAppliedState.radius;
+        if (override.collapsedRadius != null)
+          delete finalAppliedState.collapsedRadius;
+        if (override.expandedRadius != null)
+          delete finalAppliedState.expandedRadius;
+      }
+
+      return {
+        ...combo,
+        ...finalAppliedState,
+        ui: { ...(combo.ui || {}), ...state },
+      };
     }),
   };
 }

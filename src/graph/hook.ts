@@ -616,7 +616,11 @@ export class GraphData {
 
       const savedUi = getDeepSavedUi(c.id, parentCombo);
 
-      let radius = savedUi?.radius ?? c.radius ?? this.config.combo.minRadius;
+      let radius =
+        c.appearanceOverride?.radius ??
+        savedUi?.radius ??
+        c.radius ??
+        this.config.combo.minRadius;
       if (!savedUi?.radius) {
         radius *= scale;
       }
@@ -675,7 +679,11 @@ export class GraphData {
           n.id,
           new GraphNode({
             ...n,
-            radius: (n.ui as UIItemState)?.radius ?? (n.radius as number) ?? 20,
+            radius:
+              n.appearanceOverride?.radius ??
+              (n.ui as UIItemState)?.radius ??
+              (n.radius as number) ??
+              20,
             color: (n.color as string) ?? this.config.node.color,
             isLayoutCalculated: !!(n.ui as UIItemState)?.isLayoutCalculated,
             x:
@@ -1526,6 +1534,22 @@ export class GraphData {
     return all;
   }
 
+  public getAllEdges(): GraphArrow[] {
+    const all: GraphArrow[] = [];
+    const collect = (edges: Record<string, GraphArrow>, combos: Record<string, GraphCombo>) => {
+      for (const edge of Object.values(edges)) {
+        all.push(edge);
+      }
+      for (const combo of Object.values(combos)) {
+        if (combo.child) {
+          collect(combo.child.edges, combo.child.combos);
+        }
+      }
+    };
+    collect(Object.fromEntries(this.edges), Object.fromEntries(this.combos));
+    return all;
+  }
+
   public expandAncestors(id: string) {
     const parentId = this.comboChildMap.get(id);
     if (!parentId) return;
@@ -1781,6 +1805,10 @@ export class GraphData {
     // Trigger final updates to render everything
     this.trigger({ type: "new-combos" });
     this.trigger({ type: "new-nodes" });
+    this.trigger({ type: "new-edges" });
+  }
+
+  public refreshEdges() {
     this.trigger({ type: "new-edges" });
   }
 }

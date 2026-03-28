@@ -9,7 +9,6 @@ import { TypeRenderer } from "./type-renderer";
 import React from "react";
 import { TypeColorClasses } from "./type-colors";
 import { useConfigStore } from "@/hooks/use-config-store";
-import type { CustomColors } from "../../electron/types";
 
 interface TypeRendererProps {
   type: TypeDataRef;
@@ -26,10 +25,10 @@ export const TypeRefRenderer: React.FC<TypeRendererProps> = ({
   const { customColors } = useConfigStore();
 
   const getStyle = (key: keyof typeof TypeColorClasses) => {
-    const custom = customColors[key as keyof CustomColors];
+    const custom = customColors[key];
     return {
-      className: custom ? "" : TypeColorClasses[key],
-      style: custom ? { color: custom } : {},
+      className: typeof custom === "string" ? "" : TypeColorClasses[key],
+      style: typeof custom === "string" ? { color: custom } : {},
     };
   };
 

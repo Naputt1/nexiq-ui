@@ -4,6 +4,8 @@ import debounce from "lodash.debounce";
 import { subscribeWithSelector } from "zustand/middleware";
 import type { AppStateData } from "@nexiq/shared";
 
+type PersistedAppStateData = AppStateData;
+
 const DEFAULT = {
   SIDEBAR: {
     RIGHT: {
@@ -24,6 +26,9 @@ interface AppState {
   selectedSubProjects: string[];
   centeredItemId: string | null;
   selectedId: string | null;
+  selectedEdgeId: string | null;
+  selectedItemType: "node" | "edge" | null;
+  selected: AppStateData["selected"];
   isSidebarOpen: boolean;
   activeTab: "projects" | "git";
   selectedCommit: string | null;
@@ -41,6 +46,8 @@ interface AppState {
   toggleSubProject: (path: string) => void;
   setCenteredItemId: (id: string | null) => void;
   setSelectedId: (id: string | null) => void;
+  setSelectedEdgeId: (id: string | null) => void;
+  setSelectedItemType: (type: "node" | "edge" | null) => void;
   setIsSidebarOpen: (open: boolean) => void;
   setActiveTab: (tab: "projects" | "git") => void;
   setSelectedCommit: (commit: string | null) => void;
@@ -65,6 +72,9 @@ export const useAppStateStore = create<AppState>()(
     selectedSubProjects: [],
     centeredItemId: null,
     selectedId: null,
+    selectedEdgeId: null,
+    selectedItemType: null,
+    selected: null,
     isSidebarOpen: false,
     activeTab: "projects",
     selectedCommit: null,
@@ -86,7 +96,29 @@ export const useAppStateStore = create<AppState>()(
           : [...state.selectedSubProjects, path],
       })),
     setCenteredItemId: (id) => set({ centeredItemId: id }),
-    setSelectedId: (id) => set({ selectedId: id }),
+    setSelectedId: (id) =>
+      set({
+        selectedId: id,
+        selectedEdgeId: null,
+        selectedItemType: id ? "node" : null,
+        selected: id ? { type: "node", id } : null,
+      }),
+    setSelectedEdgeId: (id) =>
+      set({
+        selectedEdgeId: id,
+        selectedItemType: id ? "edge" : null,
+        selected: id ? { type: "edge", id } : null,
+      }),
+    setSelectedItemType: (type) =>
+      set((state) => ({
+        selectedItemType: type,
+        selected:
+          type === "node" && state.selectedId
+            ? { type: "node", id: state.selectedId }
+            : type === "edge" && state.selectedEdgeId
+              ? { type: "edge", id: state.selectedEdgeId }
+              : null,
+      })),
     setIsSidebarOpen: (open) => set({ isSidebarOpen: open }),
     setActiveTab: (tab) => set({ activeTab: tab }),
     setSelectedCommit: (commit) => set({ selectedCommit: commit }),
@@ -118,6 +150,9 @@ export const useAppStateStore = create<AppState>()(
         selectedSubProjects: [],
         centeredItemId: null,
         selectedId: null,
+        selectedEdgeId: null,
+        selectedItemType: null,
+        selected: null,
         activeTab: "projects",
         selectedCommit: null,
         viewport: null,
@@ -140,14 +175,31 @@ export const useAppStateStore = create<AppState>()(
         const state = (await window.ipcRenderer.invoke(
           "read-state",
           projectRoot,
-        )) as AppStateData | null;
+        )) as PersistedAppStateData | null;
 
         if (state) {
+          const selected =
+            state.selected ||
+            (state.selectedItemType === "edge" && state.selectedEdgeId
+              ? { type: "edge" as const, id: state.selectedEdgeId }
+              : state.selectedId
+                ? { type: "node" as const, id: state.selectedId }
+                : null);
+
           set({
             selectedSubProjects: overrideSubProjects ||
               state.selectedSubProjects || [projectRoot],
             centeredItemId: state.centeredItemId || null,
-            selectedId: state.selectedId || null,
+            selectedId:
+              selected?.type === "node"
+                ? selected.id
+                : (state.selectedId ?? null),
+            selectedEdgeId:
+              selected?.type === "edge"
+                ? selected.id
+                : (state.selectedEdgeId ?? null),
+            selectedItemType: selected?.type || state.selectedItemType || null,
+            selected,
             isSidebarOpen: state.isSidebarOpen ?? false,
             activeTab: state.activeTab || "projects",
             selectedCommit: state.selectedCommit || null,
@@ -183,6 +235,9 @@ export const useAppStateStore = create<AppState>()(
         selectedSubProjects,
         centeredItemId,
         selectedId,
+        selectedEdgeId,
+        selectedItemType,
+        selected,
         isSidebarOpen,
         activeTab,
         selectedCommit,
@@ -193,17 +248,24 @@ export const useAppStateStore = create<AppState>()(
       } = get();
       if (!isLoaded) return; // Don't save until we've loaded
 
-      await window.ipcRenderer.invoke("save-state", projectRoot, {
-        selectedSubProjects,
-        centeredItemId,
-        selectedId,
-        isSidebarOpen,
-        activeTab,
-        selectedCommit,
-        viewport,
-        view,
-        sidebar,
-      });
+      await (window.ipcRenderer.invoke as (...args: unknown[]) => Promise<void>)(
+        "save-state",
+        projectRoot,
+        {
+          selectedSubProjects,
+          centeredItemId,
+          selectedId,
+          selectedEdgeId,
+          selectedItemType,
+          selected,
+          isSidebarOpen,
+          activeTab,
+          selectedCommit,
+          viewport,
+          view,
+          sidebar,
+        },
+      );
     },
   })),
 );
@@ -217,6 +279,9 @@ export const setupAutoSave = (projectRoot: string) => {
       selectedSubProjects: state.selectedSubProjects,
       centeredItemId: state.centeredItemId,
       selectedId: state.selectedId,
+      selectedEdgeId: state.selectedEdgeId,
+      selectedItemType: state.selectedItemType,
+      selected: state.selected,
       isSidebarOpen: state.isSidebarOpen,
       activeTab: state.activeTab,
       selectedCommit: state.selectedCommit,
