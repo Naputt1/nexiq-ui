@@ -113,8 +113,9 @@ export abstract class BaseNode implements Renderable {
   ) {
     if (!this.label) return;
 
+    // TODO: optimiseation by prebuild the font
     const hiResFactor = 1; // Used 1 instead of 4 to save VRAM. `resolution: devicePixelRatio` is enough for retina handling.
-    const text = new PIXI.Text({
+    const text = new PIXI.BitmapText({
       text: this.label.text,
       style: {
         fill:
@@ -124,7 +125,6 @@ export abstract class BaseNode implements Renderable {
         fontSize: 12 * this.scale * hiResFactor,
         align: "center",
       },
-      resolution: window.devicePixelRatio || 2,
     });
 
     text.scale.set(1 / hiResFactor);
