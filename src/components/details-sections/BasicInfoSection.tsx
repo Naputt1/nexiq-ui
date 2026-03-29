@@ -41,6 +41,17 @@ export const BasicInfoSection: React.FC<DetailSectionProps> = ({ item }) => {
           <span className="text-muted-foreground">{item.tag}</span>
         </div>
       )}
+      
+      {typeof item.componentType === "string" && (
+        <div className="flex gap-2 text-xs">
+          <span className="font-semibold text-muted-foreground/80 min-w-12 text-start">
+            Type:
+          </span>
+          <span className="text-muted-foreground capitalize">
+            {item.componentType}
+          </span>
+        </div>
+      )}
     </div>
   );
 };
