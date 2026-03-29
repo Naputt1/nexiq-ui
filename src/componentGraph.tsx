@@ -13,7 +13,7 @@ import useGraph, {
   type useGraphProps,
   type GraphNodeData,
 } from "./graph/hook";
-import { GraphRenderer } from "./graph/renderer";
+import { PixiRenderer } from "./graph/pixiRenderer";
 import { ProjectSidebar } from "./components/Sidebar";
 import { RightSidebar } from "./components/RightSidebar";
 import { ZoomSlider } from "./components/ZoomSlider";
@@ -130,7 +130,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     combos: [],
   });
 
-  const rendererRef = useRef<GraphRenderer | null>(null);
+  const rendererRef = useRef<PixiRenderer | null>(null);
 
   const zoomRange = useMemo(() => {
     if (rendererRef.current) {
@@ -163,6 +163,10 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   useEffect(() => {
     if (rendererRef.current) {
       rendererRef.current.setCustomColors(customColors || {});
+      const resolvedTheme = document.documentElement.classList.contains("dark")
+        ? "dark"
+        : "light";
+      rendererRef.current.setTheme(resolvedTheme);
     }
   }, [customColors, theme]);
 
@@ -535,7 +539,9 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
         for (const edge of graph.getAllEdges()) {
           const nextHighlighted = highlightedEdgeIds.has(edge.id);
           const nextDimmed =
-            highlightedEdgeIds.size > 0 ? !highlightedEdgeIds.has(edge.id) : false;
+            highlightedEdgeIds.size > 0
+              ? !highlightedEdgeIds.has(edge.id)
+              : false;
           const nextFlowRole = directEdgeIds.has(edge.id)
             ? "direct"
             : nextHighlighted
@@ -669,7 +675,13 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
         }, 50);
       }
     },
-    [setSelectedId, setCenteredItemId, graph, resetHighlights, applyFlowHighlights],
+    [
+      setSelectedId,
+      setCenteredItemId,
+      graph,
+      resetHighlights,
+      applyFlowHighlights,
+    ],
   );
 
   const onSelectEdge = useCallback(
@@ -741,7 +753,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     if (size.width === 0 || size.height === 0) return;
 
     if (!rendererRef.current) {
-      rendererRef.current = new GraphRenderer(
+      rendererRef.current = new PixiRenderer(
         graphContainerRef.current,
         graph,
         size.width,
@@ -1171,7 +1183,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
                     />
                   )} */}
                   {(isGeneratingView || isPending) && (
-                    <div className="absolute inset-0 z-110 bg-background/50 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
+                    <div className="absolute inset-0 z-100 bg-background/50 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
                       <Loader2 className="h-10 w-10 animate-spin text-primary" />
                       <span className="text-sm font-medium text-muted-foreground animate-pulse">
                         Generating graph view...

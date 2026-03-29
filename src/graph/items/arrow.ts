@@ -1,4 +1,4 @@
-import Konva from "konva";
+import * as PIXI from "pixi.js";
 import type { BaseNode } from "./baseNode";
 import type {
   GraphArrowData,
@@ -66,18 +66,18 @@ export class GraphArrow implements Renderable {
 
     const dx = toPos.x - fromPos.x;
     const dy = toPos.y - fromPos.y;
-    const angle = Math.atan2(-dy, dx);
+    const angle = Math.atan2(dy, dx); // Fixed angle calculation for PixiJS (Y down)
 
     this.points = [
-      fromPos.x + -from.radius * Math.cos(angle + Math.PI),
-      fromPos.y + from.radius * Math.sin(angle + Math.PI),
-      toPos.x + -to.radius * Math.cos(angle),
-      toPos.y + to.radius * Math.sin(angle),
+      fromPos.x + from.radius * Math.cos(angle),
+      fromPos.y + from.radius * Math.sin(angle),
+      toPos.x - to.radius * Math.cos(angle),
+      toPos.y - to.radius * Math.sin(angle),
     ];
     this.scale = Math.min(from.scale, to.scale);
   }
 
-  render(context: RenderContext, parent: Konva.Container): Konva.Arrow {
+  render(context: RenderContext, parent: PIXI.Container): PIXI.Graphics {
     const srcNode = context.graph.getPointByID(this.source);
     const targetNode = context.graph.getPointByID(this.target);
 
@@ -97,37 +97,42 @@ export class GraphArrow implements Renderable {
             ? context.customColors?.nodeHighlight || "#2563eb"
             : getDefaultArrowColor(context.customColors, context.theme);
 
-    const arrow = new Konva.Arrow({
-      id: this.id,
-      points: this.points,
-      fill: strokeColor,
-      stroke: strokeColor,
-      strokeWidth: ((this.highlighted ? 2 : 0.5) + (this.flowRole ? 0.5 : 0)) * this.scale,
-      pointerWidth: 6 * this.scale,
-      pointerLength: 6 * this.scale,
-      lineJoin: "round",
-      perfectDrawEnabled: false,
-      listening: false,
-      visible: isVisible && this.points.length >= 4,
-      opacity: this.dimmed ? 0.15 : context.hasGitChanges ? 0.1 : 1,
-    });
+    const graphics = new PIXI.Graphics();
+    graphics.label = this.id;
+    graphics.visible = isVisible && this.points.length >= 4;
+    graphics.alpha = this.dimmed ? 0.15 : context.hasGitChanges ? 0.1 : 1;
 
-    const hitAreaId = `${this.id}:hit`;
-    const hitArea = new Konva.Line({
-      id: hitAreaId,
-      points: this.points,
-      stroke: "#000000",
-      strokeWidth: 14 * this.scale,
-      opacity: 0,
-      lineCap: "round",
-      lineJoin: "round",
-      listening: true,
-      visible: isVisible && this.points.length >= 4,
-    });
+    if (graphics.visible) {
+      this.drawArrow(graphics, strokeColor);
+    }
 
-    const handleClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
-      e.cancelBubble = true;
-      if (e.evt.ctrlKey || e.evt.metaKey) {
+    // Hit Area
+    const hitArea = new PIXI.Graphics();
+    hitArea.label = `${this.id}:hit`;
+    hitArea.interactive = true;
+    hitArea.cursor = "pointer";
+    hitArea.visible = graphics.visible;
+
+    if (hitArea.visible) {
+      const p = this.points;
+      hitArea
+        .moveTo(p[0], p[1])
+        .lineTo(p[2], p[3])
+        .stroke({
+          color: 0x000000,
+          width: 14 * this.scale,
+          alpha: 0.01,
+          cap: "round",
+          join: "round",
+        });
+    }
+
+    const handleClick = (e: PIXI.FederatedPointerEvent) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      e.stopPropagation();
+
+      const event = e.originalEvent as unknown as PointerEvent;
+      if (event.ctrlKey || event.metaKey) {
         const target = this.opensTo || this.usages[0];
         if (!target) return;
         const fileName =
@@ -145,17 +150,84 @@ export class GraphArrow implements Renderable {
       context.onSelectEdge?.(this.id, false);
     };
 
-    hitArea.on("click", handleClick);
-    hitArea.on("tap", handleClick);
+    hitArea.on("pointertap", handleClick);
 
     if (context.registerItem) {
-      context.registerItem(this.id, arrow);
-      context.registerItem(hitAreaId, hitArea);
+      context.registerItem(this.id, graphics);
+      context.registerItem(hitArea.label, hitArea);
     }
 
-    parent.add(arrow);
-    parent.add(hitArea);
+    parent.addChild(graphics);
+    parent.addChild(hitArea);
 
-    return arrow;
+    return graphics;
+  }
+
+  update(context: RenderContext, graphics: PIXI.Graphics) {
+    graphics.visible = this.visible !== false;
+    if (!graphics.visible) return;
+
+    graphics.alpha = this.dimmed ? 0.2 : 1;
+    const color = this.getArrowColor(context);
+
+    this.drawArrow(graphics, color);
+
+    const hitArea = graphics.children.find(
+      (c) => c.label === `hit-${this.id}`,
+    ) as PIXI.Graphics;
+    if (hitArea) {
+      hitArea.visible = graphics.visible;
+      if (hitArea.visible) {
+        hitArea.clear();
+        const p = this.points;
+        hitArea
+          .moveTo(p[0], p[1])
+          .lineTo(p[2], p[3])
+          .stroke({
+            color: 0x000000,
+            width: 14 * this.scale,
+            alpha: 0.01,
+            cap: "round",
+            join: "round",
+          });
+      }
+    }
+  }
+
+  getArrowColor(context: RenderContext): string | number {
+    return this.flowRole === "direct"
+      ? getDirectFlowColor(context.customColors, context.theme)
+      : this.flowRole === "side-effect"
+        ? getSideEffectFlowColor(context.customColors, context.theme)
+        : this.highlighted
+          ? context.customColors?.nodeHighlight || "#2563eb"
+          : getDefaultArrowColor(context.customColors, context.theme);
+  }
+
+  private drawArrow(graphics: PIXI.Graphics, color: string | number) {
+    const p = this.points;
+    const strokeWidth =
+      ((this.highlighted ? 2 : 0.5) + (this.flowRole ? 0.5 : 0)) * this.scale;
+
+    graphics.clear();
+    graphics.moveTo(p[0], p[1]);
+    graphics.lineTo(p[2], p[3]);
+    graphics.stroke({ color, width: strokeWidth, cap: "round", join: "round" });
+
+    // Arrow head
+    const headLength = 6 * this.scale;
+    const angle = Math.atan2(p[3] - p[1], p[2] - p[0]);
+
+    graphics.moveTo(p[2], p[3]);
+    graphics.lineTo(
+      p[2] - headLength * Math.cos(angle - Math.PI / 6),
+      p[3] - headLength * Math.sin(angle - Math.PI / 6),
+    );
+    graphics.lineTo(
+      p[2] - headLength * Math.cos(angle + Math.PI / 6),
+      p[3] - headLength * Math.sin(angle + Math.PI / 6),
+    );
+    graphics.closePath();
+    graphics.fill(color);
   }
 }

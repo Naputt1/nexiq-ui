@@ -7,7 +7,7 @@ import type {
   VariableName,
   VariableScope,
 } from "@nexiq/shared";
-import Konva from "konva";
+import * as PIXI from "pixi.js";
 import type { LabelData } from "../label";
 import type { GraphCombo } from "./combo";
 import type {
@@ -101,36 +101,41 @@ export abstract class BaseNode implements Renderable {
 
   abstract render(
     context: RenderContext,
-    parent: Konva.Container,
-  ): Konva.Group | Konva.Arrow;
+    parent: PIXI.Container,
+  ): PIXI.Container | PIXI.Graphics;
 
   abstract getFillColor(context: RenderContext): string;
 
   protected renderLabel(
-    group: Konva.Group,
+    container: PIXI.Container,
     offsetY: number,
     context: RenderContext,
   ) {
     if (!this.label) return;
 
-    const text = new Konva.Text({
-      id: `label-${this.id}`,
+    const hiResFactor = 1; // Used 1 instead of 4 to save VRAM. `resolution: devicePixelRatio` is enough for retina handling.
+    const text = new PIXI.Text({
       text: this.label.text,
-      fill:
-        this.label.fill ||
-        context.customColors?.labelColor ||
-        (context.theme === "dark" ? "white" : "black"),
-      fontSize: 12 * this.scale,
-      align: "center",
-      y: offsetY,
+      style: {
+        fill:
+          this.label.fill ||
+          context.customColors?.labelColor ||
+          (context.theme === "dark" ? "white" : "black"),
+        fontSize: 12 * this.scale * hiResFactor,
+        align: "center",
+      },
+      resolution: window.devicePixelRatio || 2,
     });
 
-    text.offsetX(text.width() / 2);
-    group.add(text);
+    text.scale.set(1 / hiResFactor);
+    text.anchor.set(0.5, 0);
+    text.y = offsetY;
+    text.label = `label-${this.id}`;
+    container.addChild(text);
   }
 
   protected renderGitStatus(
-    group: Konva.Group,
+    container: PIXI.Container,
     radius: number,
     indicatorSize: number = 4,
     context: RenderContext,
@@ -144,16 +149,13 @@ export abstract class BaseNode implements Renderable {
           ? context.customColors?.gitModified || "#f59e0b"
           : context.customColors?.gitDeleted || "#ef4444";
 
-    const indicator = new Konva.Circle({
-      id: `git-status-${this.id}`,
-      x: radius * 0.7,
-      y: -radius * 0.7,
-      radius: indicatorSize * this.scale,
-      fill: statusColor,
-      stroke: "white",
-      strokeWidth: 1 * this.scale,
-    });
-    group.add(indicator);
+    const indicator = new PIXI.Graphics()
+      .circle(radius * 0.7, -radius * 0.7, indicatorSize * this.scale)
+      .fill(statusColor)
+      .stroke({ color: 0xffffff, width: 1 * this.scale });
+
+    indicator.label = `git-status-${this.id}`;
+    container.addChild(indicator);
   }
 
   getAbsolutePosition(): GraphItemPosition {
