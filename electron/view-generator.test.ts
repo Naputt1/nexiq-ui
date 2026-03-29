@@ -24,7 +24,9 @@ vi.mock("../src/views/registry", () => ({
       id: "test-task",
       priority: 1,
       run: (_data: GraphViewResult): GraphViewResult => ({
-        nodes: [{ id: "symbol:App", name: "App", ui: { existing: true }, radius: 20 } as any],
+        nodes: [
+          { id: "symbol:App", name: "App", ui: { existing: true }, radius: 20 },
+        ],
         edges: [],
         combos: [
           {
@@ -33,7 +35,7 @@ vi.mock("../src/views/registry", () => ({
             radius: 40,
             collapsedRadius: 40,
             expandedRadius: 100,
-          } as any,
+          },
         ],
         typeData: {},
       }),
@@ -211,7 +213,7 @@ describe("view-generator", () => {
               name: "Node 1",
               appearanceOverride: { color: "red", radius: 50 },
               radius: 50,
-            } as any,
+            },
           ],
         }),
       },
@@ -247,7 +249,7 @@ describe("view-generator", () => {
               appearanceOverride: { collapsedRadius: 60, expandedRadius: 120 },
               collapsedRadius: 60,
               expandedRadius: 120,
-            } as any,
+            },
           ],
         }),
       },
