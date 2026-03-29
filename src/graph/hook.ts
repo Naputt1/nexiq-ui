@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 // Graph Data Types
 // Graph Data Class
-import type Konva from "konva";
+import * as PIXI from "pixi.js";
 
 import {
   GraphNode,
@@ -69,8 +69,8 @@ export interface GraphComboHookBase extends GraphComboData {
 export interface GraphComboHook extends GraphComboHookBase {
   comboRadiusChange: (id: string, radius: number) => void;
   comboCollapsed: (id: string) => void;
-  comboDragMove: (id: string, e: Konva.KonvaEventObject<DragEvent>) => void;
-  comboDragEnd: (id: string, e: Konva.KonvaEventObject<DragEvent>) => void;
+  comboDragMove: (id: string, e: PIXI.FederatedPointerEvent) => void;
+  comboDragEnd: (id: string, e: PIXI.FederatedPointerEvent) => void;
   comboHover: () => void;
 }
 
@@ -424,7 +424,7 @@ export class GraphData {
             };
           });
         },
-        comboDragMove: (id: string, e: Konva.KonvaEventObject<DragEvent>) => {
+        comboDragMove: (id: string, e: PIXI.FederatedPointerEvent) => {
           this.comboDragMove(id, e);
           const combo = this.getComboHook(id);
           if (combo == null) return;
@@ -438,7 +438,7 @@ export class GraphData {
             };
           });
         },
-        comboDragEnd: (id: string, e: Konva.KonvaEventObject<DragEvent>) => {
+        comboDragEnd: (id: string, e: PIXI.FederatedPointerEvent) => {
           this.comboDragEnd(id, e);
         },
         comboRadiusChange: (id: string, radius: number) => {
@@ -1173,15 +1173,15 @@ export class GraphData {
     }
   }
 
-  public comboDragMove(id: string, e: Konva.KonvaEventObject<DragEvent>) {
+  public comboDragMove(id: string, e: PIXI.FederatedPointerEvent) {
     const combo = this.getComboByID(id);
     if (combo == null) {
       console.error("comboDragMove: combo not found");
       return;
     }
 
-    combo.x = e.target.x();
-    combo.y = e.target.y();
+    combo.x = e.target.x;
+    combo.y = e.target.y;
 
     const edgeIds = this.getComboEdges(id);
     this.updateEdgePos(edgeIds);
@@ -1221,7 +1221,7 @@ export class GraphData {
     }
   }
 
-  public comboDragEnd(id: string, _e: Konva.KonvaEventObject<DragEvent>) {
+  public comboDragEnd(id: string, _e: PIXI.FederatedPointerEvent) {
     this.trigger({
       type: "combo-drag-end",
       id: id,
@@ -1231,7 +1231,7 @@ export class GraphData {
   public comboChildNodeMove(
     id: string,
     nodeId: string,
-    e: Konva.KonvaEventObject<DragEvent>,
+    e: PIXI.FederatedPointerEvent,
   ) {
     const combo = this.getComboByID(id);
     if (combo == null) {
@@ -1245,8 +1245,8 @@ export class GraphData {
       return;
     }
 
-    node.x = e.target.x();
-    node.y = e.target.y();
+    node.x = e.target.x;
+    node.y = e.target.y;
 
     const edgeIds = new Set<string>();
 
@@ -1536,7 +1536,10 @@ export class GraphData {
 
   public getAllEdges(): GraphArrow[] {
     const all: GraphArrow[] = [];
-    const collect = (edges: Record<string, GraphArrow>, combos: Record<string, GraphCombo>) => {
+    const collect = (
+      edges: Record<string, GraphArrow>,
+      combos: Record<string, GraphCombo>,
+    ) => {
       for (const edge of Object.values(edges)) {
         all.push(edge);
       }
@@ -1598,12 +1601,12 @@ export class GraphData {
     return this.curRender.edges[id];
   }
 
-  public nodeDragMove(nodeId: string, e: Konva.KonvaEventObject<DragEvent>) {
+  public nodeDragMove(nodeId: string, e: PIXI.FederatedPointerEvent) {
     const node = this.nodes.get(nodeId);
     if (!node) return;
 
-    node.x = e.target.x();
-    node.y = e.target.y();
+    node.x = e.target.x;
+    node.y = e.target.y;
 
     const edgeIds = new Set<string>();
     const ids = this.getComboEdges(nodeId);
@@ -1621,7 +1624,7 @@ export class GraphData {
     });
   }
 
-  public nodeDragEnd(nodeId: string, _e: Konva.KonvaEventObject<DragEvent>) {
+  public nodeDragEnd(nodeId: string, _e: PIXI.FederatedPointerEvent) {
     this.trigger({
       type: "node-drag-end",
       id: nodeId,
@@ -1706,6 +1709,10 @@ export class GraphData {
     edges: {},
     combos: {},
   };
+
+  public getCurRender(): CurRender {
+    return this.curRender;
+  }
 
   public getCurNodes(): Record<string, GraphNode> {
     return this.curRender.nodes;
