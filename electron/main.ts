@@ -1040,12 +1040,21 @@ async function resolveSqlitePath(
   analysisPath?: string,
   analysisPaths?: string[],
 ) {
-  const paths =
+  const rawPaths =
     analysisPaths && analysisPaths.length > 0
       ? [...analysisPaths].sort()
       : analysisPath
         ? [analysisPath]
         : [projectRoot];
+
+  // Convert absolute paths to relative to projectRoot for the backend if they are inside projectRoot
+  const paths = rawPaths.map((p) => {
+    if (path.isAbsolute(p) && p.startsWith(projectRoot)) {
+      const relative = path.relative(projectRoot, p);
+      return relative === "" ? projectRoot : relative;
+    }
+    return p;
+  });
 
   const targetId =
     paths.length === 1 && paths[0] === projectRoot
