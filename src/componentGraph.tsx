@@ -39,6 +39,7 @@ import { useGitStore } from "./hooks/useGitStore";
 import { useConfigStore } from "./hooks/use-config-store";
 import { useWorkerStore } from "./hooks/use-worker-store";
 import { useViewportUiStore } from "./hooks/use-viewport-ui-store";
+import { useGraphProfilerStore } from "./hooks/use-graph-profiler-store";
 import { extractUIState } from "./graph/utils/ui-state";
 import type { GenerateViewRequest } from "./views/types";
 import {
@@ -57,6 +58,7 @@ import type { FileAnalysisErrorRow, ResolveErrorRow } from "../electron/types";
 import { Card } from "./components/ui/card";
 import { ViewSwitcher } from "./components/ViewSwitcher";
 import type { GraphViewBufferView } from "./view-snapshot/codec";
+import { useRegisterZustandStore } from "@sucoza/zustand-devtools-plugin";
 
 interface ComponentGraphProps {
   projectPath: string;
@@ -98,6 +100,10 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
 
   const [isGeneratingView, setIsGeneratingView] = useState(false);
   const [isPending, startTransition] = useTransition();
+
+  useRegisterZustandStore("WorkerStore", useWorkerStore);
+  useRegisterZustandStore("AppStateStore", useAppStateStore);
+  useRegisterZustandStore("GraphProfilerStore", useGraphProfilerStore);
 
   // Persistence bridge for useDefaultLayout
   const storage = useMemo(
@@ -157,6 +163,9 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   const [sourceContent, setSourceContent] = useState("");
   const [fileErrors, setFileErrors] = useState<FileAnalysisErrorRow[]>([]);
   const [resolveErrors, setResolveErrors] = useState<ResolveErrorRow[]>([]);
+  const [activeProfileRunId, setActiveProfileRunId] = useState<string | null>(
+    null,
+  );
   const sourceContentCacheRef = useRef(new Map<string, string>());
 
   const graphContainerRef = useRef<HTMLDivElement>(null);
@@ -223,6 +232,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   const rawDiffRef = useRef<AnalyzedDiff | null>(null);
   const snapshotKeyRef = useRef<string | null>(null);
   const viewRequestIdRef = useRef(0);
+  const activeProfileRunIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     setBackendAvailable(true);
@@ -244,6 +254,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
 
       const requestId = ++viewRequestIdRef.current;
       setIsGeneratingView(true);
+      const requestStartedAt = performance.now();
 
       try {
         let request: GenerateViewRequest;
@@ -311,13 +322,44 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
             resultHandle = await openViewResultSnapshot(request);
           }
         }
+        const runId = `${resultHandle.key}:${resultHandle.version}`;
+        activeProfileRunIdRef.current = runId;
+        setActiveProfileRunId(runId);
+        const byteLength = new Int32Array(resultHandle.metaBuffer)[2] ?? 0;
+        useGraphProfilerStore.getState().upsertRun({
+          id: runId,
+          key: resultHandle.key,
+          projectRoot: projectPath,
+          view,
+          startedAt: Date.now(),
+          byteLength,
+        });
+        useGraphProfilerStore.getState().setByteLength(runId, byteLength);
+        useGraphProfilerStore.getState().addStage(runId, {
+          name: "Handle request + transfer",
+          durationMs: performance.now() - requestStartedAt,
+          source: "renderer",
+          detail: `${(byteLength / 1024).toFixed(1)} KB`,
+        });
+        const decodeStartedAt = performance.now();
         const result = readViewResultData(resultHandle);
+        useGraphProfilerStore.getState().addStage(runId, {
+          name: "Decode view buffer",
+          durationMs: performance.now() - decodeStartedAt,
+          source: "renderer",
+          detail: `${result.nodeCount} nodes, ${result.edgeCount} edges, ${result.comboCount} combos`,
+        });
         if (requestId !== viewRequestIdRef.current) {
           return;
         }
 
         settypeData(result.getTypeData());
         setGraphViewBuffer(result);
+        useGraphProfilerStore.getState().addStage(runId, {
+          name: "Attach graph buffer",
+          durationMs: 0,
+          source: "renderer",
+        });
       } catch (err) {
         console.error(err);
       } finally {
@@ -341,6 +383,10 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     projectPath,
     targetPath: selectedSubProjects[0] || projectPath,
   });
+
+  useEffect(() => {
+    graph.setProfileRunId(activeProfileRunId);
+  }, [graph, activeProfileRunId]);
 
   const debouncedRender = useMemo(
     () =>
@@ -814,6 +860,15 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
           if (!rendererRef.current?.viewportChangeInProgress) {
             setViewport(vp);
           }
+        },
+        (durationMs) => {
+          const runId = activeProfileRunIdRef.current;
+          if (!runId) return;
+          useGraphProfilerStore.getState().addStage(runId, {
+            name: "Pixi render",
+            durationMs,
+            source: "renderer",
+          });
         },
         document.documentElement.classList.contains("dark") ? "dark" : "light",
         customColors,
