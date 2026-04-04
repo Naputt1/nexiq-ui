@@ -5225,10 +5225,7 @@ snapshots:
       '@tybys/wasm-util': 0.10.1
     optional: true
 
-  '@nexiq/shared@file:../nexiq/packages/shared':
-    dependencies:
-      fast-glob: 3.3.3
-      js-yaml: 4.1.1
+  '@nexiq/shared@file:../nexiq/packages/shared': {}
 
   '@node-rs/xxhash-android-arm-eabi@1.7.6':
     optional: true
