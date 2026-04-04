@@ -39,10 +39,14 @@ interface IncomingWorkerMessage extends LargeDataUpdateEvent {
     | "inline-error"
     | "snapshot-error";
   requestId?: string;
+  profilerRunId?: string;
   encoded?: Uint8Array;
   stages?: {
+    id: string;
     name: string;
-    durationMs: number;
+    startMs: number;
+    endMs: number;
+    parentId?: string;
     detail?: string;
   }[];
 }
@@ -60,8 +64,11 @@ interface InlineRequest {
   resolve: (payload: {
     encoded: Uint8Array;
     stages?: {
+      id: string;
       name: string;
-      durationMs: number;
+      startMs: number;
+      endMs: number;
+      parentId?: string;
       detail?: string;
     }[];
   }) => void;
@@ -283,7 +290,14 @@ export class GraphSnapshotManager {
     message: OutgoingWorkerMessage,
   ): Promise<{
     encoded: Uint8Array;
-    stages?: { name: string; durationMs: number; detail?: string }[];
+    stages?: {
+      id: string;
+      name: string;
+      startMs: number;
+      endMs: number;
+      parentId?: string;
+      detail?: string;
+    }[];
   }> {
     const controllerId = this.getControllerId(kind, key);
     const existing = this.controllers.get(controllerId);
