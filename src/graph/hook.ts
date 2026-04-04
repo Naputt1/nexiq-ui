@@ -22,13 +22,14 @@ export {
   type GraphArrowData,
   type CurRender,
 };
-import { type Node, type Edge } from "./layout";
 import { type UIItemState } from "@nexiq/shared";
+import type { GraphViewBufferView } from "../view-snapshot/codec";
 
 export type useGraphProps = {
   nodes?: GraphNodeData[];
   edges?: GraphArrowData[];
   combos?: GraphComboData[];
+  viewBuffer?: GraphViewBufferView | null;
   config?: GraphDataConfig;
   projectPath?: string;
   targetPath?: string;
@@ -122,6 +123,7 @@ export class GraphData {
   private nodeToCreate: GraphNodeData[] = [];
   private edgeToCreate: GraphArrowData[] = [];
   private edgeIds: Record<string, Set<string>> = {};
+  private layoutRequestOrder = new Map<string, string[]>();
 
   private config: GraphDataConfig;
 
@@ -159,17 +161,20 @@ export class GraphData {
     this.targetPath = targetPath;
     this.worker = new LayoutWorker();
     this.worker.onmessage = (e: MessageEvent) => {
-      const { type, id, nodes } = e.data as LayoutResponse;
+      const { type, id, positions } = e.data as LayoutResponse;
       if (type === "layout-result") {
         this.layoutInProgress.delete(id);
+        const order = this.layoutRequestOrder.get(id) ?? [];
+        this.layoutRequestOrder.delete(id);
         this.batch(() => {
           if (id === "root") {
-            for (const n of nodes) {
-              if (n.id === this.draggingId) continue;
-              const node = this.getPointByID(n.id);
+            for (let index = 0; index < order.length; index += 1) {
+              const pointId = order[index];
+              if (pointId === this.draggingId) continue;
+              const node = this.getPointByID(pointId);
               if (node) {
-                node.x = n.x;
-                node.y = n.y;
+                node.x = positions[index * 2] ?? node.x;
+                node.y = positions[index * 2 + 1] ?? node.y;
                 if (!("collapsedRadius" in node)) {
                   node.isLayoutCalculated = true;
                 }
@@ -177,8 +182,8 @@ export class GraphData {
             }
 
             const edgeIds = new Set<string>();
-            for (const n of nodes) {
-              const ids = this.getComboEdges(n.id);
+            for (const pointId of order) {
+              const ids = this.getComboEdges(pointId);
               for (const edgeId of ids) {
                 edgeIds.add(edgeId);
               }
@@ -192,13 +197,14 @@ export class GraphData {
           } else {
             const combo = this.getComboByID(id);
             if (combo) {
-              for (const n of nodes) {
-                if (n.id === this.draggingId) continue;
+              for (let index = 0; index < order.length; index += 1) {
+                const pointId = order[index];
+                if (pointId === this.draggingId) continue;
                 const node =
-                  combo.child?.nodes[n.id] ?? combo.child?.combos[n.id];
+                  combo.child?.nodes[pointId] ?? combo.child?.combos[pointId];
                 if (node) {
-                  node.x = n.x;
-                  node.y = n.y;
+                  node.x = positions[index * 2] ?? node.x;
+                  node.y = positions[index * 2 + 1] ?? node.y;
                   if (!("collapsedRadius" in node)) {
                     node.isLayoutCalculated = true;
                   }
@@ -206,8 +212,8 @@ export class GraphData {
               }
 
               const edgeIds = new Set<string>();
-              for (const n of nodes) {
-                const ids = this.getComboEdges(n.id);
+              for (const pointId of order) {
+                const ids = this.getComboEdges(pointId);
                 for (const edgeId of ids) {
                   edgeIds.add(edgeId);
                 }
@@ -358,6 +364,31 @@ export class GraphData {
     });
   }
 
+  public setDataFromViewBuffer(
+    viewBuffer: GraphViewBufferView,
+    projectPath?: string,
+    targetPath?: string,
+  ) {
+    if (projectPath) this.projectPath = projectPath;
+    if (targetPath) this.targetPath = targetPath;
+
+    this.batch(() => {
+      this.clear();
+      const combos = Array.from({ length: viewBuffer.comboCount }, (_, index) =>
+        viewBuffer.getCombo(index),
+      );
+      const nodes = Array.from({ length: viewBuffer.nodeCount }, (_, index) =>
+        viewBuffer.getNode(index),
+      );
+      const edges = Array.from({ length: viewBuffer.edgeCount }, (_, index) =>
+        viewBuffer.getEdge(index),
+      );
+      this.addCombos(combos);
+      this.addNodes(nodes);
+      this.addEdges(edges);
+    });
+  }
+
   private getComboHook(id: string): GraphComboHookBase | undefined {
     const combo = this.getComboByID(id);
     if (combo == null) return;
@@ -486,55 +517,61 @@ export class GraphData {
     // But persistence layer should set isLayoutCalculated = true if loaded.
 
     // If not calculated, send to worker
-    const nodes: Node[] = [];
-    const edges: Edge[] = [];
+    const points = [
+      ...Object.values(combo.child?.nodes ?? {}),
+      ...Object.values(combo.child?.combos ?? {}),
+    ];
+    const pointIndex = new Map(points.map((point, index) => [point.id, index]));
+    const positions = new Float32Array(points.length * 2);
+    const radii = new Float32Array(points.length);
+    const fixed = new Uint8Array(points.length);
+    const edgePairs = Object.values(combo.child?.edges ?? {}).filter(
+      (edge) =>
+        pointIndex.has(edge.source) && pointIndex.has(edge.target),
+    );
+    const sources = new Uint32Array(edgePairs.length);
+    const targets = new Uint32Array(edgePairs.length);
 
-    for (const n of Object.values(combo.child?.nodes ?? {})) {
-      nodes.push({
-        id: n.id,
-        x: n.x, // Pass existing X if available (from persistence)
-        y: n.y,
-        radius: n.radius,
-        fixed: n.id === this.draggingId || n.id === fixedId,
-      });
+    for (let index = 0; index < points.length; index += 1) {
+      const point = points[index];
+      positions[index * 2] = point.x;
+      positions[index * 2 + 1] = point.y;
+      radii[index] = Number(
+        "collapsedRadius" in point ? point.expandedRadius : point.radius,
+      );
+      fixed[index] = point.id === this.draggingId || point.id === fixedId ? 1 : 0;
     }
 
-    for (const c of Object.values(combo.child?.combos ?? {})) {
-      nodes.push({
-        id: c.id,
-        x: c.x,
-        y: c.y,
-        radius: c.expandedRadius,
-        fixed: c.id === this.draggingId || c.id === fixedId,
-      });
+    for (let index = 0; index < edgePairs.length; index += 1) {
+      const edge = edgePairs[index];
+      sources[index] = pointIndex.get(edge.source)!;
+      targets[index] = pointIndex.get(edge.target)!;
     }
 
-    for (const e of Object.values(combo.child?.edges ?? {})) {
-      edges.push({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-      });
-    }
-
+    this.layoutRequestOrder.set(combo.id, points.map((point) => point.id));
     this.worker.postMessage({
       type: "layout",
       id: combo.id,
-      nodes,
-      edges,
+      nodeIds: points.map((point) => point.id),
+      positions,
+      radii,
+      fixed,
+      sources,
+      targets,
       options: {
         repulsionStrength: 250 * combo.scale,
-        linkDistance: 25 * combo.scale,
+        linkDistance: 22 * combo.scale,
+        attractionStrength: 0.18,
         damping: 0.8,
-        gravity: 0.05,
+        gravity: 0.04,
         timeStep: 0.02,
         minNodeDistance: 25 * combo.scale,
         collisionStrength: 2,
         alpha: 1.0,
         alphaDecay: 0.005,
       },
-      iterations: 2000,
-    } as LayoutRequest);
+      iterations: 1200,
+    } satisfies LayoutRequest);
   }
 
   private _addChildEdge(e: GraphArrowData): boolean {
@@ -1664,51 +1701,59 @@ export class GraphData {
       return;
     }
 
-    const nodes: Node[] = [];
-    const edges: Edge[] = [];
+    const points = [
+      ...Array.from(this.nodes.values()),
+      ...Array.from(this.combos.values()),
+    ];
+    const pointIndex = new Map(points.map((point, index) => [point.id, index]));
+    const positions = new Float32Array(points.length * 2);
+    const radii = new Float32Array(points.length);
+    const fixed = new Uint8Array(points.length);
+    const edgePairs = Array.from(this.edges.values()).filter(
+      (edge) =>
+        pointIndex.has(edge.source) && pointIndex.has(edge.target),
+    );
+    const sources = new Uint32Array(edgePairs.length);
+    const targets = new Uint32Array(edgePairs.length);
 
-    for (const n of Array.from(this.nodes.values())) {
-      nodes.push({
-        id: n.id,
-        x: n.x,
-        y: n.y,
-        radius: n.radius,
-        fixed: n.id === this.draggingId || n.id === fixedId,
-      });
+    for (let index = 0; index < points.length; index += 1) {
+      const point = points[index];
+      positions[index * 2] = point.x;
+      positions[index * 2 + 1] = point.y;
+      radii[index] = Number(
+        "collapsedRadius" in point ? point.expandedRadius : point.radius,
+      );
+      fixed[index] = point.id === this.draggingId || point.id === fixedId ? 1 : 0;
     }
 
-    for (const c of Array.from(this.combos.values())) {
-      nodes.push({
-        id: c.id,
-        x: c.x,
-        y: c.y,
-        radius: c.expandedRadius,
-        fixed: c.id === this.draggingId || c.id === fixedId,
-      });
+    for (let index = 0; index < edgePairs.length; index += 1) {
+      const edge = edgePairs[index];
+      sources[index] = pointIndex.get(edge.source)!;
+      targets[index] = pointIndex.get(edge.target)!;
     }
 
-    for (const e of Array.from(this.edges.values())) {
-      edges.push({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-      });
-    }
-
+    this.layoutRequestOrder.set("root", points.map((point) => point.id));
     this.worker.postMessage({
       type: "layout",
       id: "root",
-      nodes,
-      edges,
-      iterations: 2000,
+      nodeIds: points.map((point) => point.id),
+      positions,
+      radii,
+      fixed,
+      sources,
+      targets,
+      iterations: 1200,
       options: {
         minNodeDistance: 200,
-        gravity: 0.5,
-        repulsionStrength: 1000,
+        linkDistance: 110,
+        attractionStrength: 0.16,
+        gravity: 0.18,
+        repulsionStrength: 1300,
+        collisionStrength: 1.2,
         alpha: 1.0,
-        alphaDecay: 0.001,
+        alphaDecay: 0.002,
       },
-    });
+    } satisfies LayoutRequest);
 
     // Populate curRender immediately with current positions (even if not laid out yet)
     // or we might wait? But render() initializes curRender.
@@ -1834,6 +1879,7 @@ const useGraph: (option: useGraphProps) => GraphData = ({
   nodes = [],
   edges = [],
   combos = [],
+  viewBuffer = null,
   config,
   projectPath,
   targetPath,
@@ -1843,8 +1889,12 @@ const useGraph: (option: useGraphProps) => GraphData = ({
   );
 
   useEffect(() => {
+    if (viewBuffer) {
+      data.setDataFromViewBuffer(viewBuffer, projectPath, targetPath);
+      return;
+    }
     data.setData(nodes, edges, combos, projectPath, targetPath);
-  }, [nodes, edges, combos, projectPath, targetPath, data]);
+  }, [nodes, edges, combos, viewBuffer, projectPath, targetPath, data]);
 
   // Register graph instance for devtools
   useEffect(() => {

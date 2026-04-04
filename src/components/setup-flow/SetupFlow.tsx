@@ -29,8 +29,12 @@ export function SetupFlow({ onComplete }: SetupFlowProps) {
           : [path];
 
       if (status.hasConfig) {
-        await window.ipcRenderer.invoke("analyze-project", savedPaths, path);
         onComplete(path, savedPaths);
+        void window.ipcRenderer
+          .invoke("analyze-project", savedPaths, path)
+          .catch((analysisError) => {
+            console.error("Background analysis failed", analysisError);
+          });
         return;
       }
 
