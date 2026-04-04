@@ -172,12 +172,24 @@ export class GraphData {
         const startedAt = this.layoutRequestStartedAt.get(id);
         this.layoutRequestStartedAt.delete(id);
         if (this.profileRunId && startedAt != null) {
-          useGraphProfilerStore.getState().addStage(this.profileRunId, {
-            name: id === "root" ? "Root layout" : `Combo layout: ${id}`,
-            durationMs: performance.now() - startedAt,
-            source: "renderer",
-            detail: `${order.length} items`,
-          });
+          const store = useGraphProfilerStore.getState();
+          const run = store.runs.find((entry) => entry.id === this.profileRunId);
+          const baseStartMs =
+            run?.stages.reduce(
+              (max, stage) => Math.max(max, stage.endMs),
+              0,
+            ) ?? 0;
+          const durationMs = performance.now() - startedAt;
+          store.mergeStages(this.profileRunId, [
+            {
+              id: id === "root" ? "renderer:root-layout" : `renderer:combo-layout:${id}`,
+              name: id === "root" ? "Root layout" : `Combo layout: ${id}`,
+              startMs: baseStartMs,
+              endMs: baseStartMs + durationMs,
+              source: "renderer",
+              detail: `${order.length} items`,
+            },
+          ]);
         }
         this.batch(() => {
           if (id === "root") {

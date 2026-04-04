@@ -34,6 +34,7 @@ interface RefreshMessage {
 interface GenerateViewMessage {
   type: "generate-view";
   requestId: string;
+  profilerRunId?: string;
   kind: "view-result";
   projectRoot: string;
   analysisPath?: string;
@@ -45,14 +46,18 @@ interface GenerateViewMessage {
 }
 
 interface ProfileStage {
+  id: string;
   name: string;
-  durationMs: number;
+  startMs: number;
+  endMs: number;
+  parentId?: string;
   detail?: string;
 }
 
 interface DiffAnalysisMessage {
   type: "diff-analysis";
   requestId: string;
+  profilerRunId?: string;
   kind: "diff-analysis";
   projectRoot: string;
   selectedCommit: string | null;
@@ -133,24 +138,30 @@ async function handleGenerateView(message: GenerateViewMessage) {
     });
     const computeDurationMs = performance.now() - generationStartedAt;
 
-    const encodeStartedAt = performance.now();
     const encoded = encodeGraphViewSnapshot(viewGeneration.result);
+    const totalDurationMs = performance.now() - generationStartedAt;
     const stages: ProfileStage[] = [
       ...viewGeneration.stages,
       {
+        id: "worker:view-compute",
         name: "Compute graph view",
-        durationMs: computeDurationMs,
+        startMs: 0,
+        endMs: computeDurationMs,
         detail: `${viewGeneration.result.nodes.length} nodes, ${viewGeneration.result.edges.length} edges, ${viewGeneration.result.combos.length} combos`,
       },
       {
+        id: "worker:encode-view-buffer",
         name: "Encode view buffer",
-        durationMs: performance.now() - encodeStartedAt,
+        startMs: computeDurationMs,
+        endMs: totalDurationMs,
+        parentId: "main:request-inline-result",
         detail: `${encoded.byteLength} bytes`,
       },
     ];
     parentPort?.postMessage({
       type: "inline-result",
       requestId: message.requestId,
+      profilerRunId: message.profilerRunId,
       kind: message.kind,
       encoded,
       stages,
@@ -200,19 +211,27 @@ async function handleDiffAnalysis(message: DiffAnalysisMessage) {
 
     const encodeStartedAt = performance.now();
     const encoded = encodeGraphSnapshot(snapshotData);
+    const encodeDurationMs = performance.now() - encodeStartedAt;
+    const totalDurationMs = performance.now() - diffStartedAt;
+    const computeDurationMs = totalDurationMs - encodeDurationMs;
     parentPort?.postMessage({
       type: "inline-result",
       requestId: message.requestId,
+      profilerRunId: message.profilerRunId,
       kind: message.kind,
       encoded,
       stages: [
         {
+          id: "worker:diff-analysis",
           name: "Compute diff analysis",
-          durationMs: performance.now() - diffStartedAt,
+          startMs: 0,
+          endMs: computeDurationMs,
         },
         {
+          id: "worker:encode-diff-snapshot",
           name: "Encode diff snapshot",
-          durationMs: performance.now() - encodeStartedAt,
+          startMs: computeDurationMs,
+          endMs: totalDurationMs,
           detail: `${encoded.byteLength} bytes`,
         },
       ],

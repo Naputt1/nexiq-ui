@@ -253,6 +253,26 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
       if (!targetPath) return;
 
       const requestId = ++viewRequestIdRef.current;
+      const logicalKey = JSON.stringify({
+        projectRoot: projectPath,
+        targetPath,
+        selectedCommit: selectedCommit ?? null,
+        activeTab,
+        subPath: subPath ?? null,
+        view,
+      });
+      const profilerRunId = `${logicalKey}::${requestId}`;
+      activeProfileRunIdRef.current = profilerRunId;
+      setActiveProfileRunId(profilerRunId);
+      useGraphProfilerStore.getState().startRun({
+        id: profilerRunId,
+        logicalKey,
+        key: targetPath,
+        projectRoot: projectPath,
+        view,
+        startedAt: Date.now(),
+        status: "in_progress",
+      });
       setIsGeneratingView(true);
       const requestStartedAt = performance.now();
 
@@ -266,6 +286,8 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
             selectedCommit: selectedCommit ?? null,
             subPath,
             refreshHandle: options?.refreshHandle,
+            profilerRunId,
+            profilerLogicalKey: logicalKey,
           };
           if (options?.refreshHandle) {
             await refreshLargeData("diff-analysis", diffArgs);
@@ -276,6 +298,10 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
                 projectPath,
                 selectedCommit ?? null,
                 subPath,
+                {
+                  profilerRunId,
+                  profilerLogicalKey: logicalKey,
+                },
               );
           const diffData = readLargeData(diffHandle);
           rawDiffRef.current = diffData.diff ?? null;
@@ -285,6 +311,8 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
             selectedCommit: selectedCommit ?? null,
             subPath,
             refreshHandle: options?.refreshHandle,
+            profilerRunId,
+            profilerLogicalKey: logicalKey,
           };
           if (options?.refreshHandle) {
             await refreshLargeData("view-result", request);
@@ -311,6 +339,8 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
             analysisPath: resolvedAnalysisPath,
             analysisPaths: selectedSubProjects,
             refreshHandle: options?.refreshHandle,
+            profilerRunId,
+            profilerLogicalKey: logicalKey,
           };
           if (options?.refreshHandle) {
             await refreshLargeData("view-result", request);
@@ -322,46 +352,64 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
             resultHandle = await openViewResultSnapshot(request);
           }
         }
-        const runId = `${resultHandle.key}:${resultHandle.version}`;
-        activeProfileRunIdRef.current = runId;
-        setActiveProfileRunId(runId);
         const byteLength = new Int32Array(resultHandle.metaBuffer)[2] ?? 0;
-        useGraphProfilerStore.getState().upsertRun({
-          id: runId,
+        useGraphProfilerStore.getState().updateRun(profilerRunId, {
           key: resultHandle.key,
-          projectRoot: projectPath,
-          view,
-          startedAt: Date.now(),
           byteLength,
+          handleVersion: resultHandle.version,
         });
-        useGraphProfilerStore.getState().setByteLength(runId, byteLength);
-        useGraphProfilerStore.getState().addStage(runId, {
-          name: "Renderer handle wait",
-          durationMs: performance.now() - requestStartedAt,
-          source: "renderer",
-          detail: `${(byteLength / 1024).toFixed(1)} KB`,
-        });
+        useGraphProfilerStore.getState().mergeStages(profilerRunId, [
+          {
+            id: "renderer:handle-wait",
+            name: "Renderer handle wait",
+            startMs: 0,
+            endMs: performance.now() - requestStartedAt,
+            source: "renderer",
+            detail: `${(byteLength / 1024).toFixed(1)} KB`,
+          },
+        ]);
         const decodeStartedAt = performance.now();
         const result = readViewResultData(resultHandle);
-        useGraphProfilerStore.getState().addStage(runId, {
-          name: "Decode view buffer",
-          durationMs: performance.now() - decodeStartedAt,
-          source: "renderer",
-          detail: `${result.nodeCount} nodes, ${result.edgeCount} edges, ${result.comboCount} combos`,
-        });
+        const decodeEndMs = performance.now() - requestStartedAt;
+        useGraphProfilerStore.getState().mergeStages(profilerRunId, [
+          {
+            id: "renderer:decode-view-buffer",
+            name: "Decode view buffer",
+            startMs: decodeStartedAt - requestStartedAt,
+            endMs: decodeEndMs,
+            source: "renderer",
+            parentId: "renderer:handle-wait",
+            detail: `${result.nodeCount} nodes, ${result.edgeCount} edges, ${result.comboCount} combos`,
+          },
+        ]);
         if (requestId !== viewRequestIdRef.current) {
+          useGraphProfilerStore.getState().completeRun(profilerRunId, {
+            status: "superseded",
+          });
           return;
         }
 
         settypeData(result.getTypeData());
         setGraphViewBuffer(result);
-        useGraphProfilerStore.getState().addStage(runId, {
-          name: "Attach graph buffer",
-          durationMs: 0,
-          source: "renderer",
+        const attachEndMs = performance.now() - requestStartedAt;
+        useGraphProfilerStore.getState().mergeStages(profilerRunId, [
+          {
+            id: "renderer:attach-graph-buffer",
+            name: "Attach graph buffer",
+            startMs: decodeEndMs,
+            endMs: attachEndMs,
+            source: "renderer",
+            parentId: "renderer:handle-wait",
+          },
+        ]);
+        useGraphProfilerStore.getState().completeRun(profilerRunId, {
+          status: "completed",
         });
       } catch (err) {
         console.error(err);
+        useGraphProfilerStore.getState().completeRun(profilerRunId, {
+          status: "failed",
+        });
       } finally {
         if (requestId === viewRequestIdRef.current) {
           setIsGeneratingView(false);
@@ -864,11 +912,20 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
         (durationMs) => {
           const runId = activeProfileRunIdRef.current;
           if (!runId) return;
-          useGraphProfilerStore.getState().addStage(runId, {
-            name: "Pixi render",
-            durationMs,
-            source: "renderer",
-          });
+          const store = useGraphProfilerStore.getState();
+          const run = store.runs.find((entry) => entry.id === runId);
+          const baseStartMs =
+            run?.stages.reduce((max, stage) => Math.max(max, stage.endMs), 0) ??
+            0;
+          store.mergeStages(runId, [
+            {
+              id: "renderer:pixi-render",
+              name: "Pixi render",
+              startMs: baseStartMs,
+              endMs: baseStartMs + durationMs,
+              source: "renderer",
+            },
+          ]);
         },
         document.documentElement.classList.contains("dark") ? "dark" : "light",
         customColors,

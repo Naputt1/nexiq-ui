@@ -40,13 +40,19 @@ export interface IpcEvents {
   "large-data-updated": LargeDataUpdateEvent;
   "graph-pipeline-profile": {
     id: string;
+    logicalKey: string;
     key: string;
     projectRoot: string;
     view?: string;
     byteLength?: number;
+    handleVersion?: number;
+    status?: "in_progress" | "completed" | "superseded" | "failed";
     stages: {
+      id: string;
       name: string;
-      durationMs: number;
+      startMs: number;
+      endMs: number;
+      parentId?: string;
       detail?: string;
     }[];
   };

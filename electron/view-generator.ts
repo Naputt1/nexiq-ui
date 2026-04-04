@@ -24,8 +24,11 @@ interface GenerateGraphViewOptions extends GenerateViewRequest {
 }
 
 export interface ViewGenerationStage {
+  id: string;
   name: string;
-  durationMs: number;
+  startMs: number;
+  endMs: number;
+  parentId?: string;
   detail?: string;
 }
 
@@ -122,7 +125,8 @@ async function loadProjectExtensions(projectRoot: string) {
         cached.extensionNames.every((name, index) => name === extensionNames[index])
       ) {
         return {
-          durationMs: performance.now() - startedAt,
+          startMs: 0,
+          endMs: performance.now() - startedAt,
           detail: `${extensionNames.length} cached`,
         };
       }
@@ -162,7 +166,8 @@ async function loadProjectExtensions(projectRoot: string) {
         extensionNames,
       });
       return {
-        durationMs: performance.now() - startedAt,
+        startMs: 0,
+        endMs: performance.now() - startedAt,
         detail: `${extensionNames.length} loaded`,
       };
     }
@@ -170,7 +175,8 @@ async function loadProjectExtensions(projectRoot: string) {
     console.error("Failed to parse extensions config:", err);
   }
   return {
-    durationMs: performance.now() - startedAt,
+    startMs: 0,
+    endMs: performance.now() - startedAt,
     detail: "0 configured",
   };
 }
@@ -189,8 +195,11 @@ export async function generateGraphView(
   const stages: ViewGenerationStage[] = [];
   const extensionLoad = await loadProjectExtensions(projectRoot);
   stages.push({
+    id: "view:extensions",
     name: "Load project extensions",
-    durationMs: extensionLoad.durationMs,
+    startMs: extensionLoad.startMs,
+    endMs: extensionLoad.endMs,
+    parentId: "worker:view-compute",
     detail: extensionLoad.detail,
   });
 
@@ -218,31 +227,47 @@ export async function generateGraphView(
     (context as TaskContext & { taskDataCache?: GraphSnapshotData | undefined }).taskDataCache =
       snapshotData;
 
+    let cursorMs = extensionLoad.endMs;
     if (db && !snapshotData) {
       const aggregateStartedAt = performance.now();
       const taskData = getTaskData(context);
+      const durationMs = performance.now() - aggregateStartedAt;
       stages.push({
+        id: "view:aggregate-task-data",
         name: "Aggregate task data",
-        durationMs: performance.now() - aggregateStartedAt,
+        startMs: cursorMs,
+        endMs: cursorMs + durationMs,
+        parentId: "worker:view-compute",
         detail: `${taskData.files.length} files, ${taskData.symbols.length} symbols`,
       });
+      cursorMs += durationMs;
     }
 
     for (const task of tasks) {
       const taskStartedAt = performance.now();
       try {
         result = task.run(result, context);
+        const durationMs = performance.now() - taskStartedAt;
         stages.push({
+          id: `view:task:${task.id}`,
           name: `Task: ${task.id}`,
-          durationMs: performance.now() - taskStartedAt,
+          startMs: cursorMs,
+          endMs: cursorMs + durationMs,
+          parentId: "worker:view-compute",
         });
+        cursorMs += durationMs;
       } catch (err) {
         console.error(`Task "${task.id}" failed:`, err);
+        const durationMs = performance.now() - taskStartedAt;
         stages.push({
+          id: `view:task:${task.id}`,
           name: `Task: ${task.id}`,
-          durationMs: performance.now() - taskStartedAt,
+          startMs: cursorMs,
+          endMs: cursorMs + durationMs,
+          parentId: "worker:view-compute",
           detail: "failed",
         });
+        cursorMs += durationMs;
       }
     }
 
@@ -253,9 +278,13 @@ export async function generateGraphView(
         : undefined) || (db ? readUIState(db) : {});
 
     const finalResult = applyUiState(uiState, result);
+    const uiStateDurationMs = performance.now() - uiStateStartedAt;
     stages.push({
+      id: "view:apply-ui-state",
       name: "Apply UI state",
-      durationMs: performance.now() - uiStateStartedAt,
+      startMs: cursorMs,
+      endMs: cursorMs + uiStateDurationMs,
+      parentId: "worker:view-compute",
       detail: `${Object.keys(uiState || {}).length} entries`,
     });
 
