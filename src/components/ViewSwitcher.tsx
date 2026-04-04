@@ -10,7 +10,15 @@ import {
 import { Layout } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export function ViewSwitcher({ className, isCollapsed }: { className?: string; isCollapsed?: boolean }) {
+export function ViewSwitcher({
+  className,
+  isCollapsed,
+  compact = false,
+}: {
+  className?: string;
+  isCollapsed?: boolean;
+  compact?: boolean;
+}) {
   const view = useAppStateStore((s) => s.view);
   const setView = useAppStateStore((s) => s.setView);
 
@@ -23,12 +31,19 @@ export function ViewSwitcher({ className, isCollapsed }: { className?: string; i
   }
 
   return (
-    <div className={cn("flex flex-col gap-2 p-2", className)}>
-      <label className="text-[10px] font-bold uppercase text-muted-foreground px-2">
-        View
-      </label>
+    <div
+      className={cn(
+        compact ? "flex items-center gap-2" : "flex flex-col gap-2 p-2",
+        className,
+      )}
+    >
+      {!compact && (
+        <label className="text-[10px] font-bold uppercase text-muted-foreground px-2">
+          View
+        </label>
+      )}
       <Select value={view} onValueChange={(val) => setView(val as GraphViewType)}>
-        <SelectTrigger className="w-full h-8 text-xs">
+        <SelectTrigger className={cn("h-8 text-xs", compact ? "w-36" : "w-full")}>
           <div className="flex items-center gap-2">
             <Layout className="h-3.5 w-3.5" />
             <SelectValue placeholder="Select View" />

@@ -4,6 +4,8 @@ import type {
   ProjectStatus,
   AppStateData,
   GraphViewType as SharedGraphViewType,
+  FileAnalysisErrorRow,
+  ResolveErrorRow,
 } from "@nexiq/shared";
 import type { GraphAppearance } from "@nexiq/extension-sdk";
 import type { GraphSnapshotUpdateEvent, LargeDataUpdateEvent } from "../src/graph-snapshot/types";
@@ -13,6 +15,8 @@ export type {
   SubProject,
   ProjectStatus,
   AppStateData,
+  FileAnalysisErrorRow,
+  ResolveErrorRow,
 };
 export type { GraphAppearance };
 export type CustomColors = GraphAppearance;
@@ -40,4 +44,9 @@ export interface GlobalSettings {
   theme: "dark" | "light";
   appearance?: GraphAppearance;
   autoReload?: boolean;
+}
+
+export interface SourceFilePayload {
+  path: string;
+  content: string;
 }

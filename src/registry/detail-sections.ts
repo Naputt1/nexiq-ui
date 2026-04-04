@@ -23,7 +23,13 @@ const registry: DetailSection[] = [
     component: PropsSection,
     shouldShow: (baseItem) => {
       const item = baseItem as GraphNodeData;
-      return !!(item.propType || (item.props && item.props.length > 0));
+      const baseProps = baseItem.props as unknown[] | undefined;
+      return !!(
+        item.propType ||
+        baseItem.propType ||
+        (item.props && item.props.length > 0) ||
+        (baseProps && baseProps.length > 0)
+      );
     },
     defaultOpen: true,
   },

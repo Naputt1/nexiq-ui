@@ -15,7 +15,9 @@ export class PixiRenderer {
   graph: GraphData;
   onSelect?: (id: string, center?: boolean, highlight?: boolean) => void;
   onSelectEdge?: (id: string, center?: boolean) => void;
-  onViewportChange?: (viewport: { x: number; y: number; zoom: number }) => void;
+  onZoomChange?: (zoom: number) => void;
+  onZoomRangeChange?: (range: { min: number; max: number }) => void;
+  onViewportSettled?: (viewport: { x: number; y: number; zoom: number }) => void;
   theme: "dark" | "light" = "dark";
   customColors?: CustomColors;
   viewportChangeInProgress = false;
@@ -24,7 +26,7 @@ export class PixiRenderer {
   private renderQueued = false;
 
   private items = new Map<string, PIXI.Container>();
-  private edges = new Map<string, PIXI.Graphics>();
+  private edges = new Map<string, PIXI.Container>();
   private combos = new Map<string, PIXI.Container>();
   private nodes = new Map<string, PIXI.Container>();
 
@@ -34,9 +36,18 @@ export class PixiRenderer {
   private minimapViewportRect!: PIXI.Graphics;
   private resizeAnimationFrame: number | null = null;
   private minimapTimeout: ReturnType<typeof setTimeout> | null = null;
+  private minimapAnimationFrame: number | null = null;
+  private viewportSettledTimeout: ReturnType<typeof setTimeout> | null = null;
+  private minimapLastRenderAt = 0;
+  private viewportClampInProgress = false;
+  private edgeLayer!: PIXI.Container;
+  private comboLayer!: PIXI.Container;
+  private nodeLayer!: PIXI.Container;
 
   private minimapSize = 150;
   private minimapPadding = 10;
+  private viewportPadding = 240;
+  private zoomRange = { min: 0.1, max: 5 };
 
   constructor(
     container: HTMLDivElement,
@@ -45,7 +56,9 @@ export class PixiRenderer {
     height: number,
     onSelect?: (id: string, center?: boolean, highlight?: boolean) => void,
     onSelectEdge?: (id: string, center?: boolean) => void,
-    onViewportChange?: (viewport: {
+    onZoomChange?: (zoom: number) => void,
+    onZoomRangeChange?: (range: { min: number; max: number }) => void,
+    onViewportSettled?: (viewport: {
       x: number;
       y: number;
       zoom: number;
@@ -61,7 +74,9 @@ export class PixiRenderer {
     this.graph = graph;
     this.onSelect = onSelect;
     this.onSelectEdge = onSelectEdge;
-    this.onViewportChange = onViewportChange;
+    this.onZoomChange = onZoomChange;
+    this.onZoomRangeChange = onZoomRangeChange;
+    this.onViewportSettled = onViewportSettled;
     this.theme = theme;
     this.customColors = customColors;
 
@@ -94,6 +109,13 @@ export class PixiRenderer {
     this.app.stage.addChild(this.viewport);
     this.viewport.drag().pinch().wheel().decelerate();
 
+    this.edgeLayer = new PIXI.Container();
+    this.comboLayer = new PIXI.Container();
+    this.nodeLayer = new PIXI.Container();
+    this.viewport.addChild(this.edgeLayer);
+    this.viewport.addChild(this.comboLayer);
+    this.viewport.addChild(this.nodeLayer);
+
     this.minimapContainer = new PIXI.Container();
     this.minimapGraphics = new PIXI.Graphics();
     this.minimapViewportRect = new PIXI.Graphics();
@@ -103,7 +125,9 @@ export class PixiRenderer {
     this.app.stage.addChild(this.minimapContainer);
 
     this.viewport.on("moved", () => {
-      this.triggerViewportChange();
+      this.enforceViewportPolicy();
+      this.publishZoomState();
+      this.scheduleViewportSettled();
       this.requestMinimapRender();
     });
 
@@ -114,6 +138,23 @@ export class PixiRenderer {
   destroy() {
     if (this.bindId) {
       this.graph.unbind(this.bindId);
+    }
+
+    if (this.minimapTimeout) {
+      clearTimeout(this.minimapTimeout);
+      this.minimapTimeout = null;
+    }
+    if (this.minimapAnimationFrame != null) {
+      cancelAnimationFrame(this.minimapAnimationFrame);
+      this.minimapAnimationFrame = null;
+    }
+    if (this.viewportSettledTimeout) {
+      clearTimeout(this.viewportSettledTimeout);
+      this.viewportSettledTimeout = null;
+    }
+    if (this.resizeAnimationFrame != null) {
+      cancelAnimationFrame(this.resizeAnimationFrame);
+      this.resizeAnimationFrame = null;
     }
 
     const doDestroy = () => {
@@ -143,6 +184,9 @@ export class PixiRenderer {
     this.resizeAnimationFrame = requestAnimationFrame(() => {
       this.app.renderer.resize(width, height);
       this.viewport.resize(width, height);
+      this.enforceViewportPolicy();
+      this.publishZoomState();
+      this.scheduleViewportSettled();
       this.requestMinimapRender();
       this.resizeAnimationFrame = null;
     });
@@ -155,14 +199,18 @@ export class PixiRenderer {
     }
     const pos = this.graph.getAbsolutePosition(id);
     if (pos) {
+      const clampedScale = this.clampZoomValue(scale);
       this.viewportChangeInProgress = true;
       this.viewport.animate({
         position: pos,
-        scale: scale,
+        scale: clampedScale,
         time: 300,
         ease: "easeInOutQuad",
         callbackOnComplete: () => {
+          this.enforceViewportPolicy();
           this.viewportChangeInProgress = false;
+          this.publishZoomState();
+          this.scheduleViewportSettled();
         },
       });
     }
@@ -174,7 +222,10 @@ export class PixiRenderer {
       return;
     }
     this.viewport.position.set(x, y);
-    this.viewport.scale.set(zoom);
+    this.viewport.scale.set(this.clampZoomValue(zoom));
+    this.enforceViewportPolicy();
+    this.publishZoomState();
+    this.scheduleViewportSettled();
     this.requestMinimapRender();
   }
 
@@ -203,41 +254,115 @@ export class PixiRenderer {
       this.readyPromise.then(() => this.setZoom(zoom));
       return;
     }
-    this.viewport.setZoom(zoom, true);
+    this.viewport.setZoom(this.clampZoomValue(zoom), true);
+    this.enforceViewportPolicy();
+    this.publishZoomState();
+    this.scheduleViewportSettled();
     this.requestMinimapRender();
-    this.triggerViewportChange();
   }
 
   getZoomRange() {
-    return { min: 0.1, max: 5 };
+    return this.zoomRange;
+  }
+
+  private updateZoomRange() {
+    const previousRange = this.zoomRange;
+    const bounds = this.graph.getContentBounds();
+    const totalWidth = Math.max(
+      bounds.maxX - bounds.minX + this.viewportPadding * 2,
+      1,
+    );
+    const totalHeight = Math.max(
+      bounds.maxY - bounds.minY + this.viewportPadding * 2,
+      1,
+    );
+    const fitZoom = Math.min(
+      this.viewport.screenWidth / totalWidth,
+      this.viewport.screenHeight / totalHeight,
+    );
+    const deepestScale = Math.max(this.graph.getMinItemScale(), 0.05);
+
+    const min = Math.max(0.02, Math.min(fitZoom * 0.9, deepestScale));
+    const max = Math.min(12, Math.max(2.5, 1 / deepestScale + fitZoom));
+
+    this.zoomRange = {
+      min,
+      max: Math.max(max, min + 0.1),
+    };
+
+    if (
+      previousRange.min !== this.zoomRange.min ||
+      previousRange.max !== this.zoomRange.max
+    ) {
+      this.onZoomRangeChange?.(this.zoomRange);
+    }
   }
 
   private requestMinimapRender() {
+    if (!this.isReady || !this.minimapContainer || !this.minimapGraphics) {
+      return;
+    }
     this.minimapContainer.visible = true;
     if (this.minimapTimeout) {
       clearTimeout(this.minimapTimeout);
     }
-    this.renderMinimap();
+    const now = performance.now();
+    const shouldThrottle = now - this.minimapLastRenderAt < 90;
+    if (shouldThrottle) {
+      if (this.minimapAnimationFrame == null) {
+        this.minimapAnimationFrame = requestAnimationFrame(() => {
+          this.minimapAnimationFrame = null;
+          this.minimapLastRenderAt = performance.now();
+          this.renderMinimap();
+        });
+      }
+    } else {
+      this.minimapLastRenderAt = now;
+      this.renderMinimap();
+    }
     this.minimapTimeout = setTimeout(() => {
       this.minimapContainer.visible = false;
       this.minimapTimeout = null;
     }, 2000);
   }
 
-  private triggerViewportChange() {
-    if (this.onViewportChange) {
-      this.onViewportChange({
+  private publishZoomState() {
+    if (!this.isReady || !this.viewport || !this.viewport.scale) {
+      return;
+    }
+    this.onZoomChange?.(this.viewport.scale.x);
+  }
+
+  private scheduleViewportSettled() {
+    if (!this.onViewportSettled) return;
+    if (this.viewportSettledTimeout) {
+      clearTimeout(this.viewportSettledTimeout);
+    }
+    this.viewportSettledTimeout = setTimeout(() => {
+      this.viewportSettledTimeout = null;
+      if (!this.isReady || !this.viewport || !this.viewport.scale) {
+        return;
+      }
+      this.onViewportSettled?.({
         x: this.viewport.x,
         y: this.viewport.y,
         zoom: this.viewport.scale.x,
       });
-    }
+    }, 120);
   }
 
   private renderMinimap() {
+    if (
+      !this.isReady ||
+      !this.minimapContainer ||
+      !this.minimapGraphics ||
+      !this.minimapViewportRect
+    ) {
+      return;
+    }
     if (!this.minimapContainer.visible) return;
 
-    const bounds = this.graph.getContentBounds();
+    const { nodes, combos, bounds } = this.getVisibleMinimapState();
     const contentWidth = bounds.maxX - bounds.minX;
     const contentHeight = bounds.maxY - bounds.minY;
 
@@ -270,10 +395,6 @@ export class PixiRenderer {
     const getMMX = (x: number) => (x - (bounds.minX - padding)) * scale;
     const getMMY = (y: number) => (y - (bounds.minY - padding)) * scale;
 
-    // Draw Combos and Nodes as dots
-    const combos = this.graph.getAllCombos();
-    const nodes = this.graph.getAllNodes();
-
     combos.forEach((c) => {
       const pos = this.graph.getAbsolutePosition(c.id);
       if (pos) {
@@ -305,15 +426,156 @@ export class PixiRenderer {
       .fill({ color: 0x3b82f6, alpha: 0.1 });
   }
 
+  private clampZoomValue(zoom: number) {
+    return Math.min(this.zoomRange.max, Math.max(this.zoomRange.min, zoom));
+  }
+
+  private isItemVisibleInViewport(id: string) {
+    const point = this.graph.getPointByID(id);
+    if (!point || point.visible === false) return false;
+
+    let parent = point.parent;
+    while (parent) {
+      if (parent.visible === false || parent.collapsed) {
+        return false;
+      }
+      parent = parent.parent;
+    }
+
+    return true;
+  }
+
+  private getVisibleMinimapState() {
+    const nodes = this.graph
+      .getAllNodes()
+      .filter((node) => this.isItemVisibleInViewport(node.id));
+    const combos = this.graph
+      .getAllCombos()
+      .filter((combo) => this.isItemVisibleInViewport(combo.id));
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    for (const node of nodes) {
+      const pos = this.graph.getAbsolutePosition(node.id);
+      if (!pos) continue;
+      minX = Math.min(minX, pos.x - node.radius);
+      minY = Math.min(minY, pos.y - node.radius);
+      maxX = Math.max(maxX, pos.x + node.radius);
+      maxY = Math.max(maxY, pos.y + node.radius);
+    }
+
+    for (const combo of combos) {
+      const pos = this.graph.getAbsolutePosition(combo.id);
+      if (!pos) continue;
+      const radius = combo.collapsed ? combo.collapsedRadius : combo.expandedRadius;
+      minX = Math.min(minX, pos.x - radius);
+      minY = Math.min(minY, pos.y - radius);
+      maxX = Math.max(maxX, pos.x + radius);
+      maxY = Math.max(maxY, pos.y + radius);
+    }
+
+    if (minX === Infinity) {
+      return {
+        nodes,
+        combos,
+        bounds: { minX: 0, minY: 0, maxX: 0, maxY: 0 },
+      };
+    }
+
+    return {
+      nodes,
+      combos,
+      bounds: { minX, minY, maxX, maxY },
+    };
+  }
+
+  private getPaddedBounds() {
+    const bounds = this.graph.getContentBounds();
+    return {
+      minX: bounds.minX - this.viewportPadding,
+      minY: bounds.minY - this.viewportPadding,
+      maxX: bounds.maxX + this.viewportPadding,
+      maxY: bounds.maxY + this.viewportPadding,
+    };
+  }
+
+  private enforceViewportPolicy() {
+    if (!this.isReady || this.viewportClampInProgress) return;
+    this.viewportClampInProgress = true;
+    this.updateZoomRange();
+
+    const zoom = this.clampZoomValue(this.viewport.scale.x);
+    if (zoom !== this.viewport.scale.x || zoom !== this.viewport.scale.y) {
+      this.viewport.scale.set(zoom);
+    }
+
+    const bounds = this.getPaddedBounds();
+    const worldWidth = bounds.maxX - bounds.minX;
+    const worldHeight = bounds.maxY - bounds.minY;
+
+    const minX = this.viewport.screenWidth - bounds.maxX * zoom;
+    const maxX = -bounds.minX * zoom;
+    const minY = this.viewport.screenHeight - bounds.maxY * zoom;
+    const maxY = -bounds.minY * zoom;
+
+    let nextX = this.viewport.x;
+    let nextY = this.viewport.y;
+
+    if (worldWidth * zoom <= this.viewport.screenWidth) {
+      nextX =
+        this.viewport.screenWidth / 2 - ((bounds.minX + bounds.maxX) / 2) * zoom;
+    } else {
+      nextX = Math.min(maxX, Math.max(minX, nextX));
+    }
+
+    if (worldHeight * zoom <= this.viewport.screenHeight) {
+      nextY =
+        this.viewport.screenHeight / 2 -
+        ((bounds.minY + bounds.maxY) / 2) * zoom;
+    } else {
+      nextY = Math.min(maxY, Math.max(minY, nextY));
+    }
+
+    if (nextX !== this.viewport.x || nextY !== this.viewport.y) {
+      this.viewport.position.set(nextX, nextY);
+    }
+
+    this.viewportClampInProgress = false;
+  }
+
   private handleGraphEvent(params: GraphDataCallbackParams) {
     switch (params.type) {
       case "new-nodes":
+        if (this.nodes.size !== this.graph.getAllNodes().length) {
+          this.requestRender();
+        } else {
+          this.updateNodes();
+        }
+        break;
       case "new-combos":
+        if (this.combos.size !== this.graph.getAllCombos().length) {
+          this.requestRender();
+        } else {
+          this.updateCombos();
+        }
+        break;
       case "new-edges":
-        this.requestRender();
+        if (this.edges.size !== this.graph.getAllEdges().length) {
+          this.requestRender();
+        } else {
+          this.updateEdges(this.graph.getAllEdges().map((edge) => edge.id));
+          this.requestMinimapRender();
+        }
         break;
       case "combo-collapsed":
-        this.handleComboCollapsed(params.id);
+        this.handleComboCollapsed(
+          params.id,
+          params.previousRadius,
+          params.targetRadius,
+        );
         break;
       case "combo-drag-move":
         this.handleComboDragMove(params.id, params.edgeIds);
@@ -349,9 +611,13 @@ export class PixiRenderer {
   public render() {
     if (!this.isReady) return;
 
-    // Properly clean up all previous WebGL resources to prevent GPU memory leaks
-    for (let i = this.viewport.children.length - 1; i >= 0; i--) {
-      const child = this.viewport.children[i];
+    for (const child of this.edgeLayer.removeChildren()) {
+      child.destroy({ children: true, texture: true, textureSource: true });
+    }
+    for (const child of this.comboLayer.removeChildren()) {
+      child.destroy({ children: true, texture: true, textureSource: true });
+    }
+    for (const child of this.nodeLayer.removeChildren()) {
       child.destroy({ children: true, texture: true, textureSource: true });
     }
 
@@ -364,14 +630,19 @@ export class PixiRenderer {
     const context = this.getRenderContext();
 
     for (const edge of Object.values(cur.edges) as GraphArrow[]) {
-      edge.render(context, this.viewport);
+      edge.render(context, this.edgeLayer);
     }
     for (const combo of Object.values(cur.combos) as GraphCombo[]) {
-      combo.render(context, this.viewport);
+      combo.render(context, this.comboLayer);
     }
     for (const node of Object.values(cur.nodes) as GraphNode[]) {
-      node.render(context, this.viewport);
+      node.render(context, this.nodeLayer);
     }
+    this.updateZoomRange();
+    this.enforceViewportPolicy();
+    this.publishZoomState();
+    this.scheduleViewportSettled();
+    this.requestMinimapRender();
   }
 
   private getRenderContext(): RenderContext {
@@ -390,7 +661,7 @@ export class PixiRenderer {
             this.nodes.set(id, item);
           }
         }
-        if (item instanceof PIXI.Graphics && this.graph.getEdge(id)) {
+        if (this.graph.getEdge(id)) {
           this.edges.set(id, item);
         }
       },
@@ -402,9 +673,22 @@ export class PixiRenderer {
     };
   }
 
-  private handleComboCollapsed(_id: string) {
-    // For now, just re-render. In a real app we'd animate radius and alpha.
+  private handleComboCollapsed(
+    id: string,
+    previousRadius?: number,
+    targetRadius?: number,
+  ) {
     this.requestRender();
+
+    requestAnimationFrame(() => {
+      const combo = this.graph.getCombo(id);
+      const container = this.combos.get(id);
+      if (!combo || !container) return;
+      const context = this.getRenderContext();
+      combo.radius = previousRadius ?? combo.radius;
+      combo.animateRadius(context, container, targetRadius ?? combo.radius);
+      this.updateEdges(this.graph.getAllEdges().map((edge) => edge.id));
+    });
   }
 
   private handleComboDragMove(id: string, edgeIds: string[]) {
@@ -424,7 +708,7 @@ export class PixiRenderer {
     for (const eid of edgeIds) {
       const edge = this.graph.getEdge(eid);
       const item = this.edges.get(eid);
-      if (edge && item && edge) {
+      if (edge && item) {
         const context = this.getRenderContext();
         edge.update(context, item);
       }
@@ -444,8 +728,35 @@ export class PixiRenderer {
       if (container && combo) combo.update(context, container);
     }
     for (const edge of this.graph.getAllEdges()) {
-      const graphics = this.edges.get(edge.id);
-      if (graphics && edge) edge.update(context, graphics);
+      const container = this.edges.get(edge.id);
+      if (container && edge) edge.update(context, container);
     }
+    this.enforceViewportPolicy();
+    this.requestMinimapRender();
+  }
+
+  private updateNodes() {
+    if (!this.isReady) return;
+    const context = this.getRenderContext();
+    for (const node of this.graph.getAllNodes()) {
+      const container = this.nodes.get(node.id);
+      if (container) {
+        node.update(context, container);
+      }
+    }
+  }
+
+  private updateCombos() {
+    if (!this.isReady) return;
+    const context = this.getRenderContext();
+    for (const combo of this.graph.getAllCombos()) {
+      const container = this.combos.get(combo.id);
+      if (!container) continue;
+      const targetRadius = combo.collapsed
+        ? combo.collapsedRadius
+        : combo.expandedRadius;
+      combo.animateRadius(context, container, targetRadius);
+    }
+    this.updateEdges(this.graph.getAllEdges().map((edge) => edge.id));
   }
 }
