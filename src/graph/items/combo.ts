@@ -17,6 +17,7 @@ export class GraphCombo extends BaseNode {
   padding: number;
   child?: CurRender;
   private lastClickTime: number = 0;
+  private animationFrame: number | null = null;
 
   constructor(data: GraphComboData) {
     super(data);
@@ -222,6 +223,53 @@ export class GraphCombo extends BaseNode {
       // Update hitArea
       rootBg.hitArea = new PIXI.Circle(0, 0, radius);
     }
+
+    const contentContainer = container.children.find(
+      (c) => c.label === `content-${this.id}`,
+    ) as PIXI.Container | undefined;
+    if (contentContainer) {
+      contentContainer.visible = !this.collapsed;
+    }
+
+    this.updateLabel(container, this.radius + 10 * this.scale, context);
+    this.updateGitStatus(container, this.radius, 6, context);
+  }
+
+  animateRadius(
+    context: RenderContext,
+    container: PIXI.Container,
+    targetRadius: number,
+  ) {
+    const rootBg = container.children.find(
+      (c) => c.label === `bg-${this.id}`,
+    ) as PIXI.Graphics | undefined;
+    if (!rootBg) return;
+
+    if (this.animationFrame != null) {
+      cancelAnimationFrame(this.animationFrame);
+    }
+
+    const startRadius = this.radius;
+    const diff = targetRadius - startRadius;
+    const startedAt = performance.now();
+    const duration = 180;
+
+    const tick = (now: number) => {
+      const progress = Math.min((now - startedAt) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      this.radius = startRadius + diff * eased;
+      this.update(context, container);
+
+      if (progress < 1) {
+        this.animationFrame = requestAnimationFrame(tick);
+      } else {
+        this.radius = targetRadius;
+        this.update(context, container);
+        this.animationFrame = null;
+      }
+    };
+
+    this.animationFrame = requestAnimationFrame(tick);
   }
 
   getFillColor(context: RenderContext): string {

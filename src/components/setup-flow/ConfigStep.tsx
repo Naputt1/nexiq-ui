@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { Checkbox } from "../ui/checkbox";
+import { Textarea } from "../ui/textarea";
 import type { ProjectStatus } from "./types";
 import { useAppStateStore } from "../../hooks/use-app-state-store";
 
@@ -19,6 +20,9 @@ export function ConfigStep({
   onBack,
 }: ConfigStepProps) {
   const [isSaving, setIsSaving] = useState(false);
+  const [ignorePatterns, setIgnorePatterns] = useState(
+    (initialStatus.config?.ignorePatterns || []).join("\n"),
+  );
   const selectedSubProjects = useAppStateStore(
     (state) => state.selectedSubProjects,
   );
@@ -52,6 +56,10 @@ export function ConfigStep({
         ...baseConfig,
         analysisPaths:
           selectedSubProjects.length > 0 ? selectedSubProjects : [projectPath],
+        ignorePatterns: ignorePatterns
+          .split("\n")
+          .map((pattern: string) => pattern.trim())
+          .filter(Boolean),
       };
 
       await window.ipcRenderer.invoke("save-project-config", {
@@ -75,42 +83,43 @@ export function ConfigStep({
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground p-8 w-screen">
-      <div className="w-full max-w-2xl flex flex-col gap-6">
+    <div className="flex min-h-screen w-screen items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.14),_transparent_28%),linear-gradient(180deg,_rgba(15,23,42,1)_0%,_rgba(9,9,11,1)_100%)] p-8 text-foreground">
+      <div className="flex w-full max-w-4xl flex-col gap-6">
         <Button
           onClick={onBack}
           variant="ghost"
-          className="self-start text-muted-foreground hover:text-foreground"
+          className="self-start text-zinc-400 hover:text-white"
         >
           ← Back
         </Button>
 
-        <Card className="p-8 bg-card border-border shadow-xl">
+        <Card className="border-white/10 bg-black/30 p-8 shadow-2xl shadow-cyan-950/20 backdrop-blur-xl">
           <div className="flex flex-col gap-2 mb-8">
-            <h2 className="text-3xl font-bold tracking-tight text-primary">
+            <h2 className="text-3xl font-bold tracking-tight text-white">
               Configure Analysis
             </h2>
-            <p className="text-muted-foreground">
-              Select which sub-projects you want to analyze in this monorepo.
+            <p className="text-zinc-400">
+              Pick the parts of the workspace that should be analyzed and add
+              any paths you want excluded before the graph loads.
             </p>
           </div>
 
           <div className="space-y-6 mb-8">
             {/* Project Info Section */}
             <div className="grid grid-cols-2 gap-4">
-              <div className="p-4 bg-muted/30 rounded-lg border border-border">
-                <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest block mb-1">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                <label className="mb-1 block text-[10px] font-bold uppercase tracking-widest text-zinc-500">
                   Structure
                 </label>
-                <div className="text-sm font-semibold">
+                <div className="text-sm font-semibold text-white">
                   {initialStatus.isMonorepo ? "Monorepo" : "Single Project"}
                 </div>
               </div>
-              <div className="p-4 bg-muted/30 rounded-lg border border-border">
-                <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest block mb-1">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                <label className="mb-1 block text-[10px] font-bold uppercase tracking-widest text-zinc-500">
                   Type
                 </label>
-                <div className="text-sm font-semibold capitalize">
+                <div className="text-sm font-semibold capitalize text-white">
                   {initialStatus.projectType}
                 </div>
               </div>
@@ -122,7 +131,7 @@ export function ConfigStep({
               initialStatus.subProjects.length > 1 && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
                       Sub-Projects ({initialStatus.subProjects.length})
                     </label>
                     <Button
@@ -149,11 +158,11 @@ export function ConfigStep({
                     </Button>
                   </div>
 
-                  <div className="border border-border rounded-lg overflow-hidden bg-muted/10 divide-y divide-border max-h-100 overflow-y-auto">
+                  <div className="max-h-100 overflow-y-auto divide-y divide-white/8 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
                     {initialStatus.subProjects.map((pkg) => (
                       <div
                         key={pkg.path}
-                        className="flex items-center gap-3 p-4 hover:bg-muted/30 transition-colors cursor-pointer"
+                        className="flex cursor-pointer items-center gap-3 p-4 transition-colors hover:bg-white/[0.04]"
                         onClick={() => toggleSubProject(pkg.path)}
                       >
                         <Checkbox
@@ -164,11 +173,11 @@ export function ConfigStep({
                         <div className="flex flex-col flex-1 min-w-0">
                           <label
                             htmlFor={`pkg-${pkg.path}`}
-                            className="text-sm font-medium leading-none cursor-pointer truncate"
+                            className="cursor-pointer truncate text-sm font-medium leading-none text-white"
                           >
                             {pkg.name}
                           </label>
-                          <span className="text-[10px] text-muted-foreground font-mono truncate mt-1 opacity-60">
+                          <span className="mt-1 truncate font-mono text-[10px] text-zinc-500">
                             {pkg.path.replace(projectPath, "") || "/"}
                           </span>
                         </div>
@@ -178,14 +187,26 @@ export function ConfigStep({
                 </div>
               )}
 
+            <div className="space-y-3">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                Exclude Paths
+              </label>
+              <Textarea
+                value={ignorePatterns}
+                onChange={(event) => setIgnorePatterns(event.target.value)}
+                placeholder="**/node_modules/**&#10;**/*.test.tsx&#10;apps/legacy/**"
+                className="min-h-[140px] rounded-2xl border-white/10 bg-white/[0.03] font-mono text-sm text-white placeholder:text-zinc-600"
+              />
+            </div>
+
             {!initialStatus.isMonorepo && (
-              <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg flex items-center gap-3">
+              <div className="flex items-center gap-3 rounded-2xl border border-cyan-400/20 bg-cyan-500/5 p-4">
                 <Checkbox checked disabled />
                 <div>
-                  <div className="text-sm font-medium">
+                  <div className="text-sm font-medium text-white">
                     Standard Project Analysis
                   </div>
-                  <div className="text-xs text-muted-foreground">
+                  <div className="text-xs text-zinc-400">
                     The entire project will be analyzed.
                   </div>
                 </div>
@@ -196,7 +217,7 @@ export function ConfigStep({
             <div
               className={`p-4 rounded-lg flex items-start gap-3 border ${
                 initialStatus.hasConfig
-                  ? "bg-emerald-500/5 border-emerald-500/20"
+                ? "bg-emerald-500/5 border-emerald-500/20"
                   : "bg-amber-500/5 border-amber-500/20"
               }`}
             >
@@ -217,7 +238,7 @@ export function ConfigStep({
                     ? "Existing Config Found"
                     : "New Config Required"}
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5">
+                <p className="mt-0.5 text-xs text-zinc-400">
                   {initialStatus.hasConfig
                     ? "We'll update your existing nexiq.config.json with the new selections."
                     : "A nexiq.config.json will be created in your project root."}
@@ -229,7 +250,7 @@ export function ConfigStep({
           <div className="flex gap-4">
             <Button
               onClick={handleConfirm}
-              className="flex-1 h-12 bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-lg shadow-primary/20"
+              className="h-12 flex-1 rounded-2xl bg-cyan-500 font-bold text-slate-950 shadow-lg shadow-cyan-950/20 hover:bg-cyan-400"
               disabled={
                 isSaving ||
                 (initialStatus.isMonorepo && selectedSubProjects.length === 0)

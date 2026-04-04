@@ -4,6 +4,8 @@ export interface ProjectConfig {
   extensions?: string[];
   dependencyDepth?: number;
   analysisPath?: string;
+  analysisPaths?: string[];
+  ignorePatterns?: string[];
 }
 
 export interface ProjectStatus {

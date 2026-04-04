@@ -18,7 +18,6 @@ import {
 import { Link } from "react-router-dom";
 import { useAppStateStore } from "@/hooks/use-app-state-store";
 import { GitPanel } from "./GitPanel";
-import { ViewSwitcher } from "./ViewSwitcher";
 import { cn } from "@/lib/utils";
 import type { ProjectStatus } from "../../electron/types";
 import { Button } from "@/components/ui/button";
@@ -29,7 +28,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ResizablePanel, ResizablePanelGroup } from "./ui/resizable";
 
 interface SidebarProps {
   currentPath: string;
@@ -111,6 +109,12 @@ export function ProjectSidebar({
   }, [subProjects, currentConfig]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const hasProjectSelector = filteredSubProjects.length > 1;
+
+  const collapsedActionClass = cn(
+    "p-2 rounded-md transition-colors",
+    "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+  );
 
   return (
     <ShadcnSidebar collapsible="icon" className="border-r border-border">
@@ -129,7 +133,12 @@ export function ProjectSidebar({
               isCollapsed && "justify-center",
             )}
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded bg-primary text-primary-foreground shrink-0 overflow-hidden">
+            <div
+              className={cn(
+                "flex h-8 w-8 items-center justify-center rounded text-primary-foreground shrink-0 overflow-hidden",
+                !iconUrl && "bg-primary",
+              )}
+            >
               {iconUrl ? (
                 <img
                   src={iconUrl}
@@ -178,82 +187,92 @@ export function ProjectSidebar({
 
       <SidebarContent className="flex flex-col min-h-0">
         {isCollapsed ? (
-          <div className="flex flex-col items-center gap-4 py-4">
-            <button
-              onClick={() => setActiveTab("projects")}
-              className={cn(
-                "p-2 rounded-md transition-colors",
-                activeTab === "projects"
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground hover:bg-accent/50",
+          <TooltipProvider>
+            <div className="flex flex-col items-center gap-4 py-4">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setActiveTab("projects")}
+                    className={cn(
+                      collapsedActionClass,
+                      activeTab === "projects" &&
+                        "bg-accent text-accent-foreground",
+                    )}
+                  >
+                    <Files className="h-5 w-5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Explorer</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setActiveTab("git")}
+                    className={cn(
+                      collapsedActionClass,
+                      activeTab === "git" && "bg-accent text-accent-foreground",
+                    )}
+                  >
+                    <GitBranch className="h-5 w-5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Git</TooltipContent>
+              </Tooltip>
+              {hasProjectSelector && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => setIsModalOpen(true)}
+                      className={collapsedActionClass}
+                    >
+                      <Box className="h-5 w-5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">Analysis Targets</TooltipContent>
+                </Tooltip>
               )}
-            >
-              <Files className="h-5 w-5" />
-            </button>
-            <button
-              onClick={() => setActiveTab("git")}
-              className={cn(
-                "p-2 rounded-md transition-colors",
-                activeTab === "git"
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground hover:bg-accent/50",
-              )}
-            >
-              <GitBranch className="h-5 w-5" />
-            </button>
-            <ViewSwitcher isCollapsed={true} />
-          </div>
+            </div>
+          </TooltipProvider>
         ) : activeTab === "projects" ? (
           <SidebarGroup className="p-0 flex-1 min-h-0 flex flex-col">
             <SidebarHeader className="border-none grow-0">
               <SidebarGroupContent className="p-2 pt-4 flex flex-col gap-2">
-                <div className="flex items-center justify-between px-2">
-                  <label className="text-[10px] font-bold uppercase text-muted-foreground flex items-center gap-1.5">
-                    <Box className="h-3 w-3" />
-                    Analysis Targets
-                  </label>
-                </div>
+                {hasProjectSelector && (
+                  <div className="flex items-center justify-between px-2">
+                    <label className="text-[10px] font-bold uppercase text-muted-foreground flex items-center gap-1.5">
+                      <Box className="h-3 w-3" />
+                      Analysis Targets
+                    </label>
+                  </div>
+                )}
               </SidebarGroupContent>
             </SidebarHeader>
 
-            <div className="px-2 mb-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full h-8 text-xs justify-between group"
-                onClick={() => setIsModalOpen(true)}
-              >
-                <div className="flex items-center gap-2 truncate">
-                  <Box className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
-                  <span className="truncate">
-                    {selectedSubProjects.length === 0
-                      ? "No projects selected"
-                      : selectedSubProjects.length ===
-                          filteredSubProjects.length
-                        ? "All projects selected"
-                        : `${selectedSubProjects.length} projects selected`}
-                  </span>
-                </div>
-                <Settings2 className="h-3 w-3 opacity-50" />
-              </Button>
-            </div>
+            {hasProjectSelector && (
+              <div className="px-2 mb-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full h-8 text-xs justify-between group"
+                  onClick={() => setIsModalOpen(true)}
+                >
+                  <div className="flex items-center gap-2 truncate">
+                    <Box className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                    <span className="truncate">
+                      {selectedSubProjects.length === 0
+                        ? "No projects selected"
+                        : selectedSubProjects.length ===
+                            filteredSubProjects.length
+                          ? "All projects selected"
+                          : `${selectedSubProjects.length} projects selected`}
+                    </span>
+                  </div>
+                  <Settings2 className="h-3 w-3 opacity-50" />
+                </Button>
+              </div>
+            )}
 
-            <ResizablePanelGroup
-              id="sidebar-resizable-group"
-              orientation="vertical"
-              className="flex-1 min-h-0"
-            >
-              <ResizablePanel
-                id="sidebar-switcher-panel"
-                defaultSize={100}
-                minSize={30}
-                className="flex flex-col"
-              >
-                <div className="p-2">
-                  <ViewSwitcher />
-                </div>
-              </ResizablePanel>
-            </ResizablePanelGroup>
+            <div className="flex-1 min-h-0" />
           </SidebarGroup>
         ) : (
           <div className="flex-1 min-h-0">

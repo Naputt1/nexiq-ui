@@ -77,7 +77,7 @@ export class GraphArrow implements Renderable {
     this.scale = Math.min(from.scale, to.scale);
   }
 
-  render(context: RenderContext, parent: PIXI.Container): PIXI.Graphics {
+  render(context: RenderContext, parent: PIXI.Container): PIXI.Container {
     const srcNode = context.graph.getPointByID(this.source);
     const targetNode = context.graph.getPointByID(this.target);
 
@@ -97,6 +97,9 @@ export class GraphArrow implements Renderable {
             ? context.customColors?.nodeHighlight || "#2563eb"
             : getDefaultArrowColor(context.customColors, context.theme);
 
+    const container = new PIXI.Container();
+    container.label = this.id;
+
     const graphics = new PIXI.Graphics();
     graphics.label = this.id;
     graphics.visible = isVisible && this.points.length >= 4;
@@ -108,7 +111,7 @@ export class GraphArrow implements Renderable {
 
     // Hit Area
     const hitArea = new PIXI.Graphics();
-    hitArea.label = `${this.id}:hit`;
+    hitArea.label = `hit-${this.id}`;
     hitArea.interactive = true;
     hitArea.cursor = "pointer";
     hitArea.visible = graphics.visible;
@@ -153,30 +156,36 @@ export class GraphArrow implements Renderable {
     hitArea.on("pointertap", handleClick);
 
     if (context.registerItem) {
-      context.registerItem(this.id, graphics);
+      context.registerItem(this.id, container);
       context.registerItem(hitArea.label, hitArea);
     }
 
-    parent.addChild(graphics);
-    parent.addChild(hitArea);
+    container.addChild(graphics);
+    container.addChild(hitArea);
+    parent.addChild(container);
 
-    return graphics;
+    return container;
   }
 
-  update(context: RenderContext, graphics: PIXI.Graphics) {
-    graphics.visible = this.visible !== false;
-    if (!graphics.visible) return;
+  update(context: RenderContext, container: PIXI.Container) {
+    container.visible = this.visible !== false;
+    if (!container.visible) return;
+
+    const graphics = container.children.find(
+      (child) => child.label === this.id,
+    ) as PIXI.Graphics | undefined;
+    if (!graphics) return;
 
     graphics.alpha = this.dimmed ? 0.2 : 1;
     const color = this.getArrowColor(context);
 
     this.drawArrow(graphics, color);
 
-    const hitArea = graphics.children.find(
+    const hitArea = container.children.find(
       (c) => c.label === `hit-${this.id}`,
     ) as PIXI.Graphics;
     if (hitArea) {
-      hitArea.visible = graphics.visible;
+      hitArea.visible = container.visible;
       if (hitArea.visible) {
         hitArea.clear();
         const p = this.points;

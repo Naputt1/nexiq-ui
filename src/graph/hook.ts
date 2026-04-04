@@ -38,7 +38,12 @@ export type GraphDataCallbackParams =
   | { type: "new-nodes" }
   | { type: "new-edges" }
   | { type: "new-combos" }
-  | { type: "combo-collapsed"; id: string }
+  | {
+      type: "combo-collapsed";
+      id: string;
+      previousRadius?: number;
+      targetRadius?: number;
+    }
   | { type: "combo-drag-move"; id: string; edgeIds: string[]; child?: boolean }
   | { type: "combo-drag-end"; id: string }
   | { type: "node-drag-move"; id: string; edgeIds: string[] }
@@ -1021,6 +1026,7 @@ export class GraphData {
       return;
     }
 
+    const previousRadius = combo.radius;
     combo.collapsed = !combo.collapsed;
     combo.radius = combo.collapsed
       ? combo.collapsedRadius
@@ -1033,6 +1039,8 @@ export class GraphData {
     this.trigger({
       type: "combo-collapsed",
       id: combo.id,
+      previousRadius,
+      targetRadius: combo.radius,
     });
 
     if (!combo.collapsed) {
@@ -1566,6 +1574,8 @@ export class GraphData {
         this.trigger({
           type: "combo-collapsed",
           id: parentId,
+          previousRadius: parent.radius,
+          targetRadius: parent.expandedRadius,
         });
 
         // Ensure child layout is calculated if it hasn't been before

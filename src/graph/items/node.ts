@@ -99,6 +99,7 @@ export class GraphNode extends BaseNode {
     const fillColor = this.getFillColor(context);
 
     const graphics = new PIXI.Graphics();
+    graphics.label = `bg-${this.id}`;
 
     // Draw Node Circle
     graphics.circle(0, 0, this.radius);
@@ -161,6 +162,9 @@ export class GraphNode extends BaseNode {
         width: (this.highlighted ? 3 : 1) * this.scale,
       });
     }
+
+    this.updateLabel(container, (this.radius || 0) + 10 * this.scale, context);
+    this.updateGitStatus(container, this.radius, 4, context);
   }
 
   getFillColor(context: RenderContext): string {
