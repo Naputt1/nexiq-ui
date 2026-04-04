@@ -104,7 +104,7 @@ describe("view-generator", () => {
       view: "component",
     });
 
-    expect(result.nodes[0]).toMatchObject({
+    expect(result.result.nodes[0]).toMatchObject({
       id: "symbol:App",
       x: 10,
       y: 20,
@@ -159,8 +159,8 @@ describe("view-generator", () => {
       view: "component",
     });
 
-    expect(first.nodes[0]?.id).toBe("symbol:App");
-    expect(second.nodes[0]).toMatchObject({ x: 10, y: 20 });
+    expect(first.result.nodes[0]?.id).toBe("symbol:App");
+    expect(second.result.nodes[0]).toMatchObject({ x: 10, y: 20 });
     expect(mockReadUIState).toHaveBeenCalledTimes(2);
   });
 
@@ -192,7 +192,7 @@ describe("view-generator", () => {
       },
     });
 
-    expect(result.nodes[0]).toMatchObject({
+    expect(result.result.nodes[0]).toMatchObject({
       id: "symbol:App",
       x: 100,
       y: 200,
@@ -228,7 +228,7 @@ describe("view-generator", () => {
       view: "component",
     });
 
-    expect(result.nodes[0]).toMatchObject({
+    expect(result.result.nodes[0]).toMatchObject({
       id: "node:1",
       radius: 50, // Lock winning
       appearanceOverride: { color: "red", radius: 50 },
@@ -270,7 +270,7 @@ describe("view-generator", () => {
       view: "component",
     });
 
-    expect(result.combos[0]).toMatchObject({
+    expect(result.result.combos[0]).toMatchObject({
       id: "combo:1",
       collapsedRadius: 60,
       expandedRadius: 120,

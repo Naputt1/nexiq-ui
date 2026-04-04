@@ -1,7 +1,9 @@
 import fs from "fs";
 declare const __non_webpack_require__: typeof require;
 import path from "path";
+import { performance } from "node:perf_hooks";
 import { type GraphViewResult, type Extension } from "@nexiq/extension-sdk";
+import { getTaskData } from "@nexiq/extension-sdk";
 import { type GraphViewType, type UIStateMap } from "@nexiq/shared";
 import {
   getTasksForView,
@@ -20,6 +22,25 @@ interface GenerateGraphViewOptions extends GenerateViewRequest {
   sqlitePath?: string;
   snapshotData?: GraphSnapshotData;
 }
+
+export interface ViewGenerationStage {
+  name: string;
+  durationMs: number;
+  detail?: string;
+}
+
+export interface GenerateGraphViewResult {
+  result: GraphViewResult;
+  stages: ViewGenerationStage[];
+}
+
+const loadedExtensionState = new Map<
+  string,
+  {
+    configMtimeMs: number;
+    extensionNames: string[];
+  }
+>();
 
 function applyUiState(
   uiState: UIStateMap,
@@ -82,12 +103,29 @@ function applyUiState(
 }
 
 async function loadProjectExtensions(projectRoot: string) {
+  const startedAt = performance.now();
   // Try to dynamically load extensions
   try {
     const configPath = path.join(projectRoot, ".nexiq/config.json");
     if (fs.existsSync(configPath)) {
+      const configStat = fs.statSync(configPath);
       const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-      const extensionNames = config.extensions || [];
+      const extensionNames = Array.isArray(config.extensions)
+        ? [...config.extensions].sort()
+        : [];
+      const cacheKey = projectRoot;
+      const cached = loadedExtensionState.get(cacheKey);
+      if (
+        cached &&
+        cached.configMtimeMs === configStat.mtimeMs &&
+        cached.extensionNames.length === extensionNames.length &&
+        cached.extensionNames.every((name, index) => name === extensionNames[index])
+      ) {
+        return {
+          durationMs: performance.now() - startedAt,
+          detail: `${extensionNames.length} cached`,
+        };
+      }
       for (const name of extensionNames) {
         try {
           let resolvedPath = name;
@@ -119,15 +157,27 @@ async function loadProjectExtensions(projectRoot: string) {
           console.error(`Failed to load extension ${name}:`, err);
         }
       }
+      loadedExtensionState.set(cacheKey, {
+        configMtimeMs: configStat.mtimeMs,
+        extensionNames,
+      });
+      return {
+        durationMs: performance.now() - startedAt,
+        detail: `${extensionNames.length} loaded`,
+      };
     }
   } catch (err) {
     console.error("Failed to parse extensions config:", err);
   }
+  return {
+    durationMs: performance.now() - startedAt,
+    detail: "0 configured",
+  };
 }
 
 export async function generateGraphView(
   options: GenerateGraphViewOptions,
-): Promise<GraphViewResult> {
+): Promise<GenerateGraphViewResult> {
   const {
     sqlitePath,
     snapshotData,
@@ -136,7 +186,13 @@ export async function generateGraphView(
     analysisPaths,
   } = options;
 
-  await loadProjectExtensions(projectRoot);
+  const stages: ViewGenerationStage[] = [];
+  const extensionLoad = await loadProjectExtensions(projectRoot);
+  stages.push({
+    name: "Load project extensions",
+    durationMs: extensionLoad.durationMs,
+    detail: extensionLoad.detail,
+  });
 
   let result: GraphViewResult = {
     nodes: [],
@@ -159,21 +215,54 @@ export async function generateGraphView(
       viewType,
       snapshotData,
     };
+    (context as TaskContext & { taskDataCache?: GraphSnapshotData | undefined }).taskDataCache =
+      snapshotData;
+
+    if (db && !snapshotData) {
+      const aggregateStartedAt = performance.now();
+      const taskData = getTaskData(context);
+      stages.push({
+        name: "Aggregate task data",
+        durationMs: performance.now() - aggregateStartedAt,
+        detail: `${taskData.files.length} files, ${taskData.symbols.length} symbols`,
+      });
+    }
 
     for (const task of tasks) {
+      const taskStartedAt = performance.now();
       try {
         result = task.run(result, context);
+        stages.push({
+          name: `Task: ${task.id}`,
+          durationMs: performance.now() - taskStartedAt,
+        });
       } catch (err) {
         console.error(`Task "${task.id}" failed:`, err);
+        stages.push({
+          name: `Task: ${task.id}`,
+          durationMs: performance.now() - taskStartedAt,
+          detail: "failed",
+        });
       }
     }
 
+    const uiStateStartedAt = performance.now();
     const uiState =
       (snapshotData?.uiState && typeof snapshotData.uiState === "object"
         ? (snapshotData.uiState as UIStateMap)
         : undefined) || (db ? readUIState(db) : {});
 
-    return applyUiState(uiState, result);
+    const finalResult = applyUiState(uiState, result);
+    stages.push({
+      name: "Apply UI state",
+      durationMs: performance.now() - uiStateStartedAt,
+      detail: `${Object.keys(uiState || {}).length} entries`,
+    });
+
+    return {
+      result: finalResult,
+      stages,
+    };
   } finally {
     if (db) db.close();
   }
