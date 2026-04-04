@@ -44,6 +44,12 @@ interface GenerateViewMessage {
   analysisPaths?: string[];
 }
 
+interface ProfileStage {
+  name: string;
+  durationMs: number;
+  detail?: string;
+}
+
 interface DiffAnalysisMessage {
   type: "diff-analysis";
   requestId: string;
@@ -115,7 +121,8 @@ function writeSnapshot(): {
 
 async function handleGenerateView(message: GenerateViewMessage) {
   try {
-    const result = await generateGraphView({
+    const generationStartedAt = performance.now();
+    const viewGeneration = await generateGraphView({
       view: message.view,
       projectRoot: message.projectRoot,
       analysisPath: message.analysisPath,
@@ -124,13 +131,29 @@ async function handleGenerateView(message: GenerateViewMessage) {
       subPath: message.subPath,
       sqlitePath: message.sqlitePath,
     });
+    const computeDurationMs = performance.now() - generationStartedAt;
 
-    const encoded = encodeGraphViewSnapshot(result);
+    const encodeStartedAt = performance.now();
+    const encoded = encodeGraphViewSnapshot(viewGeneration.result);
+    const stages: ProfileStage[] = [
+      ...viewGeneration.stages,
+      {
+        name: "Compute graph view",
+        durationMs: computeDurationMs,
+        detail: `${viewGeneration.result.nodes.length} nodes, ${viewGeneration.result.edges.length} edges, ${viewGeneration.result.combos.length} combos`,
+      },
+      {
+        name: "Encode view buffer",
+        durationMs: performance.now() - encodeStartedAt,
+        detail: `${encoded.byteLength} bytes`,
+      },
+    ];
     parentPort?.postMessage({
       type: "inline-result",
       requestId: message.requestId,
       kind: message.kind,
       encoded,
+      stages,
     });
   } catch (error) {
     parentPort?.postMessage({
@@ -144,6 +167,7 @@ async function handleGenerateView(message: GenerateViewMessage) {
 
 async function handleDiffAnalysis(message: DiffAnalysisMessage) {
   try {
+    const diffStartedAt = performance.now();
     let dataB;
     let dataA;
 
@@ -174,12 +198,24 @@ async function handleDiffAnalysis(message: DiffAnalysisMessage) {
       uiState: dataB.uiState ?? {},
     };
 
+    const encodeStartedAt = performance.now();
     const encoded = encodeGraphSnapshot(snapshotData);
     parentPort?.postMessage({
       type: "inline-result",
       requestId: message.requestId,
       kind: message.kind,
       encoded,
+      stages: [
+        {
+          name: "Compute diff analysis",
+          durationMs: performance.now() - diffStartedAt,
+        },
+        {
+          name: "Encode diff snapshot",
+          durationMs: performance.now() - encodeStartedAt,
+          detail: `${encoded.byteLength} bytes`,
+        },
+      ],
     });
   } catch (error) {
     parentPort?.postMessage({

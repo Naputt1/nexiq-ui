@@ -61,7 +61,12 @@ export class GraphViewBufferView {
   private offsets: Int32Array;
   private lengths: Int32Array;
   private blob: Uint8Array;
-  private cache = new Map<number, string>();
+  private stringCache = new Map<number, string>();
+  private nodeCache = new Map<number, GraphNodeData>();
+  private edgeCache = new Map<number, GraphArrowData>();
+  private comboCache = new Map<number, GraphComboData>();
+  private typeDataCache?: Record<string, TypeDataDeclare>;
+  private materializedCache?: GraphViewResult;
 
   constructor(buffer: ArrayBufferLike) {
     const header = new Int32Array(buffer, 0, HEADER_LENGTH);
@@ -110,7 +115,7 @@ export class GraphViewBufferView {
   }
 
   private readString(index: number) {
-    const cached = this.cache.get(index);
+    const cached = this.stringCache.get(index);
     if (cached !== undefined) {
       return cached;
     }
@@ -118,35 +123,59 @@ export class GraphViewBufferView {
     const start = this.offsets[index];
     const length = this.lengths[index];
     const value = decodeString(this.blob.subarray(start, start + length));
-    this.cache.set(index, value);
+    this.stringCache.set(index, value);
     return value;
   }
 
   getTypeData() {
-    return parseJsonValue<Record<string, TypeDataDeclare>>(
-      this.readString(this.stringIndexes.typeData),
-    );
+    if (!this.typeDataCache) {
+      this.typeDataCache = parseJsonValue<Record<string, TypeDataDeclare>>(
+        this.readString(this.stringIndexes.typeData),
+      );
+    }
+    return this.typeDataCache;
   }
 
   getNode(index: number) {
-    return parseGraphItem<GraphNodeData>(
+    const cached = this.nodeCache.get(index);
+    if (cached) {
+      return cached;
+    }
+    const value = parseGraphItem<GraphNodeData>(
       this.readString(this.stringIndexes.nodes[index]),
     );
+    this.nodeCache.set(index, value);
+    return value;
   }
 
   getEdge(index: number) {
-    return parseGraphItem<GraphArrowData>(
+    const cached = this.edgeCache.get(index);
+    if (cached) {
+      return cached;
+    }
+    const value = parseGraphItem<GraphArrowData>(
       this.readString(this.stringIndexes.edges[index]),
     );
+    this.edgeCache.set(index, value);
+    return value;
   }
 
   getCombo(index: number) {
-    return parseGraphItem<GraphComboData>(
+    const cached = this.comboCache.get(index);
+    if (cached) {
+      return cached;
+    }
+    const value = parseGraphItem<GraphComboData>(
       this.readString(this.stringIndexes.combos[index]),
     );
+    this.comboCache.set(index, value);
+    return value;
   }
 
   materialize() {
+    if (this.materializedCache) {
+      return this.materializedCache;
+    }
     const nodes = Array.from({ length: this.nodeCount }, (_, index) =>
       this.getNode(index),
     );
@@ -157,12 +186,13 @@ export class GraphViewBufferView {
       this.getCombo(index),
     );
 
-    return {
+    this.materializedCache = {
       nodes,
       edges,
       combos,
       typeData: this.getTypeData(),
     } satisfies GraphViewResult;
+    return this.materializedCache;
   }
 }
 
