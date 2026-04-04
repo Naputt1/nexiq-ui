@@ -2,6 +2,13 @@ import React from "react";
 import type { DetailSectionProps } from "@nexiq/extension-sdk";
 
 export const BasicInfoSection: React.FC<DetailSectionProps> = ({ item }) => {
+  const componentType =
+    typeof item.componentType === "string"
+      ? item.componentType
+      : item.type === "component"
+        ? "Function"
+        : null;
+
   return (
     <div className="space-y-1">
       <div className="flex gap-2 text-xs">
@@ -42,13 +49,13 @@ export const BasicInfoSection: React.FC<DetailSectionProps> = ({ item }) => {
         </div>
       )}
       
-      {typeof item.componentType === "string" && (
+      {componentType && (
         <div className="flex gap-2 text-xs">
           <span className="font-semibold text-muted-foreground/80 min-w-12 text-start">
             Type:
           </span>
           <span className="text-muted-foreground capitalize">
-            {item.componentType}
+            {componentType}
           </span>
         </div>
       )}

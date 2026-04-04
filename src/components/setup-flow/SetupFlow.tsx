@@ -22,6 +22,18 @@ export function SetupFlow({ onComplete }: SetupFlowProps) {
         "check-project-status",
         path,
       );
+
+      const savedPaths =
+        status.config?.analysisPaths && status.config.analysisPaths.length > 0
+          ? status.config.analysisPaths
+          : [path];
+
+      if (status.hasConfig) {
+        await window.ipcRenderer.invoke("analyze-project", savedPaths, path);
+        onComplete(path, savedPaths);
+        return;
+      }
+
       setProjectStatus(status);
       setStep("config");
     } catch (error) {

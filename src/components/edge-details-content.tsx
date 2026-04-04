@@ -18,12 +18,12 @@ export function EdgeDetailsContent({
   const target = graph.getPointByID(edge.target);
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="space-y-4 p-4">
       <div>
         <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
           {edge.category || edge.edgeKind || "edge"}
         </div>
-        <div className="mt-1 text-lg font-semibold text-foreground">
+        <div className="mt-1 break-words text-lg font-semibold text-foreground">
           {source ? getDisplayName(source.name) : edge.source} to{" "}
           {target ? getDisplayName(target.name) : edge.target}
         </div>
@@ -33,10 +33,11 @@ export function EdgeDetailsContent({
         </div>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         <Button
           variant="outline"
           size="sm"
+          className="justify-start sm:justify-center"
           onClick={() => {
             const targetLoc = edge.opensTo || edge.usages[0];
             if (!targetLoc) return;
@@ -51,10 +52,20 @@ export function EdgeDetailsContent({
         >
           Open First Usage
         </Button>
-        <Button variant="outline" size="sm" onClick={() => onSelect(edge.source)}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="justify-start sm:justify-center"
+          onClick={() => onSelect(edge.source)}
+        >
           Jump To Source
         </Button>
-        <Button variant="outline" size="sm" onClick={() => onSelect(edge.target)}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="justify-start sm:justify-center"
+          onClick={() => onSelect(edge.target)}
+        >
           Jump To Target
         </Button>
       </div>
@@ -78,10 +89,10 @@ export function EdgeDetailsContent({
                 )
               }
             >
-              <div className="text-sm font-medium text-foreground">
+              <div className="break-words text-sm font-medium text-foreground">
                 {usage.displayLabel || usage.filePath}
               </div>
-              <div className="mt-1 text-xs text-muted-foreground">
+              <div className="mt-1 break-all text-xs text-muted-foreground">
                 {usage.filePath}:{usage.line}:{usage.column}
               </div>
               <div className="mt-1 text-xs text-muted-foreground">

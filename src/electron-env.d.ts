@@ -20,6 +20,9 @@ import {
   ProjectStatus,
   NexiqConfig,
   GlobalSettings,
+  FileAnalysisErrorRow,
+  ResolveErrorRow,
+  SourceFilePayload,
 } from "../electron/types";
 import type { GraphData } from "./graph/hook";
 
@@ -177,6 +180,19 @@ declare global {
         channel: "save-global-config",
         config: GlobalSettings,
       ): Promise<boolean>;
+      invoke(
+        channel: "read-source-file",
+        filePath: string,
+        projectRoot: string,
+      ): Promise<SourceFilePayload>;
+      invoke(
+        channel: "get-analysis-errors",
+        projectRoot: string,
+        analysisPath?: string,
+      ): Promise<{
+        fileErrors: FileAnalysisErrorRow[];
+        resolveErrors: ResolveErrorRow[];
+      }>;
     };
   }
 }

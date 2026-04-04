@@ -134,6 +134,37 @@ export abstract class BaseNode implements Renderable {
     container.addChild(text);
   }
 
+  protected updateLabel(
+    container: PIXI.Container,
+    offsetY: number,
+    context: RenderContext,
+  ) {
+    const existing = container.children.find(
+      (child) => child.label === `label-${this.id}`,
+    ) as PIXI.BitmapText | undefined;
+
+    if (!this.label) {
+      existing?.destroy();
+      return;
+    }
+
+    const fill =
+      this.label.fill ||
+      context.customColors?.labelColor ||
+      (context.theme === "dark" ? "white" : "black");
+
+    if (!existing) {
+      this.renderLabel(container, offsetY, context);
+      return;
+    }
+
+    existing.text = this.label.text;
+    existing.style.fill = fill;
+    existing.style.fontSize = 12 * this.scale;
+    existing.anchor.set(0.5, 0);
+    existing.y = offsetY;
+  }
+
   protected renderGitStatus(
     container: PIXI.Container,
     radius: number,
@@ -156,6 +187,41 @@ export abstract class BaseNode implements Renderable {
 
     indicator.label = `git-status-${this.id}`;
     container.addChild(indicator);
+  }
+
+  protected updateGitStatus(
+    container: PIXI.Container,
+    radius: number,
+    indicatorSize: number = 4,
+    context: RenderContext,
+  ) {
+    const existing = container.children.find(
+      (child) => child.label === `git-status-${this.id}`,
+    ) as PIXI.Graphics | undefined;
+
+    if (!this.gitStatus) {
+      existing?.destroy();
+      return;
+    }
+
+    const statusColor =
+      this.gitStatus === "added"
+        ? context.customColors?.gitAdded || "#22c55e"
+        : this.gitStatus === "modified"
+          ? context.customColors?.gitModified || "#f59e0b"
+          : context.customColors?.gitDeleted || "#ef4444";
+
+    const indicator = existing ?? new PIXI.Graphics();
+    indicator.label = `git-status-${this.id}`;
+    indicator.clear();
+    indicator
+      .circle(radius * 0.7, -radius * 0.7, indicatorSize * this.scale)
+      .fill(statusColor)
+      .stroke({ color: 0xffffff, width: 1 * this.scale });
+
+    if (!existing) {
+      container.addChild(indicator);
+    }
   }
 
   getAbsolutePosition(): GraphItemPosition {

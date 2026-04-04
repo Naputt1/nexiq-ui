@@ -294,6 +294,7 @@ import type {
   BackendRequestMap,
   BackendMessageType,
 } from "@nexiq/shared";
+import { resolvePath } from "./utils";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -899,6 +900,17 @@ ipcMain.handle("get-recent-projects", () => {
 });
 
 ipcMain.handle(
+  "read-source-file",
+  async (_: IpcMainInvokeEvent, filePath: string, projectRoot: string) => {
+    const resolvedPath = resolvePath(projectRoot, filePath);
+    return {
+      path: resolvedPath,
+      content: fs.readFileSync(resolvedPath, "utf8"),
+    };
+  },
+);
+
+ipcMain.handle(
   "set-last-project",
   (event: IpcMainInvokeEvent, path: string | null) => {
     const window = BrowserWindow.fromWebContents(event.sender);
@@ -1013,6 +1025,48 @@ ipcMain.handle(
       : [analysisPaths];
     await resolveSqlitePath(projectPath, undefined, paths);
     return path.basename(paths[0] || projectPath);
+  },
+);
+
+ipcMain.handle(
+  "get-analysis-errors",
+  async (_: IpcMainInvokeEvent, projectRoot: string, analysisPath?: string) => {
+    let sqlitePath = projectSqlitePaths.get(analysisPath || projectRoot);
+    if (!sqlitePath) {
+      const resolved = await resolveSqlitePath(
+        projectRoot,
+        analysisPath === projectRoot ? undefined : analysisPath,
+      );
+      sqlitePath = resolved.sqlitePath;
+    }
+
+    if (!sqlitePath || !fs.existsSync(sqlitePath)) {
+      return {
+        fileErrors: [],
+        resolveErrors: [],
+      };
+    }
+
+    const db = new Database(sqlitePath, { readonly: true });
+    try {
+      const fileErrors = db
+        .prepare(
+          "SELECT * FROM file_analysis_errors ORDER BY created_at DESC, file_path ASC",
+        )
+        .all();
+      const resolveErrors = db
+        .prepare(
+          "SELECT * FROM resolve_errors ORDER BY created_at DESC, file_path ASC",
+        )
+        .all();
+
+      return {
+        fileErrors,
+        resolveErrors,
+      };
+    } finally {
+      db.close();
+    }
   },
 );
 

@@ -2,7 +2,7 @@ import React from "react";
 import type { DetailSectionProps } from "@nexiq/extension-sdk";
 import { TypeRenderer } from "../type-renderer";
 import { TypeRefRenderer } from "../type-ref-renderer";
-import { type PropData, type TypeDataParam } from "@nexiq/shared";
+import { type PropData, type TypeData, type TypeDataParam } from "@nexiq/shared";
 import { useConfigStore } from "@/hooks/use-config-store";
 import { cn } from "@/lib/utils";
 import { type GraphNodeData } from "@/graph/hook";
@@ -13,6 +13,8 @@ export const PropsSection: React.FC<DetailSectionProps> = ({
 }) => {
   const { customColors } = useConfigStore();
   const item = baseItem as GraphNodeData;
+  const propType = (item.propType ?? baseItem.propType) as TypeData | undefined;
+  const props = (item.props ?? baseItem.props) as PropData[] | undefined;
 
   const renderGenerics = (params?: TypeDataParam[]) => {
     const genericsStyle = customColors?.genericsColor
@@ -70,7 +72,7 @@ export const PropsSection: React.FC<DetailSectionProps> = ({
     );
   };
 
-  if (!item.propType && (!item.props || item.props.length === 0)) return null;
+  if (!propType && (!props || props.length === 0)) return null;
 
   return (
     <div className="text-xs font-mono bg-muted/50 p-3 rounded-md border border-border max-w-full overflow-x-auto text-start leading-relaxed shadow-inner">
@@ -103,10 +105,10 @@ export const PropsSection: React.FC<DetailSectionProps> = ({
           })}
         </span>
       )}
-      {item.propType ? (
-        <TypeRenderer type={item.propType} typeData={typeData} />
+      {propType ? (
+        <TypeRenderer type={propType} typeData={typeData} />
       ) : (
-        item.props?.map((p: PropData, i: number) => (
+        props?.map((p: PropData, i: number) => (
           <div
             key={i}
             className={cn(
