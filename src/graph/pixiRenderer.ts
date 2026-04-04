@@ -18,6 +18,7 @@ export class PixiRenderer {
   onZoomChange?: (zoom: number) => void;
   onZoomRangeChange?: (range: { min: number; max: number }) => void;
   onViewportSettled?: (viewport: { x: number; y: number; zoom: number }) => void;
+  onRenderComplete?: (durationMs: number) => void;
   theme: "dark" | "light" = "dark";
   customColors?: CustomColors;
   viewportChangeInProgress = false;
@@ -63,6 +64,7 @@ export class PixiRenderer {
       y: number;
       zoom: number;
     }) => void,
+    onRenderComplete?: (durationMs: number) => void,
     theme: "dark" | "light" = "dark",
     customColors?: CustomColors,
   ) {
@@ -77,6 +79,7 @@ export class PixiRenderer {
     this.onZoomChange = onZoomChange;
     this.onZoomRangeChange = onZoomRangeChange;
     this.onViewportSettled = onViewportSettled;
+    this.onRenderComplete = onRenderComplete;
     this.theme = theme;
     this.customColors = customColors;
 
@@ -610,6 +613,7 @@ export class PixiRenderer {
 
   public render() {
     if (!this.isReady) return;
+    const renderStartedAt = performance.now();
 
     for (const child of this.edgeLayer.removeChildren()) {
       child.destroy({ children: true, texture: true, textureSource: true });
@@ -643,6 +647,7 @@ export class PixiRenderer {
     this.publishZoomState();
     this.scheduleViewportSettled();
     this.requestMinimapRender();
+    this.onRenderComplete?.(performance.now() - renderStartedAt);
   }
 
   private getRenderContext(): RenderContext {

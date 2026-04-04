@@ -38,6 +38,18 @@ export interface IpcEvents {
   "git-status-changed": void;
   "graph-snapshot-updated": GraphSnapshotUpdateEvent;
   "large-data-updated": LargeDataUpdateEvent;
+  "graph-pipeline-profile": {
+    id: string;
+    key: string;
+    projectRoot: string;
+    view?: string;
+    byteLength?: number;
+    stages: {
+      name: string;
+      durationMs: number;
+      detail?: string;
+    }[];
+  };
 }
 
 export interface GlobalSettings {

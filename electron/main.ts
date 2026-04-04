@@ -364,6 +364,25 @@ function broadcastLargeDataUpdate(payload: {
   }
 }
 
+function broadcastGraphPipelineProfile(payload: {
+  id: string;
+  key: string;
+  projectRoot: string;
+  view?: string;
+  byteLength?: number;
+  stages: {
+    name: string;
+    durationMs: number;
+    detail?: string;
+  }[];
+}) {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) {
+      window.webContents.send("graph-pipeline-profile", payload);
+    }
+  }
+}
+
 function storeInlineLargeData(
   kind: LargeDataKind,
   key: string,
@@ -521,15 +540,34 @@ async function openInlineLargeData(
       return buildHandleFromEntry(cached);
     }
 
+    const timings: {
+      name: string;
+      durationMs: number;
+      detail?: string;
+    }[] = [];
+
+    const resolveStartedAt = performance.now();
     const { targetPath, sqlitePath } = await resolveSqlitePath(
       args.projectRoot,
       args.analysisPath,
       args.analysisPaths,
     );
+    timings.push({
+      name: "Resolve sqlite path",
+      durationMs: performance.now() - resolveStartedAt,
+      detail: sqlitePath,
+    });
 
     // Ensure worker exists
+    const workerReadyAt = performance.now();
     await graphSnapshotManager.open("graph", targetPath, sqlitePath);
+    timings.push({
+      name: "Warm graph worker",
+      durationMs: performance.now() - workerReadyAt,
+      detail: targetPath,
+    });
 
+    const generateStartedAt = performance.now();
     const encoded = await graphSnapshotManager.requestInlineResult(targetPath, {
       type: "generate-view",
       kind: args.kind,
@@ -541,8 +579,28 @@ async function openInlineLargeData(
       view: args.view,
       sqlitePath,
     });
+    timings.push({
+      name: "Generate view from sqlite",
+      durationMs: performance.now() - generateStartedAt,
+      detail: `${encoded.byteLength} bytes`,
+    });
 
-    return storeInlineLargeData(args.kind, key, encoded);
+    const storeStartedAt = performance.now();
+    const handle = storeInlineLargeData(args.kind, key, encoded);
+    timings.push({
+      name: "Store inline buffer",
+      durationMs: performance.now() - storeStartedAt,
+      detail: `${encoded.byteLength} bytes`,
+    });
+    broadcastGraphPipelineProfile({
+      id: `${key}:${handle.version}`,
+      key,
+      projectRoot: args.projectRoot,
+      view: args.view,
+      byteLength: encoded.byteLength,
+      stages: timings,
+    });
+    return handle;
   }
 
   throw new Error(`Unsupported inline large data kind: ${args.kind}`);
