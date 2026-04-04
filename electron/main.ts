@@ -442,6 +442,11 @@ async function openInlineLargeData(
   args: LargeDataRequestArgs & { kind: LargeDataKind },
 ) {
   if (args.kind === "diff-analysis") {
+    const timings: {
+      name: string;
+      durationMs: number;
+      detail?: string;
+    }[] = [];
     const key = getDiffAnalysisKey(
       args.projectRoot,
       args.selectedCommit,
@@ -454,6 +459,7 @@ async function openInlineLargeData(
       return buildHandleFromEntry(cached);
     }
 
+    const resolveStartedAt = performance.now();
     const { targetPath } = await resolveSqlitePath(
       args.projectRoot,
       args.subPath ? path.join(args.projectRoot, args.subPath) : undefined,
@@ -499,11 +505,18 @@ async function openInlineLargeData(
       args.subPath ? path.join(args.projectRoot, args.subPath) : undefined,
       args.analysisPaths,
     );
+    timings.push({
+      name: "Resolve sqlite path",
+      durationMs: performance.now() - resolveStartedAt,
+      detail: sqlitePath,
+    });
 
-    // Ensure worker exists
-    await graphSnapshotManager.open("graph", targetPath, sqlitePath);
-
-    const encoded = await graphSnapshotManager.requestInlineResult(targetPath, {
+    const diffRequestStartedAt = performance.now();
+    const diffPayload = await graphSnapshotManager.requestInlineResult(
+      args.kind,
+      targetPath,
+      sqlitePath,
+      {
       type: "diff-analysis",
       kind: args.kind,
       projectRoot: args.projectRoot,
@@ -513,9 +526,31 @@ async function openInlineLargeData(
       commitSqlitePath,
       parentSqlitePath,
       headSqlitePath,
+      },
+    );
+    const encoded = diffPayload.encoded;
+    timings.push({
+      name: "Request inline result",
+      durationMs: performance.now() - diffRequestStartedAt,
+      detail: `${encoded.byteLength} bytes`,
     });
+    timings.push(...(diffPayload.stages || []));
 
-    return storeInlineLargeData(args.kind, key, encoded);
+    const storeStartedAt = performance.now();
+    const handle = storeInlineLargeData(args.kind, key, encoded);
+    timings.push({
+      name: "Store inline buffer",
+      durationMs: performance.now() - storeStartedAt,
+      detail: `${encoded.byteLength} bytes`,
+    });
+    broadcastGraphPipelineProfile({
+      id: `${key}:${handle.version}`,
+      key,
+      projectRoot: args.projectRoot,
+      byteLength: encoded.byteLength,
+      stages: timings,
+    });
+    return handle;
   }
 
   if (args.kind === "view-result") {
@@ -547,7 +582,7 @@ async function openInlineLargeData(
     }[] = [];
 
     const resolveStartedAt = performance.now();
-    const { targetPath, sqlitePath } = await resolveSqlitePath(
+    const { sqlitePath } = await resolveSqlitePath(
       args.projectRoot,
       args.analysisPath,
       args.analysisPaths,
@@ -558,32 +593,32 @@ async function openInlineLargeData(
       detail: sqlitePath,
     });
 
-    // Ensure worker exists
-    const workerReadyAt = performance.now();
-    await graphSnapshotManager.open("graph", targetPath, sqlitePath);
-    timings.push({
-      name: "Warm graph worker",
-      durationMs: performance.now() - workerReadyAt,
-      detail: targetPath,
-    });
-
-    const generateStartedAt = performance.now();
-    const encoded = await graphSnapshotManager.requestInlineResult(targetPath, {
-      type: "generate-view",
-      kind: args.kind,
-      projectRoot: args.projectRoot,
-      analysisPath: args.analysisPath,
-      analysisPaths: args.analysisPaths,
-      selectedCommit: args.selectedCommit,
-      subPath: args.subPath,
-      view: args.view,
+    const requestStartedAt = performance.now();
+    const payload = await graphSnapshotManager.requestInlineResult(
+      args.kind,
+      key,
       sqlitePath,
-    });
+      {
+        type: "generate-view",
+        kind: args.kind,
+        projectRoot: args.projectRoot,
+        analysisPath: args.analysisPath,
+        analysisPaths: args.analysisPaths,
+        selectedCommit: args.selectedCommit,
+        subPath: args.subPath,
+        view: args.view,
+        sqlitePath,
+      },
+    );
+    const encoded = payload.encoded;
     timings.push({
-      name: "Generate view from sqlite",
-      durationMs: performance.now() - generateStartedAt,
+      name: "Request inline result",
+      durationMs: performance.now() - requestStartedAt,
       detail: `${encoded.byteLength} bytes`,
     });
+    for (const stage of payload.stages || []) {
+      timings.push(stage);
+    }
 
     const storeStartedAt = performance.now();
     const handle = storeInlineLargeData(args.kind, key, encoded);

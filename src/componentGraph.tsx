@@ -336,7 +336,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
         });
         useGraphProfilerStore.getState().setByteLength(runId, byteLength);
         useGraphProfilerStore.getState().addStage(runId, {
-          name: "Handle request + transfer",
+          name: "Renderer handle wait",
           durationMs: performance.now() - requestStartedAt,
           source: "renderer",
           detail: `${(byteLength / 1024).toFixed(1)} KB`,
