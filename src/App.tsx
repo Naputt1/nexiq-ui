@@ -9,6 +9,7 @@ import { ProjectSettings } from "./pages/ProjectSettings";
 import { GlobalSettings } from "./pages/GlobalSettings";
 import { useRegisterZustandStore } from "@sucoza/zustand-devtools-plugin";
 import { useAppStateStore } from "./hooks/use-app-state-store";
+import { useGraphProfilerStore } from "./hooks/use-graph-profiler-store";
 
 function App() {
   const { projectRoot: storedProjectRoot, setProjectRoot } = useProjectStore();
@@ -16,6 +17,7 @@ function App() {
 
   useRegisterZustandStore("ProjectStore", useProjectStore);
   useRegisterZustandStore("AppStateStore", useAppStateStore);
+  useRegisterZustandStore("GraphProfilerStore", useGraphProfilerStore);
 
   // Try to get projectPath from hash (via useSearchParams) or from main URL search
   const urlProjectPath =
@@ -51,6 +53,25 @@ function App() {
       document.title = "nexiq";
     }
   }, [projectRoot]);
+
+  useEffect(() => {
+    return window.ipcRenderer.on("graph-pipeline-profile", (payload) => {
+      useGraphProfilerStore.getState().upsertRun({
+        id: payload.id,
+        key: payload.key,
+        projectRoot: payload.projectRoot,
+        view: payload.view,
+        startedAt: Date.now(),
+        byteLength: payload.byteLength,
+      });
+      for (const stage of payload.stages) {
+        useGraphProfilerStore.getState().addStage(payload.id, {
+          ...stage,
+          source: "backend",
+        });
+      }
+    });
+  }, []);
 
   const handleProjectComplete = async (
     path: string,

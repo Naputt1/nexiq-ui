@@ -24,6 +24,7 @@ export {
 };
 import { type UIItemState } from "@nexiq/shared";
 import type { GraphViewBufferView } from "../view-snapshot/codec";
+import { useGraphProfilerStore } from "../hooks/use-graph-profiler-store";
 
 export type useGraphProps = {
   nodes?: GraphNodeData[];
@@ -124,6 +125,8 @@ export class GraphData {
   private edgeToCreate: GraphArrowData[] = [];
   private edgeIds: Record<string, Set<string>> = {};
   private layoutRequestOrder = new Map<string, string[]>();
+  private layoutRequestStartedAt = new Map<string, number>();
+  private profileRunId: string | null = null;
 
   private config: GraphDataConfig;
 
@@ -166,6 +169,16 @@ export class GraphData {
         this.layoutInProgress.delete(id);
         const order = this.layoutRequestOrder.get(id) ?? [];
         this.layoutRequestOrder.delete(id);
+        const startedAt = this.layoutRequestStartedAt.get(id);
+        this.layoutRequestStartedAt.delete(id);
+        if (this.profileRunId && startedAt != null) {
+          useGraphProfilerStore.getState().addStage(this.profileRunId, {
+            name: id === "root" ? "Root layout" : `Combo layout: ${id}`,
+            durationMs: performance.now() - startedAt,
+            source: "renderer",
+            detail: `${order.length} items`,
+          });
+        }
         this.batch(() => {
           if (id === "root") {
             for (let index = 0; index < order.length; index += 1) {
@@ -389,6 +402,10 @@ export class GraphData {
     });
   }
 
+  public setProfileRunId(runId: string | null) {
+    this.profileRunId = runId;
+  }
+
   private getComboHook(id: string): GraphComboHookBase | undefined {
     const combo = this.getComboByID(id);
     if (combo == null) return;
@@ -549,6 +566,7 @@ export class GraphData {
     }
 
     this.layoutRequestOrder.set(combo.id, points.map((point) => point.id));
+    this.layoutRequestStartedAt.set(combo.id, performance.now());
     this.worker.postMessage({
       type: "layout",
       id: combo.id,
@@ -1733,6 +1751,7 @@ export class GraphData {
     }
 
     this.layoutRequestOrder.set("root", points.map((point) => point.id));
+    this.layoutRequestStartedAt.set("root", performance.now());
     this.worker.postMessage({
       type: "layout",
       id: "root",

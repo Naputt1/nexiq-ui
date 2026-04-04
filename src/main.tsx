@@ -17,6 +17,7 @@ const init = async () => {
     const { TanStackDevtools } = await import("@tanstack/react-devtools");
     const {
       AppStatePluginComponent,
+      GraphProfilerPluginComponent,
       GraphStatePluginComponent,
       WorkerStatePluginComponent,
     } = await import("./devtools");
@@ -34,6 +35,10 @@ const init = async () => {
               {
                 name: "Graph State",
                 render: <GraphStatePluginComponent />,
+              },
+              {
+                name: "Graph Profiler",
+                render: <GraphProfilerPluginComponent />,
               },
               {
                 name: "Worker Registry",
