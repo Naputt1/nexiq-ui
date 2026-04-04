@@ -10,7 +10,6 @@ import { type AnalyzedDiff, type TypeDataDeclare } from "@nexiq/shared";
 import useGraph, {
   GraphCombo,
   GraphNode,
-  type useGraphProps,
   type GraphNodeData,
 } from "./graph/hook";
 import { PixiRenderer } from "./graph/pixiRenderer";
@@ -57,6 +56,7 @@ import { SourceEditorPanel } from "./components/source-editor-panel";
 import type { FileAnalysisErrorRow, ResolveErrorRow } from "../electron/types";
 import { Card } from "./components/ui/card";
 import { ViewSwitcher } from "./components/ViewSwitcher";
+import type { GraphViewBufferView } from "./view-snapshot/codec";
 
 interface ComponentGraphProps {
   projectPath: string;
@@ -138,11 +138,8 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     height: window.innerHeight,
   });
 
-  const [graphData, setGraphData] = useState<useGraphProps>({
-    nodes: [],
-    edges: [],
-    combos: [],
-  });
+  const [graphViewBuffer, setGraphViewBuffer] =
+    useState<GraphViewBufferView | null>(null);
 
   const rendererRef = useRef<PixiRenderer | null>(null);
 
@@ -184,7 +181,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
       .catch((error) => {
         console.error("Failed to load analysis errors", error);
       });
-  }, [projectPath, selectedSubProjects, isAnalyzing, graphData]);
+  }, [projectPath, selectedSubProjects, isAnalyzing, graphViewBuffer]);
 
   // Use useEffect to update renderer theme when customColors or theme changes
   useEffect(() => {
@@ -319,9 +316,8 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
           return;
         }
 
-        const { nodes, edges, combos, typeData: newTypeData } = result;
-        settypeData(newTypeData);
-        setGraphData({ nodes, edges, combos });
+        settypeData(result.getTypeData());
+        setGraphViewBuffer(result);
       } catch (err) {
         console.error(err);
       } finally {
@@ -341,7 +337,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   );
 
   const graph = useGraph({
-    ...graphData,
+    viewBuffer: graphViewBuffer,
     projectPath,
     targetPath: selectedSubProjects[0] || projectPath,
   });
@@ -863,9 +859,10 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
 
   useEffect(() => {
     if (
-      graphData.edges?.length == 0 ||
-      graphData.combos?.length == 0 ||
-      graphData.nodes?.length == 0
+      !graphViewBuffer ||
+      graphViewBuffer.edgeCount === 0 ||
+      graphViewBuffer.comboCount === 0 ||
+      graphViewBuffer.nodeCount === 0
     )
       return;
 
@@ -875,7 +872,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     if (!isGeneratingView) {
       debouncedRender();
     }
-  }, [graphData, graph, isGeneratingView, debouncedRender]);
+  }, [graphViewBuffer, graph, isGeneratingView, debouncedRender]);
 
   useEffect(() => {
     // After render, center on saved item if it exists AND we haven't restored a viewport
