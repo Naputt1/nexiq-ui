@@ -56,20 +56,30 @@ function App() {
 
   useEffect(() => {
     return window.ipcRenderer.on("graph-pipeline-profile", (payload) => {
-      useGraphProfilerStore.getState().upsertRun({
+      useGraphProfilerStore.getState().startRun({
         id: payload.id,
+        logicalKey: payload.logicalKey,
         key: payload.key,
         projectRoot: payload.projectRoot,
         view: payload.view,
         startedAt: Date.now(),
         byteLength: payload.byteLength,
+        handleVersion: payload.handleVersion,
+        status: payload.status ?? "in_progress",
       });
-      for (const stage of payload.stages) {
-        useGraphProfilerStore.getState().addStage(payload.id, {
+      useGraphProfilerStore.getState().mergeStages(
+        payload.id,
+        payload.stages.map((stage) => ({
           ...stage,
-          source: "backend",
-        });
-      }
+          parentId: stage.parentId ?? "renderer:handle-wait",
+          source: "backend" as const,
+        })),
+      );
+      useGraphProfilerStore.getState().completeRun(payload.id, {
+        status: payload.status ?? "completed",
+        byteLength: payload.byteLength,
+        handleVersion: payload.handleVersion,
+      });
     });
   }, []);
 

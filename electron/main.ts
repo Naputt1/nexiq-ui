@@ -366,13 +366,19 @@ function broadcastLargeDataUpdate(payload: {
 
 function broadcastGraphPipelineProfile(payload: {
   id: string;
+  logicalKey: string;
   key: string;
   projectRoot: string;
   view?: string;
   byteLength?: number;
+  handleVersion?: number;
+  status?: "in_progress" | "completed" | "superseded" | "failed";
   stages: {
+    id: string;
     name: string;
-    durationMs: number;
+    startMs: number;
+    endMs: number;
+    parentId?: string;
     detail?: string;
   }[];
 }) {
@@ -381,6 +387,26 @@ function broadcastGraphPipelineProfile(payload: {
       window.webContents.send("graph-pipeline-profile", payload);
     }
   }
+}
+
+function offsetProfileStages(
+  stages: {
+    id: string;
+    name: string;
+    startMs: number;
+    endMs: number;
+    parentId?: string;
+    detail?: string;
+  }[],
+  offsetMs: number,
+  defaultParentId?: string,
+) {
+  return stages.map((stage) => ({
+    ...stage,
+    startMs: stage.startMs + offsetMs,
+    endMs: stage.endMs + offsetMs,
+    parentId: stage.parentId ?? defaultParentId,
+  }));
 }
 
 function storeInlineLargeData(
@@ -443,8 +469,11 @@ async function openInlineLargeData(
 ) {
   if (args.kind === "diff-analysis") {
     const timings: {
+      id: string;
       name: string;
-      durationMs: number;
+      startMs: number;
+      endMs: number;
+      parentId?: string;
       detail?: string;
     }[] = [];
     const key = getDiffAnalysisKey(
@@ -506,8 +535,10 @@ async function openInlineLargeData(
       args.analysisPaths,
     );
     timings.push({
+      id: "main:resolve-sqlite-path",
       name: "Resolve sqlite path",
-      durationMs: performance.now() - resolveStartedAt,
+      startMs: 0,
+      endMs: performance.now() - resolveStartedAt,
       detail: sqlitePath,
     });
 
@@ -529,25 +560,40 @@ async function openInlineLargeData(
       },
     );
     const encoded = diffPayload.encoded;
+    const requestEndMs = timings[0]!.endMs + (performance.now() - diffRequestStartedAt);
     timings.push({
+      id: "main:request-inline-result",
       name: "Request inline result",
-      durationMs: performance.now() - diffRequestStartedAt,
+      startMs: timings[0]!.endMs,
+      endMs: requestEndMs,
       detail: `${encoded.byteLength} bytes`,
     });
-    timings.push(...(diffPayload.stages || []));
+    timings.push(
+      ...offsetProfileStages(
+        diffPayload.stages || [],
+        timings[0]!.endMs,
+        "main:request-inline-result",
+      ),
+    );
 
     const storeStartedAt = performance.now();
     const handle = storeInlineLargeData(args.kind, key, encoded);
+    const storeDurationMs = performance.now() - storeStartedAt;
     timings.push({
+      id: "main:store-inline-buffer",
       name: "Store inline buffer",
-      durationMs: performance.now() - storeStartedAt,
+      startMs: requestEndMs,
+      endMs: requestEndMs + storeDurationMs,
       detail: `${encoded.byteLength} bytes`,
     });
     broadcastGraphPipelineProfile({
-      id: `${key}:${handle.version}`,
+      id: args.profilerRunId || `${key}:${handle.version}`,
+      logicalKey: args.profilerLogicalKey || key,
       key,
       projectRoot: args.projectRoot,
       byteLength: encoded.byteLength,
+      handleVersion: handle.version,
+      status: "completed",
       stages: timings,
     });
     return handle;
@@ -576,8 +622,11 @@ async function openInlineLargeData(
     }
 
     const timings: {
+      id: string;
       name: string;
-      durationMs: number;
+      startMs: number;
+      endMs: number;
+      parentId?: string;
       detail?: string;
     }[] = [];
 
@@ -588,8 +637,10 @@ async function openInlineLargeData(
       args.analysisPaths,
     );
     timings.push({
+      id: "main:resolve-sqlite-path",
       name: "Resolve sqlite path",
-      durationMs: performance.now() - resolveStartedAt,
+      startMs: 0,
+      endMs: performance.now() - resolveStartedAt,
       detail: sqlitePath,
     });
 
@@ -611,28 +662,41 @@ async function openInlineLargeData(
       },
     );
     const encoded = payload.encoded;
+    const requestEndMs = timings[0]!.endMs + (performance.now() - requestStartedAt);
     timings.push({
+      id: "main:request-inline-result",
       name: "Request inline result",
-      durationMs: performance.now() - requestStartedAt,
+      startMs: timings[0]!.endMs,
+      endMs: requestEndMs,
       detail: `${encoded.byteLength} bytes`,
     });
-    for (const stage of payload.stages || []) {
-      timings.push(stage);
-    }
+    timings.push(
+      ...offsetProfileStages(
+        payload.stages || [],
+        timings[0]!.endMs,
+        "main:request-inline-result",
+      ),
+    );
 
     const storeStartedAt = performance.now();
     const handle = storeInlineLargeData(args.kind, key, encoded);
+    const storeDurationMs = performance.now() - storeStartedAt;
     timings.push({
+      id: "main:store-inline-buffer",
       name: "Store inline buffer",
-      durationMs: performance.now() - storeStartedAt,
+      startMs: requestEndMs,
+      endMs: requestEndMs + storeDurationMs,
       detail: `${encoded.byteLength} bytes`,
     });
     broadcastGraphPipelineProfile({
-      id: `${key}:${handle.version}`,
+      id: args.profilerRunId || `${key}:${handle.version}`,
+      logicalKey: args.profilerLogicalKey || key,
       key,
       projectRoot: args.projectRoot,
       view: args.view,
       byteLength: encoded.byteLength,
+      handleVersion: handle.version,
+      status: "completed",
       stages: timings,
     });
     return handle;
