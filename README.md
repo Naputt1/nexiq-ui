@@ -1,73 +1,83 @@
-# React + TypeScript + Vite
+# nexiq-ui
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+`nexiq-ui` is the desktop app for exploring React component graphs, project structure, snapshots, and git-aware analysis views powered by nexiq.
 
-Currently, two official plugins are available:
+## Key Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- Guided project setup flow for opening and configuring a codebase to analyse.
+- Interactive graph exploration for component relationships and dependency paths.
+- Snapshot and view generation support for storing and revisiting analysis output.
+- Git-focused panels for history, change trees, and diff-driven inspection.
+- Project and global settings screens for tuning how analysis runs locally.
+- Extension-backed views that can surface custom detail panels and tasks.
 
-## React Compiler
+## How It Fits With `nexiq`
 
-The React Compiler is currently not compatible with SWC. See [this issue](https://github.com/vitejs/vite-plugin-react/issues/428) for tracking the progress.
+`nexiq-ui` is the desktop frontend for the `nexiq` monorepo.
 
-## Expanding the ESLint configuration
+- The Electron main process starts or connects to the backend server from the sibling `nexiq` repository.
+- The renderer loads shared contracts and the extension SDK outputs from `../nexiq/packages/...`.
+- The backend communicates with the app over WebSocket while the UI handles project selection, graph rendering, and local state.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+In practice, local UI development expects the `nexiq` repo to be checked out as a sibling directory and its required packages to be built.
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Quick Start
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+### Requirements
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+- Node.js
+- `pnpm`
+- A sibling checkout of `nexiq` at `../nexiq`
+
+### Install
+
+```bash
+cd nexiq-ui
+pnpm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### Prepare The Backend Dependencies
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+Because this app resolves local package outputs from the sibling `nexiq` repository, build the backend packages before running the UI:
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+cd ../nexiq
+pnpm install
+pnpm --filter=@nexiq/shared build
+pnpm --filter=@nexiq/extension-sdk build
+pnpm --filter=@nexiq/cli build
 ```
+
+### Run The App
+
+```bash
+cd ../nexiq-ui
+pnpm dev
+```
+
+## Main Scripts
+
+- `pnpm dev` starts the Vite and Electron development workflow.
+- `pnpm build` builds the renderer and Electron bundles, then packages the app with `electron-builder`.
+- `pnpm build:vite` builds the renderer and Electron entrypoints without packaging.
+- `pnpm preview` previews the built Vite app.
+- `pnpm typecheck` runs the TypeScript build checks.
+- `pnpm lint` runs ESLint.
+- `pnpm test` runs the Vitest suite.
+- `pnpm test:e2e` runs the Playwright end-to-end suite.
+- `pnpm test:coverage` builds with coverage instrumentation, runs e2e coverage, and merges results.
+
+## Architecture
+
+- Electron main process manages windows, local persistence, snapshot databases, and backend process coordination.
+- React renderer provides the graph UI, settings pages, setup flow, and extension-driven panels.
+- The backend server from `nexiq` provides project analysis and runtime data over WebSocket.
+
+This split keeps analysis logic in the core monorepo while the desktop app focuses on visual exploration and workflow.
+
+## Development Notes
+
+- The app depends on local file-based packages from the sibling `nexiq` repo, including `@nexiq/shared` and `@nexiq/extension-sdk`.
+- If the backend server bundle is not found automatically, the app supports pointing at a built server via `REACT_MAP_SERVER_PATH`.
+- Production packaging uses the repository's `build-electron.sh` script and `electron-builder`.
+- The renderer stack is Vite, React, Tailwind, and Electron, with Vitest for unit tests and Playwright for e2e coverage.
