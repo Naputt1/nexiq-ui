@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 // Graph Data Types
 // Graph Data Class
-import type Konva from "konva";
+import * as PIXI from "pixi.js";
 
 import {
   GraphNode,
@@ -22,13 +22,15 @@ export {
   type GraphArrowData,
   type CurRender,
 };
-import { type Node, type Edge } from "./layout";
 import { type UIItemState } from "@nexiq/shared";
+import type { GraphViewBufferView } from "../view-snapshot/codec";
+import { useGraphProfilerStore } from "../hooks/use-graph-profiler-store";
 
 export type useGraphProps = {
   nodes?: GraphNodeData[];
   edges?: GraphArrowData[];
   combos?: GraphComboData[];
+  viewBuffer?: GraphViewBufferView | null;
   config?: GraphDataConfig;
   projectPath?: string;
   targetPath?: string;
@@ -38,7 +40,12 @@ export type GraphDataCallbackParams =
   | { type: "new-nodes" }
   | { type: "new-edges" }
   | { type: "new-combos" }
-  | { type: "combo-collapsed"; id: string }
+  | {
+      type: "combo-collapsed";
+      id: string;
+      previousRadius?: number;
+      targetRadius?: number;
+    }
   | { type: "combo-drag-move"; id: string; edgeIds: string[]; child?: boolean }
   | { type: "combo-drag-end"; id: string }
   | { type: "node-drag-move"; id: string; edgeIds: string[] }
@@ -69,8 +76,8 @@ export interface GraphComboHookBase extends GraphComboData {
 export interface GraphComboHook extends GraphComboHookBase {
   comboRadiusChange: (id: string, radius: number) => void;
   comboCollapsed: (id: string) => void;
-  comboDragMove: (id: string, e: Konva.KonvaEventObject<DragEvent>) => void;
-  comboDragEnd: (id: string, e: Konva.KonvaEventObject<DragEvent>) => void;
+  comboDragMove: (id: string, e: PIXI.FederatedPointerEvent) => void;
+  comboDragEnd: (id: string, e: PIXI.FederatedPointerEvent) => void;
   comboHover: () => void;
 }
 
@@ -117,6 +124,9 @@ export class GraphData {
   private nodeToCreate: GraphNodeData[] = [];
   private edgeToCreate: GraphArrowData[] = [];
   private edgeIds: Record<string, Set<string>> = {};
+  private layoutRequestOrder = new Map<string, string[]>();
+  private layoutRequestStartedAt = new Map<string, number>();
+  private profileRunId: string | null = null;
 
   private config: GraphDataConfig;
 
@@ -154,17 +164,42 @@ export class GraphData {
     this.targetPath = targetPath;
     this.worker = new LayoutWorker();
     this.worker.onmessage = (e: MessageEvent) => {
-      const { type, id, nodes } = e.data as LayoutResponse;
+      const { type, id, positions } = e.data as LayoutResponse;
       if (type === "layout-result") {
         this.layoutInProgress.delete(id);
+        const order = this.layoutRequestOrder.get(id) ?? [];
+        this.layoutRequestOrder.delete(id);
+        const startedAt = this.layoutRequestStartedAt.get(id);
+        this.layoutRequestStartedAt.delete(id);
+        if (this.profileRunId && startedAt != null) {
+          const store = useGraphProfilerStore.getState();
+          const run = store.runs.find((entry) => entry.id === this.profileRunId);
+          const baseStartMs =
+            run?.stages.reduce(
+              (max, stage) => Math.max(max, stage.endMs),
+              0,
+            ) ?? 0;
+          const durationMs = performance.now() - startedAt;
+          store.mergeStages(this.profileRunId, [
+            {
+              id: id === "root" ? "renderer:root-layout" : `renderer:combo-layout:${id}`,
+              name: id === "root" ? "Root layout" : `Combo layout: ${id}`,
+              startMs: baseStartMs,
+              endMs: baseStartMs + durationMs,
+              source: "renderer",
+              detail: `${order.length} items`,
+            },
+          ]);
+        }
         this.batch(() => {
           if (id === "root") {
-            for (const n of nodes) {
-              if (n.id === this.draggingId) continue;
-              const node = this.getPointByID(n.id);
+            for (let index = 0; index < order.length; index += 1) {
+              const pointId = order[index];
+              if (pointId === this.draggingId) continue;
+              const node = this.getPointByID(pointId);
               if (node) {
-                node.x = n.x;
-                node.y = n.y;
+                node.x = positions[index * 2] ?? node.x;
+                node.y = positions[index * 2 + 1] ?? node.y;
                 if (!("collapsedRadius" in node)) {
                   node.isLayoutCalculated = true;
                 }
@@ -172,8 +207,8 @@ export class GraphData {
             }
 
             const edgeIds = new Set<string>();
-            for (const n of nodes) {
-              const ids = this.getComboEdges(n.id);
+            for (const pointId of order) {
+              const ids = this.getComboEdges(pointId);
               for (const edgeId of ids) {
                 edgeIds.add(edgeId);
               }
@@ -187,13 +222,14 @@ export class GraphData {
           } else {
             const combo = this.getComboByID(id);
             if (combo) {
-              for (const n of nodes) {
-                if (n.id === this.draggingId) continue;
+              for (let index = 0; index < order.length; index += 1) {
+                const pointId = order[index];
+                if (pointId === this.draggingId) continue;
                 const node =
-                  combo.child?.nodes[n.id] ?? combo.child?.combos[n.id];
+                  combo.child?.nodes[pointId] ?? combo.child?.combos[pointId];
                 if (node) {
-                  node.x = n.x;
-                  node.y = n.y;
+                  node.x = positions[index * 2] ?? node.x;
+                  node.y = positions[index * 2 + 1] ?? node.y;
                   if (!("collapsedRadius" in node)) {
                     node.isLayoutCalculated = true;
                   }
@@ -201,8 +237,8 @@ export class GraphData {
               }
 
               const edgeIds = new Set<string>();
-              for (const n of nodes) {
-                const ids = this.getComboEdges(n.id);
+              for (const pointId of order) {
+                const ids = this.getComboEdges(pointId);
                 for (const edgeId of ids) {
                   edgeIds.add(edgeId);
                 }
@@ -353,6 +389,35 @@ export class GraphData {
     });
   }
 
+  public setDataFromViewBuffer(
+    viewBuffer: GraphViewBufferView,
+    projectPath?: string,
+    targetPath?: string,
+  ) {
+    if (projectPath) this.projectPath = projectPath;
+    if (targetPath) this.targetPath = targetPath;
+
+    this.batch(() => {
+      this.clear();
+      const combos = Array.from({ length: viewBuffer.comboCount }, (_, index) =>
+        viewBuffer.getCombo(index),
+      );
+      const nodes = Array.from({ length: viewBuffer.nodeCount }, (_, index) =>
+        viewBuffer.getNode(index),
+      );
+      const edges = Array.from({ length: viewBuffer.edgeCount }, (_, index) =>
+        viewBuffer.getEdge(index),
+      );
+      this.addCombos(combos);
+      this.addNodes(nodes);
+      this.addEdges(edges);
+    });
+  }
+
+  public setProfileRunId(runId: string | null) {
+    this.profileRunId = runId;
+  }
+
   private getComboHook(id: string): GraphComboHookBase | undefined {
     const combo = this.getComboByID(id);
     if (combo == null) return;
@@ -424,7 +489,7 @@ export class GraphData {
             };
           });
         },
-        comboDragMove: (id: string, e: Konva.KonvaEventObject<DragEvent>) => {
+        comboDragMove: (id: string, e: PIXI.FederatedPointerEvent) => {
           this.comboDragMove(id, e);
           const combo = this.getComboHook(id);
           if (combo == null) return;
@@ -438,7 +503,7 @@ export class GraphData {
             };
           });
         },
-        comboDragEnd: (id: string, e: Konva.KonvaEventObject<DragEvent>) => {
+        comboDragEnd: (id: string, e: PIXI.FederatedPointerEvent) => {
           this.comboDragEnd(id, e);
         },
         comboRadiusChange: (id: string, radius: number) => {
@@ -481,55 +546,62 @@ export class GraphData {
     // But persistence layer should set isLayoutCalculated = true if loaded.
 
     // If not calculated, send to worker
-    const nodes: Node[] = [];
-    const edges: Edge[] = [];
+    const points = [
+      ...Object.values(combo.child?.nodes ?? {}),
+      ...Object.values(combo.child?.combos ?? {}),
+    ];
+    const pointIndex = new Map(points.map((point, index) => [point.id, index]));
+    const positions = new Float32Array(points.length * 2);
+    const radii = new Float32Array(points.length);
+    const fixed = new Uint8Array(points.length);
+    const edgePairs = Object.values(combo.child?.edges ?? {}).filter(
+      (edge) =>
+        pointIndex.has(edge.source) && pointIndex.has(edge.target),
+    );
+    const sources = new Uint32Array(edgePairs.length);
+    const targets = new Uint32Array(edgePairs.length);
 
-    for (const n of Object.values(combo.child?.nodes ?? {})) {
-      nodes.push({
-        id: n.id,
-        x: n.x, // Pass existing X if available (from persistence)
-        y: n.y,
-        radius: n.radius,
-        fixed: n.id === this.draggingId || n.id === fixedId,
-      });
+    for (let index = 0; index < points.length; index += 1) {
+      const point = points[index];
+      positions[index * 2] = point.x;
+      positions[index * 2 + 1] = point.y;
+      radii[index] = Number(
+        "collapsedRadius" in point ? point.expandedRadius : point.radius,
+      );
+      fixed[index] = point.id === this.draggingId || point.id === fixedId ? 1 : 0;
     }
 
-    for (const c of Object.values(combo.child?.combos ?? {})) {
-      nodes.push({
-        id: c.id,
-        x: c.x,
-        y: c.y,
-        radius: c.expandedRadius,
-        fixed: c.id === this.draggingId || c.id === fixedId,
-      });
+    for (let index = 0; index < edgePairs.length; index += 1) {
+      const edge = edgePairs[index];
+      sources[index] = pointIndex.get(edge.source)!;
+      targets[index] = pointIndex.get(edge.target)!;
     }
 
-    for (const e of Object.values(combo.child?.edges ?? {})) {
-      edges.push({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-      });
-    }
-
+    this.layoutRequestOrder.set(combo.id, points.map((point) => point.id));
+    this.layoutRequestStartedAt.set(combo.id, performance.now());
     this.worker.postMessage({
       type: "layout",
       id: combo.id,
-      nodes,
-      edges,
+      nodeIds: points.map((point) => point.id),
+      positions,
+      radii,
+      fixed,
+      sources,
+      targets,
       options: {
         repulsionStrength: 250 * combo.scale,
-        linkDistance: 25 * combo.scale,
+        linkDistance: 22 * combo.scale,
+        attractionStrength: 0.18,
         damping: 0.8,
-        gravity: 0.05,
+        gravity: 0.04,
         timeStep: 0.02,
         minNodeDistance: 25 * combo.scale,
         collisionStrength: 2,
         alpha: 1.0,
         alphaDecay: 0.005,
       },
-      iterations: 2000,
-    } as LayoutRequest);
+      iterations: 1200,
+    } satisfies LayoutRequest);
   }
 
   private _addChildEdge(e: GraphArrowData): boolean {
@@ -1021,6 +1093,7 @@ export class GraphData {
       return;
     }
 
+    const previousRadius = combo.radius;
     combo.collapsed = !combo.collapsed;
     combo.radius = combo.collapsed
       ? combo.collapsedRadius
@@ -1033,6 +1106,8 @@ export class GraphData {
     this.trigger({
       type: "combo-collapsed",
       id: combo.id,
+      previousRadius,
+      targetRadius: combo.radius,
     });
 
     if (!combo.collapsed) {
@@ -1173,15 +1248,15 @@ export class GraphData {
     }
   }
 
-  public comboDragMove(id: string, e: Konva.KonvaEventObject<DragEvent>) {
+  public comboDragMove(id: string, e: PIXI.FederatedPointerEvent) {
     const combo = this.getComboByID(id);
     if (combo == null) {
       console.error("comboDragMove: combo not found");
       return;
     }
 
-    combo.x = e.target.x();
-    combo.y = e.target.y();
+    combo.x = e.target.x;
+    combo.y = e.target.y;
 
     const edgeIds = this.getComboEdges(id);
     this.updateEdgePos(edgeIds);
@@ -1221,7 +1296,7 @@ export class GraphData {
     }
   }
 
-  public comboDragEnd(id: string, _e: Konva.KonvaEventObject<DragEvent>) {
+  public comboDragEnd(id: string, _e: PIXI.FederatedPointerEvent) {
     this.trigger({
       type: "combo-drag-end",
       id: id,
@@ -1231,7 +1306,7 @@ export class GraphData {
   public comboChildNodeMove(
     id: string,
     nodeId: string,
-    e: Konva.KonvaEventObject<DragEvent>,
+    e: PIXI.FederatedPointerEvent,
   ) {
     const combo = this.getComboByID(id);
     if (combo == null) {
@@ -1245,8 +1320,8 @@ export class GraphData {
       return;
     }
 
-    node.x = e.target.x();
-    node.y = e.target.y();
+    node.x = e.target.x;
+    node.y = e.target.y;
 
     const edgeIds = new Set<string>();
 
@@ -1536,7 +1611,10 @@ export class GraphData {
 
   public getAllEdges(): GraphArrow[] {
     const all: GraphArrow[] = [];
-    const collect = (edges: Record<string, GraphArrow>, combos: Record<string, GraphCombo>) => {
+    const collect = (
+      edges: Record<string, GraphArrow>,
+      combos: Record<string, GraphCombo>,
+    ) => {
       for (const edge of Object.values(edges)) {
         all.push(edge);
       }
@@ -1563,6 +1641,8 @@ export class GraphData {
         this.trigger({
           type: "combo-collapsed",
           id: parentId,
+          previousRadius: parent.radius,
+          targetRadius: parent.expandedRadius,
         });
 
         // Ensure child layout is calculated if it hasn't been before
@@ -1598,12 +1678,12 @@ export class GraphData {
     return this.curRender.edges[id];
   }
 
-  public nodeDragMove(nodeId: string, e: Konva.KonvaEventObject<DragEvent>) {
+  public nodeDragMove(nodeId: string, e: PIXI.FederatedPointerEvent) {
     const node = this.nodes.get(nodeId);
     if (!node) return;
 
-    node.x = e.target.x();
-    node.y = e.target.y();
+    node.x = e.target.x;
+    node.y = e.target.y;
 
     const edgeIds = new Set<string>();
     const ids = this.getComboEdges(nodeId);
@@ -1621,7 +1701,7 @@ export class GraphData {
     });
   }
 
-  public nodeDragEnd(nodeId: string, _e: Konva.KonvaEventObject<DragEvent>) {
+  public nodeDragEnd(nodeId: string, _e: PIXI.FederatedPointerEvent) {
     this.trigger({
       type: "node-drag-end",
       id: nodeId,
@@ -1651,51 +1731,60 @@ export class GraphData {
       return;
     }
 
-    const nodes: Node[] = [];
-    const edges: Edge[] = [];
+    const points = [
+      ...Array.from(this.nodes.values()),
+      ...Array.from(this.combos.values()),
+    ];
+    const pointIndex = new Map(points.map((point, index) => [point.id, index]));
+    const positions = new Float32Array(points.length * 2);
+    const radii = new Float32Array(points.length);
+    const fixed = new Uint8Array(points.length);
+    const edgePairs = Array.from(this.edges.values()).filter(
+      (edge) =>
+        pointIndex.has(edge.source) && pointIndex.has(edge.target),
+    );
+    const sources = new Uint32Array(edgePairs.length);
+    const targets = new Uint32Array(edgePairs.length);
 
-    for (const n of Array.from(this.nodes.values())) {
-      nodes.push({
-        id: n.id,
-        x: n.x,
-        y: n.y,
-        radius: n.radius,
-        fixed: n.id === this.draggingId || n.id === fixedId,
-      });
+    for (let index = 0; index < points.length; index += 1) {
+      const point = points[index];
+      positions[index * 2] = point.x;
+      positions[index * 2 + 1] = point.y;
+      radii[index] = Number(
+        "collapsedRadius" in point ? point.expandedRadius : point.radius,
+      );
+      fixed[index] = point.id === this.draggingId || point.id === fixedId ? 1 : 0;
     }
 
-    for (const c of Array.from(this.combos.values())) {
-      nodes.push({
-        id: c.id,
-        x: c.x,
-        y: c.y,
-        radius: c.expandedRadius,
-        fixed: c.id === this.draggingId || c.id === fixedId,
-      });
+    for (let index = 0; index < edgePairs.length; index += 1) {
+      const edge = edgePairs[index];
+      sources[index] = pointIndex.get(edge.source)!;
+      targets[index] = pointIndex.get(edge.target)!;
     }
 
-    for (const e of Array.from(this.edges.values())) {
-      edges.push({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-      });
-    }
-
+    this.layoutRequestOrder.set("root", points.map((point) => point.id));
+    this.layoutRequestStartedAt.set("root", performance.now());
     this.worker.postMessage({
       type: "layout",
       id: "root",
-      nodes,
-      edges,
-      iterations: 2000,
+      nodeIds: points.map((point) => point.id),
+      positions,
+      radii,
+      fixed,
+      sources,
+      targets,
+      iterations: 1200,
       options: {
         minNodeDistance: 200,
-        gravity: 0.5,
-        repulsionStrength: 1000,
+        linkDistance: 110,
+        attractionStrength: 0.16,
+        gravity: 0.18,
+        repulsionStrength: 1300,
+        collisionStrength: 1.2,
         alpha: 1.0,
-        alphaDecay: 0.001,
+        alphaDecay: 0.002,
       },
-    });
+    } satisfies LayoutRequest);
 
     // Populate curRender immediately with current positions (even if not laid out yet)
     // or we might wait? But render() initializes curRender.
@@ -1706,6 +1795,10 @@ export class GraphData {
     edges: {},
     combos: {},
   };
+
+  public getCurRender(): CurRender {
+    return this.curRender;
+  }
 
   public getCurNodes(): Record<string, GraphNode> {
     return this.curRender.nodes;
@@ -1817,6 +1910,7 @@ const useGraph: (option: useGraphProps) => GraphData = ({
   nodes = [],
   edges = [],
   combos = [],
+  viewBuffer = null,
   config,
   projectPath,
   targetPath,
@@ -1826,8 +1920,12 @@ const useGraph: (option: useGraphProps) => GraphData = ({
   );
 
   useEffect(() => {
+    if (viewBuffer) {
+      data.setDataFromViewBuffer(viewBuffer, projectPath, targetPath);
+      return;
+    }
     data.setData(nodes, edges, combos, projectPath, targetPath);
-  }, [nodes, edges, combos, projectPath, targetPath, data]);
+  }, [nodes, edges, combos, viewBuffer, projectPath, targetPath, data]);
 
   // Register graph instance for devtools
   useEffect(() => {

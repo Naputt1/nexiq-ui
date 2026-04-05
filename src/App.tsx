@@ -9,6 +9,7 @@ import { ProjectSettings } from "./pages/ProjectSettings";
 import { GlobalSettings } from "./pages/GlobalSettings";
 import { useRegisterZustandStore } from "@sucoza/zustand-devtools-plugin";
 import { useAppStateStore } from "./hooks/use-app-state-store";
+import { useGraphProfilerStore } from "./hooks/use-graph-profiler-store";
 
 function App() {
   const { projectRoot: storedProjectRoot, setProjectRoot } = useProjectStore();
@@ -16,6 +17,7 @@ function App() {
 
   useRegisterZustandStore("ProjectStore", useProjectStore);
   useRegisterZustandStore("AppStateStore", useAppStateStore);
+  useRegisterZustandStore("GraphProfilerStore", useGraphProfilerStore);
 
   // Try to get projectPath from hash (via useSearchParams) or from main URL search
   const urlProjectPath =
@@ -51,6 +53,35 @@ function App() {
       document.title = "nexiq";
     }
   }, [projectRoot]);
+
+  useEffect(() => {
+    return window.ipcRenderer.on("graph-pipeline-profile", (payload) => {
+      useGraphProfilerStore.getState().startRun({
+        id: payload.id,
+        logicalKey: payload.logicalKey,
+        key: payload.key,
+        projectRoot: payload.projectRoot,
+        view: payload.view,
+        startedAt: Date.now(),
+        byteLength: payload.byteLength,
+        handleVersion: payload.handleVersion,
+        status: payload.status ?? "in_progress",
+      });
+      useGraphProfilerStore.getState().mergeStages(
+        payload.id,
+        payload.stages.map((stage) => ({
+          ...stage,
+          parentId: stage.parentId ?? "renderer:handle-wait",
+          source: "backend" as const,
+        })),
+      );
+      useGraphProfilerStore.getState().completeRun(payload.id, {
+        status: payload.status ?? "completed",
+        byteLength: payload.byteLength,
+        handleVersion: payload.handleVersion,
+      });
+    });
+  }, []);
 
   const handleProjectComplete = async (
     path: string,

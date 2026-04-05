@@ -47,7 +47,6 @@ interface FlatTreeNode {
 
 interface RightSidebarProps {
   selectedId: string | null;
-  selectedEdgeId?: string | null;
   selectedItemType?: "node" | "edge" | null;
   selectedEdge?: GraphArrow;
   graph: GraphData;
@@ -60,7 +59,6 @@ interface RightSidebarProps {
 
 export const RightSidebar = React.memo(function RightSidebar({
   selectedId,
-  selectedEdgeId,
   selectedItemType,
   selectedEdge,
   graph,
@@ -209,36 +207,6 @@ export const RightSidebar = React.memo(function RightSidebar({
     return graph.getPointByID(selectedId);
   }, [selectedId, graph, forceUpdate]);
 
-  if (selectedItemType === "edge" && selectedEdgeId && selectedEdge) {
-    return (
-      <div className="h-full bg-background z-40 flex flex-col">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-muted/30 shrink-0">
-          <div className="flex items-center gap-2">
-            <Info className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-              Edge Details
-            </span>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onClose}
-            className="h-6 w-6 text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-        <div className="flex-1 min-h-0 overflow-auto">
-          <EdgeDetailsContent
-            edge={selectedEdge}
-            graph={graph}
-            onSelect={onSelect}
-          />
-        </div>
-      </div>
-    );
-  }
-
   return (
     <ResizablePanelGroup
       orientation="vertical"
@@ -300,7 +268,9 @@ export const RightSidebar = React.memo(function RightSidebar({
           </div>
         </div>
         <MemoizedDetailsContent
-          selectedId={selectedId!}
+          selectedId={selectedId}
+          selectedItemType={selectedItemType}
+          selectedEdge={selectedEdge}
           item={selectedItem}
           renderNodes={renderNodes}
           typeData={typeData}
@@ -316,6 +286,8 @@ export const RightSidebar = React.memo(function RightSidebar({
 const MemoizedDetailsContent = React.memo(
   ({
     selectedId,
+    selectedItemType,
+    selectedEdge,
     item,
     renderNodes,
     typeData,
@@ -323,7 +295,9 @@ const MemoizedDetailsContent = React.memo(
     onSelect,
     graph,
   }: {
-    selectedId: string;
+    selectedId: string | null;
+    selectedItemType?: "node" | "edge" | null;
+    selectedEdge?: GraphArrow;
     item: GraphNode | GraphCombo | undefined;
     renderNodes: GraphNodeData[];
     typeData: Record<string, TypeDataDeclare>;
@@ -331,17 +305,27 @@ const MemoizedDetailsContent = React.memo(
     onSelect: (id: string) => void;
     graph: GraphData;
   }) => (
-    <div className="flex-1 overflow-auto overscroll-contain">
-      <NodeDetailsContent
-        selectedId={selectedId}
-        item={item}
-        renderNodes={renderNodes}
-        typeData={typeData}
-        projectPath={projectPath}
-        onSelect={onSelect}
-        graph={graph}
-        hideHeader={false}
-      />
+    <div className="flex-1 min-h-0 overscroll-contain">
+      {selectedItemType === "edge" && selectedEdge ? (
+        <div className="h-full overflow-y-auto overscroll-contain">
+          <EdgeDetailsContent
+            edge={selectedEdge}
+            graph={graph}
+            onSelect={onSelect}
+          />
+        </div>
+      ) : (
+        <NodeDetailsContent
+          selectedId={selectedId}
+          item={item}
+          renderNodes={renderNodes}
+          typeData={typeData}
+          projectPath={projectPath}
+          onSelect={onSelect}
+          graph={graph}
+          hideHeader={false}
+        />
+      )}
     </div>
   ),
 );

@@ -12,6 +12,10 @@ const DEFAULT = {
       WIDTH: 25,
       HEIGHT: 40,
     },
+    BOTTOM: {
+      HEIGHT: 28,
+      IS_OPEN: true,
+    },
   },
 };
 
@@ -40,6 +44,11 @@ interface AppState {
       width: number;
       height: number;
     };
+    bottom: {
+      isOpen: boolean;
+      height: number;
+      activeTab: "source" | "errors";
+    };
   };
 
   setSelectedSubProjects: (paths: string[]) => void;
@@ -57,6 +66,9 @@ interface AppState {
   setView: (view: GraphViewType) => void;
   setRightSidebarWidth: (width: number) => void;
   setRightSidebarHeight: (height: number) => void;
+  setBottomPanelOpen: (open: boolean) => void;
+  setBottomPanelHeight: (height: number) => void;
+  setBottomPanelTab: (tab: "source" | "errors") => void;
 
   // Persistence helpers
   loadState: (
@@ -85,6 +97,11 @@ export const useAppStateStore = create<AppState>()(
       right: {
         width: DEFAULT.SIDEBAR.RIGHT.WIDTH,
         height: DEFAULT.SIDEBAR.RIGHT.HEIGHT,
+      },
+      bottom: {
+        isOpen: DEFAULT.SIDEBAR.BOTTOM.IS_OPEN,
+        height: DEFAULT.SIDEBAR.BOTTOM.HEIGHT,
+        activeTab: "source",
       },
     },
 
@@ -144,6 +161,36 @@ export const useAppStateStore = create<AppState>()(
           },
         },
       })),
+    setBottomPanelOpen: (open) =>
+      set((state) => ({
+        sidebar: {
+          ...state.sidebar,
+          bottom: {
+            ...state.sidebar.bottom,
+            isOpen: open,
+          },
+        },
+      })),
+    setBottomPanelHeight: (height) =>
+      set((state) => ({
+        sidebar: {
+          ...state.sidebar,
+          bottom: {
+            ...state.sidebar.bottom,
+            height,
+          },
+        },
+      })),
+    setBottomPanelTab: (tab) =>
+      set((state) => ({
+        sidebar: {
+          ...state.sidebar,
+          bottom: {
+            ...state.sidebar.bottom,
+            activeTab: tab,
+          },
+        },
+      })),
 
     reset: () =>
       set({
@@ -163,6 +210,11 @@ export const useAppStateStore = create<AppState>()(
             width: DEFAULT.SIDEBAR.RIGHT.WIDTH,
             height: DEFAULT.SIDEBAR.RIGHT.HEIGHT,
           },
+          bottom: {
+            isOpen: DEFAULT.SIDEBAR.BOTTOM.IS_OPEN,
+            height: DEFAULT.SIDEBAR.BOTTOM.HEIGHT,
+            activeTab: "source",
+          },
         },
       }),
 
@@ -178,6 +230,16 @@ export const useAppStateStore = create<AppState>()(
         )) as PersistedAppStateData | null;
 
         if (state) {
+          const persistedSidebar = state.sidebar as
+            | {
+                right?: { width?: number; height?: number };
+                bottom?: {
+                  isOpen?: boolean;
+                  height?: number;
+                  activeTab?: "source" | "errors";
+                };
+              }
+            | undefined;
           const selected =
             state.selected ||
             (state.selectedItemType === "edge" && state.selectedEdgeId
@@ -209,9 +271,25 @@ export const useAppStateStore = create<AppState>()(
             sidebar: {
               right: {
                 width:
-                  state.sidebar?.right?.width || DEFAULT.SIDEBAR.RIGHT.WIDTH,
+                  persistedSidebar?.right?.width || DEFAULT.SIDEBAR.RIGHT.WIDTH,
                 height:
-                  state.sidebar?.right?.height || DEFAULT.SIDEBAR.RIGHT.HEIGHT,
+                  persistedSidebar?.right?.height ||
+                  DEFAULT.SIDEBAR.RIGHT.HEIGHT,
+              },
+              bottom: {
+                isOpen:
+                  persistedSidebar?.bottom?.isOpen ??
+                  DEFAULT.SIDEBAR.BOTTOM.IS_OPEN,
+                height:
+                  persistedSidebar?.bottom?.height ||
+                  DEFAULT.SIDEBAR.BOTTOM.HEIGHT,
+                activeTab:
+                  persistedSidebar?.bottom &&
+                  "activeTab" in persistedSidebar.bottom &&
+                  (persistedSidebar.bottom.activeTab === "errors" ||
+                    persistedSidebar.bottom.activeTab === "source")
+                    ? persistedSidebar.bottom.activeTab
+                    : "source",
               },
             },
           });

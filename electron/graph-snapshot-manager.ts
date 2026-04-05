@@ -24,6 +24,7 @@ interface SnapshotController {
   ready: Promise<void>;
   resolveReady: () => void;
   rejectReady: (reason?: unknown) => void;
+  inlineOnly?: boolean;
 }
 
 interface SnapshotPortSession {
@@ -38,7 +39,16 @@ interface IncomingWorkerMessage extends LargeDataUpdateEvent {
     | "inline-error"
     | "snapshot-error";
   requestId?: string;
+  profilerRunId?: string;
   encoded?: Uint8Array;
+  stages?: {
+    id: string;
+    name: string;
+    startMs: number;
+    endMs: number;
+    parentId?: string;
+    detail?: string;
+  }[];
 }
 
 interface OutgoingWorkerMessage {
@@ -51,7 +61,17 @@ interface OutgoingWorkerMessage {
 }
 
 interface InlineRequest {
-  resolve: (encoded: Uint8Array) => void;
+  resolve: (payload: {
+    encoded: Uint8Array;
+    stages?: {
+      id: string;
+      name: string;
+      startMs: number;
+      endMs: number;
+      parentId?: string;
+      detail?: string;
+    }[];
+  }) => void;
   reject: (reason?: unknown) => void;
   timeout: ReturnType<typeof setTimeout>;
 }
@@ -116,6 +136,7 @@ export class GraphSnapshotManager {
     kind: LargeDataKind,
     key: string,
     sqlitePath: string,
+    options?: { inlineOnly?: boolean },
   ): SnapshotController {
     const readyDeferred = deferred();
     const worker = new Worker(bundledWorkerPath, {});
@@ -130,6 +151,7 @@ export class GraphSnapshotManager {
       ready: readyDeferred.promise,
       resolveReady: readyDeferred.resolve,
       rejectReady: readyDeferred.reject,
+      inlineOnly: options?.inlineOnly,
     };
 
     worker.on("message", (message: IncomingWorkerMessage) => {
@@ -162,7 +184,10 @@ export class GraphSnapshotManager {
         if (request) {
           clearTimeout(request.timeout);
           this.inlineRequests.delete(message.requestId);
-          request.resolve(message.encoded);
+          request.resolve({
+            encoded: message.encoded,
+            stages: message.stages,
+          });
         }
         return;
       }
@@ -207,12 +232,16 @@ export class GraphSnapshotManager {
       });
     });
 
-    worker.postMessage({
-      type: "initialize",
-      kind,
-      key,
-      sqlitePath,
-    });
+    if (options?.inlineOnly) {
+      controller.resolveReady();
+    } else {
+      worker.postMessage({
+        type: "initialize",
+        kind,
+        key,
+        sqlitePath,
+      });
+    }
 
     this.controllers.set(this.getControllerId(kind, key), controller);
     return controller;
@@ -255,12 +284,29 @@ export class GraphSnapshotManager {
   }
 
   async requestInlineResult(
+    kind: LargeDataKind,
     key: string,
+    sqlitePath: string,
     message: OutgoingWorkerMessage,
-  ): Promise<Uint8Array> {
-    const controller = this.controllers.get(this.getControllerId("graph", key));
-    if (!controller) {
-      throw new Error(`No worker found for key: ${key}`);
+  ): Promise<{
+    encoded: Uint8Array;
+    stages?: {
+      id: string;
+      name: string;
+      startMs: number;
+      endMs: number;
+      parentId?: string;
+      detail?: string;
+    }[];
+  }> {
+    const controllerId = this.getControllerId(kind, key);
+    const existing = this.controllers.get(controllerId);
+    const controller =
+      existing && existing.sqlitePath === sqlitePath
+        ? existing
+        : this.createWorker(kind, key, sqlitePath, { inlineOnly: true });
+    if (existing && existing !== controller && existing.sqlitePath !== sqlitePath) {
+      existing.worker.terminate();
     }
 
     await controller.ready;

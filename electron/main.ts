@@ -294,6 +294,7 @@ import type {
   BackendRequestMap,
   BackendMessageType,
 } from "@nexiq/shared";
+import { resolvePath } from "./utils";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -363,6 +364,51 @@ function broadcastLargeDataUpdate(payload: {
   }
 }
 
+function broadcastGraphPipelineProfile(payload: {
+  id: string;
+  logicalKey: string;
+  key: string;
+  projectRoot: string;
+  view?: string;
+  byteLength?: number;
+  handleVersion?: number;
+  status?: "in_progress" | "completed" | "superseded" | "failed";
+  stages: {
+    id: string;
+    name: string;
+    startMs: number;
+    endMs: number;
+    parentId?: string;
+    detail?: string;
+  }[];
+}) {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) {
+      window.webContents.send("graph-pipeline-profile", payload);
+    }
+  }
+}
+
+function offsetProfileStages(
+  stages: {
+    id: string;
+    name: string;
+    startMs: number;
+    endMs: number;
+    parentId?: string;
+    detail?: string;
+  }[],
+  offsetMs: number,
+  defaultParentId?: string,
+) {
+  return stages.map((stage) => ({
+    ...stage,
+    startMs: stage.startMs + offsetMs,
+    endMs: stage.endMs + offsetMs,
+    parentId: stage.parentId ?? defaultParentId,
+  }));
+}
+
 function storeInlineLargeData(
   kind: LargeDataKind,
   key: string,
@@ -422,6 +468,14 @@ async function openInlineLargeData(
   args: LargeDataRequestArgs & { kind: LargeDataKind },
 ) {
   if (args.kind === "diff-analysis") {
+    const timings: {
+      id: string;
+      name: string;
+      startMs: number;
+      endMs: number;
+      parentId?: string;
+      detail?: string;
+    }[] = [];
     const key = getDiffAnalysisKey(
       args.projectRoot,
       args.selectedCommit,
@@ -434,6 +488,7 @@ async function openInlineLargeData(
       return buildHandleFromEntry(cached);
     }
 
+    const resolveStartedAt = performance.now();
     const { targetPath } = await resolveSqlitePath(
       args.projectRoot,
       args.subPath ? path.join(args.projectRoot, args.subPath) : undefined,
@@ -479,11 +534,20 @@ async function openInlineLargeData(
       args.subPath ? path.join(args.projectRoot, args.subPath) : undefined,
       args.analysisPaths,
     );
+    timings.push({
+      id: "main:resolve-sqlite-path",
+      name: "Resolve sqlite path",
+      startMs: 0,
+      endMs: performance.now() - resolveStartedAt,
+      detail: sqlitePath,
+    });
 
-    // Ensure worker exists
-    await graphSnapshotManager.open("graph", targetPath, sqlitePath);
-
-    const encoded = await graphSnapshotManager.requestInlineResult(targetPath, {
+    const diffRequestStartedAt = performance.now();
+    const diffPayload = await graphSnapshotManager.requestInlineResult(
+      args.kind,
+      targetPath,
+      sqlitePath,
+      {
       type: "diff-analysis",
       kind: args.kind,
       projectRoot: args.projectRoot,
@@ -493,9 +557,46 @@ async function openInlineLargeData(
       commitSqlitePath,
       parentSqlitePath,
       headSqlitePath,
+      },
+    );
+    const encoded = diffPayload.encoded;
+    const requestEndMs = timings[0]!.endMs + (performance.now() - diffRequestStartedAt);
+    timings.push({
+      id: "main:request-inline-result",
+      name: "Request inline result",
+      startMs: timings[0]!.endMs,
+      endMs: requestEndMs,
+      detail: `${encoded.byteLength} bytes`,
     });
+    timings.push(
+      ...offsetProfileStages(
+        diffPayload.stages || [],
+        timings[0]!.endMs,
+        "main:request-inline-result",
+      ),
+    );
 
-    return storeInlineLargeData(args.kind, key, encoded);
+    const storeStartedAt = performance.now();
+    const handle = storeInlineLargeData(args.kind, key, encoded);
+    const storeDurationMs = performance.now() - storeStartedAt;
+    timings.push({
+      id: "main:store-inline-buffer",
+      name: "Store inline buffer",
+      startMs: requestEndMs,
+      endMs: requestEndMs + storeDurationMs,
+      detail: `${encoded.byteLength} bytes`,
+    });
+    broadcastGraphPipelineProfile({
+      id: args.profilerRunId || `${key}:${handle.version}`,
+      logicalKey: args.profilerLogicalKey || key,
+      key,
+      projectRoot: args.projectRoot,
+      byteLength: encoded.byteLength,
+      handleVersion: handle.version,
+      status: "completed",
+      stages: timings,
+    });
+    return handle;
   }
 
   if (args.kind === "view-result") {
@@ -520,28 +621,85 @@ async function openInlineLargeData(
       return buildHandleFromEntry(cached);
     }
 
-    const { targetPath, sqlitePath } = await resolveSqlitePath(
+    const timings: {
+      id: string;
+      name: string;
+      startMs: number;
+      endMs: number;
+      parentId?: string;
+      detail?: string;
+    }[] = [];
+
+    const resolveStartedAt = performance.now();
+    const { sqlitePath } = await resolveSqlitePath(
       args.projectRoot,
       args.analysisPath,
       args.analysisPaths,
     );
-
-    // Ensure worker exists
-    await graphSnapshotManager.open("graph", targetPath, sqlitePath);
-
-    const encoded = await graphSnapshotManager.requestInlineResult(targetPath, {
-      type: "generate-view",
-      kind: args.kind,
-      projectRoot: args.projectRoot,
-      analysisPath: args.analysisPath,
-      analysisPaths: args.analysisPaths,
-      selectedCommit: args.selectedCommit,
-      subPath: args.subPath,
-      view: args.view,
-      sqlitePath,
+    timings.push({
+      id: "main:resolve-sqlite-path",
+      name: "Resolve sqlite path",
+      startMs: 0,
+      endMs: performance.now() - resolveStartedAt,
+      detail: sqlitePath,
     });
 
-    return storeInlineLargeData(args.kind, key, encoded);
+    const requestStartedAt = performance.now();
+    const payload = await graphSnapshotManager.requestInlineResult(
+      args.kind,
+      key,
+      sqlitePath,
+      {
+        type: "generate-view",
+        kind: args.kind,
+        projectRoot: args.projectRoot,
+        analysisPath: args.analysisPath,
+        analysisPaths: args.analysisPaths,
+        selectedCommit: args.selectedCommit,
+        subPath: args.subPath,
+        view: args.view,
+        sqlitePath,
+      },
+    );
+    const encoded = payload.encoded;
+    const requestEndMs = timings[0]!.endMs + (performance.now() - requestStartedAt);
+    timings.push({
+      id: "main:request-inline-result",
+      name: "Request inline result",
+      startMs: timings[0]!.endMs,
+      endMs: requestEndMs,
+      detail: `${encoded.byteLength} bytes`,
+    });
+    timings.push(
+      ...offsetProfileStages(
+        payload.stages || [],
+        timings[0]!.endMs,
+        "main:request-inline-result",
+      ),
+    );
+
+    const storeStartedAt = performance.now();
+    const handle = storeInlineLargeData(args.kind, key, encoded);
+    const storeDurationMs = performance.now() - storeStartedAt;
+    timings.push({
+      id: "main:store-inline-buffer",
+      name: "Store inline buffer",
+      startMs: requestEndMs,
+      endMs: requestEndMs + storeDurationMs,
+      detail: `${encoded.byteLength} bytes`,
+    });
+    broadcastGraphPipelineProfile({
+      id: args.profilerRunId || `${key}:${handle.version}`,
+      logicalKey: args.profilerLogicalKey || key,
+      key,
+      projectRoot: args.projectRoot,
+      view: args.view,
+      byteLength: encoded.byteLength,
+      handleVersion: handle.version,
+      status: "completed",
+      stages: timings,
+    });
+    return handle;
   }
 
   throw new Error(`Unsupported inline large data kind: ${args.kind}`);
@@ -899,6 +1057,17 @@ ipcMain.handle("get-recent-projects", () => {
 });
 
 ipcMain.handle(
+  "read-source-file",
+  async (_: IpcMainInvokeEvent, filePath: string, projectRoot: string) => {
+    const resolvedPath = resolvePath(projectRoot, filePath);
+    return {
+      path: resolvedPath,
+      content: fs.readFileSync(resolvedPath, "utf8"),
+    };
+  },
+);
+
+ipcMain.handle(
   "set-last-project",
   (event: IpcMainInvokeEvent, path: string | null) => {
     const window = BrowserWindow.fromWebContents(event.sender);
@@ -1013,6 +1182,48 @@ ipcMain.handle(
       : [analysisPaths];
     await resolveSqlitePath(projectPath, undefined, paths);
     return path.basename(paths[0] || projectPath);
+  },
+);
+
+ipcMain.handle(
+  "get-analysis-errors",
+  async (_: IpcMainInvokeEvent, projectRoot: string, analysisPath?: string) => {
+    let sqlitePath = projectSqlitePaths.get(analysisPath || projectRoot);
+    if (!sqlitePath) {
+      const resolved = await resolveSqlitePath(
+        projectRoot,
+        analysisPath === projectRoot ? undefined : analysisPath,
+      );
+      sqlitePath = resolved.sqlitePath;
+    }
+
+    if (!sqlitePath || !fs.existsSync(sqlitePath)) {
+      return {
+        fileErrors: [],
+        resolveErrors: [],
+      };
+    }
+
+    const db = new Database(sqlitePath, { readonly: true });
+    try {
+      const fileErrors = db
+        .prepare(
+          "SELECT * FROM file_analysis_errors ORDER BY created_at DESC, file_path ASC",
+        )
+        .all();
+      const resolveErrors = db
+        .prepare(
+          "SELECT * FROM resolve_errors ORDER BY created_at DESC, file_path ASC",
+        )
+        .all();
+
+      return {
+        fileErrors,
+        resolveErrors,
+      };
+    } finally {
+      db.close();
+    }
   },
 );
 

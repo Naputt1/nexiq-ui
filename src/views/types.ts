@@ -15,6 +15,8 @@ export type GenerateViewRequest = {
   selectedCommit?: string | null;
   subPath?: string;
   refreshHandle?: boolean;
+  profilerRunId?: string;
+  profilerLogicalKey?: string;
 };
 
 export type SerializedViewRegistry = {
