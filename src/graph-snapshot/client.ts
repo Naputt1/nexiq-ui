@@ -122,11 +122,13 @@ export async function openDiffAnalysisSnapshot(
   projectRoot: string,
   selectedCommit: string | null,
   subPath?: string,
+  options?: Pick<LargeDataRequestArgs, "profilerRunId" | "profilerLogicalKey">,
 ) {
   return openLargeData("diff-analysis", {
     projectRoot,
     selectedCommit,
     subPath,
+    ...options,
   });
 }
 

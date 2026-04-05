@@ -28,6 +28,8 @@ export interface LargeDataRequestArgs {
   selectedCommit?: string | null;
   view?: GraphViewType;
   refreshHandle?: boolean;
+  profilerRunId?: string;
+  profilerLogicalKey?: string;
 }
 
 export interface GraphSnapshotData extends Pick<

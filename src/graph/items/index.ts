@@ -1,4 +1,5 @@
-import type Konva from "konva";
+import type * as PIXI from "pixi.js";
+import type { Viewport } from "pixi-viewport";
 import type {
   ComponentInfoRender,
   PropData,
@@ -54,10 +55,11 @@ export interface RenderContext {
   onSelectEdge?: (id: string, center?: boolean) => void;
   registerItem?: (
     id: string,
-    item: Konva.Group | Konva.Circle | Konva.Arrow | Konva.Line,
+    item: PIXI.Container | PIXI.Graphics | PIXI.Text,
   ) => void;
   hasGitChanges: boolean;
-  stage: Konva.Stage;
+  app: PIXI.Application;
+  viewport: Viewport;
   theme: "dark" | "light";
   customColors?: CustomColors;
 }
@@ -65,8 +67,8 @@ export interface RenderContext {
 export interface Renderable {
   render(
     context: RenderContext,
-    parent: Konva.Container,
-  ): Konva.Group | Konva.Arrow;
+    parent: PIXI.Container,
+  ): PIXI.Container | PIXI.Graphics;
 }
 
 export interface PointData {

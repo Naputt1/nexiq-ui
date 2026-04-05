@@ -22,6 +22,22 @@ export function SetupFlow({ onComplete }: SetupFlowProps) {
         "check-project-status",
         path,
       );
+
+      const savedPaths =
+        status.config?.analysisPaths && status.config.analysisPaths.length > 0
+          ? status.config.analysisPaths
+          : [path];
+
+      if (status.hasConfig) {
+        onComplete(path, savedPaths);
+        void window.ipcRenderer
+          .invoke("analyze-project", savedPaths, path)
+          .catch((analysisError) => {
+            console.error("Background analysis failed", analysisError);
+          });
+        return;
+      }
+
       setProjectStatus(status);
       setStep("config");
     } catch (error) {

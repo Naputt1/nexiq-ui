@@ -34,6 +34,7 @@ interface RefreshMessage {
 interface GenerateViewMessage {
   type: "generate-view";
   requestId: string;
+  profilerRunId?: string;
   kind: "view-result";
   projectRoot: string;
   analysisPath?: string;
@@ -44,9 +45,19 @@ interface GenerateViewMessage {
   analysisPaths?: string[];
 }
 
+interface ProfileStage {
+  id: string;
+  name: string;
+  startMs: number;
+  endMs: number;
+  parentId?: string;
+  detail?: string;
+}
+
 interface DiffAnalysisMessage {
   type: "diff-analysis";
   requestId: string;
+  profilerRunId?: string;
   kind: "diff-analysis";
   projectRoot: string;
   selectedCommit: string | null;
@@ -115,7 +126,8 @@ function writeSnapshot(): {
 
 async function handleGenerateView(message: GenerateViewMessage) {
   try {
-    const result = await generateGraphView({
+    const generationStartedAt = performance.now();
+    const viewGeneration = await generateGraphView({
       view: message.view,
       projectRoot: message.projectRoot,
       analysisPath: message.analysisPath,
@@ -124,13 +136,35 @@ async function handleGenerateView(message: GenerateViewMessage) {
       subPath: message.subPath,
       sqlitePath: message.sqlitePath,
     });
+    const computeDurationMs = performance.now() - generationStartedAt;
 
-    const encoded = encodeGraphViewSnapshot(result);
+    const encoded = encodeGraphViewSnapshot(viewGeneration.result);
+    const totalDurationMs = performance.now() - generationStartedAt;
+    const stages: ProfileStage[] = [
+      ...viewGeneration.stages,
+      {
+        id: "worker:view-compute",
+        name: "Compute graph view",
+        startMs: 0,
+        endMs: computeDurationMs,
+        detail: `${viewGeneration.result.nodes.length} nodes, ${viewGeneration.result.edges.length} edges, ${viewGeneration.result.combos.length} combos`,
+      },
+      {
+        id: "worker:encode-view-buffer",
+        name: "Encode view buffer",
+        startMs: computeDurationMs,
+        endMs: totalDurationMs,
+        parentId: "main:request-inline-result",
+        detail: `${encoded.byteLength} bytes`,
+      },
+    ];
     parentPort?.postMessage({
       type: "inline-result",
       requestId: message.requestId,
+      profilerRunId: message.profilerRunId,
       kind: message.kind,
       encoded,
+      stages,
     });
   } catch (error) {
     parentPort?.postMessage({
@@ -144,6 +178,7 @@ async function handleGenerateView(message: GenerateViewMessage) {
 
 async function handleDiffAnalysis(message: DiffAnalysisMessage) {
   try {
+    const diffStartedAt = performance.now();
     let dataB;
     let dataA;
 
@@ -174,12 +209,32 @@ async function handleDiffAnalysis(message: DiffAnalysisMessage) {
       uiState: dataB.uiState ?? {},
     };
 
+    const encodeStartedAt = performance.now();
     const encoded = encodeGraphSnapshot(snapshotData);
+    const encodeDurationMs = performance.now() - encodeStartedAt;
+    const totalDurationMs = performance.now() - diffStartedAt;
+    const computeDurationMs = totalDurationMs - encodeDurationMs;
     parentPort?.postMessage({
       type: "inline-result",
       requestId: message.requestId,
+      profilerRunId: message.profilerRunId,
       kind: message.kind,
       encoded,
+      stages: [
+        {
+          id: "worker:diff-analysis",
+          name: "Compute diff analysis",
+          startMs: 0,
+          endMs: computeDurationMs,
+        },
+        {
+          id: "worker:encode-diff-snapshot",
+          name: "Encode diff snapshot",
+          startMs: computeDurationMs,
+          endMs: totalDurationMs,
+          detail: `${encoded.byteLength} bytes`,
+        },
+      ],
     });
   } catch (error) {
     parentPort?.postMessage({

@@ -10,14 +10,13 @@ import { type AnalyzedDiff, type TypeDataDeclare } from "@nexiq/shared";
 import useGraph, {
   GraphCombo,
   GraphNode,
-  type useGraphProps,
   type GraphNodeData,
 } from "./graph/hook";
-import { GraphRenderer } from "./graph/renderer";
+import { PixiRenderer } from "./graph/pixiRenderer";
 import { ProjectSidebar } from "./components/Sidebar";
 import { RightSidebar } from "./components/RightSidebar";
 import { ZoomSlider } from "./components/ZoomSlider";
-import { Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2, RefreshCw, Search } from "lucide-react";
 import { cn, debounce } from "@/lib/utils";
 import {
   SidebarProvider,
@@ -29,12 +28,18 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "./components/ui/resizable";
-import { useDefaultLayout } from "react-resizable-panels";
+import {
+  useDefaultLayout,
+  type GroupImperativeHandle,
+  type PanelImperativeHandle,
+} from "react-resizable-panels";
 
 import { setupAutoSave, useAppStateStore } from "./hooks/use-app-state-store";
 import { useGitStore } from "./hooks/useGitStore";
 import { useConfigStore } from "./hooks/use-config-store";
 import { useWorkerStore } from "./hooks/use-worker-store";
+import { useViewportUiStore } from "./hooks/use-viewport-ui-store";
+import { useGraphProfilerStore } from "./hooks/use-graph-profiler-store";
 import { extractUIState } from "./graph/utils/ui-state";
 import type { GenerateViewRequest } from "./views/types";
 import {
@@ -47,6 +52,13 @@ import {
   refreshLargeData,
   subscribeGraphSnapshot,
 } from "./graph-snapshot/client";
+import { Button } from "./components/ui/button";
+import { SourceEditorPanel } from "./components/source-editor-panel";
+import type { FileAnalysisErrorRow, ResolveErrorRow } from "../electron/types";
+import { Card } from "./components/ui/card";
+import { ViewSwitcher } from "./components/ViewSwitcher";
+import type { GraphViewBufferView } from "./view-snapshot/codec";
+import { useRegisterZustandStore } from "@sucoza/zustand-devtools-plugin";
 
 interface ComponentGraphProps {
   projectPath: string;
@@ -66,7 +78,6 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   const setIsSidebarOpen = useAppStateStore((s) => s.setIsSidebarOpen);
   const selectedCommit = useAppStateStore((s) => s.selectedCommit);
   const activeTab = useAppStateStore((s) => s.activeTab);
-  const setViewport = useAppStateStore((s) => s.setViewport);
   const loadState = useAppStateStore((s) => s.loadState);
   const resetState = useAppStateStore((s) => s.reset);
   const isLoaded = useAppStateStore((s) => s.isLoaded);
@@ -74,16 +85,25 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   const setRightSidebarWidthRatio = useAppStateStore(
     (s) => s.setRightSidebarWidth,
   );
+  const bottomPanelHeight = useAppStateStore((s) => s.sidebar.bottom.height);
+  const isBottomPanelOpen = useAppStateStore((s) => s.sidebar.bottom.isOpen);
+  const setBottomPanelHeight = useAppStateStore((s) => s.setBottomPanelHeight);
+  const setBottomPanelOpen = useAppStateStore((s) => s.setBottomPanelOpen);
+  const setBottomPanelTab = useAppStateStore((s) => s.setBottomPanelTab);
   const sidebarWidth = useAppStateStore((s) => s.sidebar.right.width);
+  const setViewport = useAppStateStore((s) => s.setViewport);
 
   const status = useGitStore((s) => s.status);
   const clearAnalyzedDiffCache = useGitStore((s) => s.clearAnalyzedDiffCache);
 
-  const viewport = useAppStateStore((s) => s.viewport);
   const setBackendAvailable = useWorkerStore((s) => s.setBackendAvailable);
 
   const [isGeneratingView, setIsGeneratingView] = useState(false);
   const [isPending, startTransition] = useTransition();
+
+  useRegisterZustandStore("WorkerStore", useWorkerStore);
+  useRegisterZustandStore("AppStateStore", useAppStateStore);
+  useRegisterZustandStore("GraphProfilerStore", useGraphProfilerStore);
 
   // Persistence bridge for useDefaultLayout
   const storage = useMemo(
@@ -124,20 +144,10 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     height: window.innerHeight,
   });
 
-  const [graphData, setGraphData] = useState<useGraphProps>({
-    nodes: [],
-    edges: [],
-    combos: [],
-  });
+  const [graphViewBuffer, setGraphViewBuffer] =
+    useState<GraphViewBufferView | null>(null);
 
-  const rendererRef = useRef<GraphRenderer | null>(null);
-
-  const zoomRange = useMemo(() => {
-    if (rendererRef.current) {
-      return rendererRef.current.getZoomRange();
-    }
-    return { min: 0.1, max: 5 };
-  }, []); // Re-calculate when graph data changes
+  const rendererRef = useRef<PixiRenderer | null>(null);
 
   const [search, setSearch] = useState<string>("");
   const [debouncedSearch, setDebouncedSearch] = useState<string>("");
@@ -149,8 +159,18 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   const [typeData, settypeData] = useState<{ [key: string]: TypeDataDeclare }>(
     {},
   );
+  const [sourceFilePath, setSourceFilePath] = useState<string | null>(null);
+  const [sourceContent, setSourceContent] = useState("");
+  const [fileErrors, setFileErrors] = useState<FileAnalysisErrorRow[]>([]);
+  const [resolveErrors, setResolveErrors] = useState<ResolveErrorRow[]>([]);
+  const [activeProfileRunId, setActiveProfileRunId] = useState<string | null>(
+    null,
+  );
+  const sourceContentCacheRef = useRef(new Map<string, string>());
 
   const graphContainerRef = useRef<HTMLDivElement>(null);
+  const graphPanelGroupRef = useRef<GroupImperativeHandle | null>(null);
+  const sourcePanelRef = useRef<PanelImperativeHandle | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const hasRestoredViewport = useRef(false);
   const { theme, customColors, fetchConfig } = useConfigStore();
@@ -159,10 +179,27 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     fetchConfig();
   }, [fetchConfig]);
 
+  useEffect(() => {
+    const analysisTarget = selectedSubProjects[0] || projectPath;
+    window.ipcRenderer
+      .invoke("get-analysis-errors", projectPath, analysisTarget)
+      .then((result) => {
+        setFileErrors(result.fileErrors);
+        setResolveErrors(result.resolveErrors);
+      })
+      .catch((error) => {
+        console.error("Failed to load analysis errors", error);
+      });
+  }, [projectPath, selectedSubProjects, isAnalyzing, graphViewBuffer]);
+
   // Use useEffect to update renderer theme when customColors or theme changes
   useEffect(() => {
     if (rendererRef.current) {
       rendererRef.current.setCustomColors(customColors || {});
+      const resolvedTheme = document.documentElement.classList.contains("dark")
+        ? "dark"
+        : "light";
+      rendererRef.current.setTheme(resolvedTheme);
     }
   }, [customColors, theme]);
 
@@ -171,9 +208,31 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     return () => unsubscribe();
   }, [projectPath]);
 
+  useEffect(() => {
+    const group = graphPanelGroupRef.current;
+    const sourcePanel = sourcePanelRef.current;
+    if (!group || !sourcePanel) return;
+
+    if (isBottomPanelOpen) {
+      sourcePanel.expand();
+      sourcePanel.resize(`${bottomPanelHeight}%`);
+      group.setLayout({
+        "graph-canvas": 100 - bottomPanelHeight,
+        "graph-bottom-panel": bottomPanelHeight,
+      });
+    } else {
+      sourcePanel.collapse();
+      group.setLayout({
+        "graph-canvas": 100,
+        "graph-bottom-panel": 0,
+      });
+    }
+  }, [bottomPanelHeight, isBottomPanelOpen]);
+
   const rawDiffRef = useRef<AnalyzedDiff | null>(null);
   const snapshotKeyRef = useRef<string | null>(null);
   const viewRequestIdRef = useRef(0);
+  const activeProfileRunIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     setBackendAvailable(true);
@@ -194,7 +253,28 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
       if (!targetPath) return;
 
       const requestId = ++viewRequestIdRef.current;
+      const logicalKey = JSON.stringify({
+        projectRoot: projectPath,
+        targetPath,
+        selectedCommit: selectedCommit ?? null,
+        activeTab,
+        subPath: subPath ?? null,
+        view,
+      });
+      const profilerRunId = `${logicalKey}::${requestId}`;
+      activeProfileRunIdRef.current = profilerRunId;
+      setActiveProfileRunId(profilerRunId);
+      useGraphProfilerStore.getState().startRun({
+        id: profilerRunId,
+        logicalKey,
+        key: targetPath,
+        projectRoot: projectPath,
+        view,
+        startedAt: Date.now(),
+        status: "in_progress",
+      });
       setIsGeneratingView(true);
+      const requestStartedAt = performance.now();
 
       try {
         let request: GenerateViewRequest;
@@ -206,6 +286,8 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
             selectedCommit: selectedCommit ?? null,
             subPath,
             refreshHandle: options?.refreshHandle,
+            profilerRunId,
+            profilerLogicalKey: logicalKey,
           };
           if (options?.refreshHandle) {
             await refreshLargeData("diff-analysis", diffArgs);
@@ -216,6 +298,10 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
                 projectPath,
                 selectedCommit ?? null,
                 subPath,
+                {
+                  profilerRunId,
+                  profilerLogicalKey: logicalKey,
+                },
               );
           const diffData = readLargeData(diffHandle);
           rawDiffRef.current = diffData.diff ?? null;
@@ -225,6 +311,8 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
             selectedCommit: selectedCommit ?? null,
             subPath,
             refreshHandle: options?.refreshHandle,
+            profilerRunId,
+            profilerLogicalKey: logicalKey,
           };
           if (options?.refreshHandle) {
             await refreshLargeData("view-result", request);
@@ -251,6 +339,8 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
             analysisPath: resolvedAnalysisPath,
             analysisPaths: selectedSubProjects,
             refreshHandle: options?.refreshHandle,
+            profilerRunId,
+            profilerLogicalKey: logicalKey,
           };
           if (options?.refreshHandle) {
             await refreshLargeData("view-result", request);
@@ -262,16 +352,64 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
             resultHandle = await openViewResultSnapshot(request);
           }
         }
+        const byteLength = new Int32Array(resultHandle.metaBuffer)[2] ?? 0;
+        useGraphProfilerStore.getState().updateRun(profilerRunId, {
+          key: resultHandle.key,
+          byteLength,
+          handleVersion: resultHandle.version,
+        });
+        useGraphProfilerStore.getState().mergeStages(profilerRunId, [
+          {
+            id: "renderer:handle-wait",
+            name: "Renderer handle wait",
+            startMs: 0,
+            endMs: performance.now() - requestStartedAt,
+            source: "renderer",
+            detail: `${(byteLength / 1024).toFixed(1)} KB`,
+          },
+        ]);
+        const decodeStartedAt = performance.now();
         const result = readViewResultData(resultHandle);
+        const decodeEndMs = performance.now() - requestStartedAt;
+        useGraphProfilerStore.getState().mergeStages(profilerRunId, [
+          {
+            id: "renderer:decode-view-buffer",
+            name: "Decode view buffer",
+            startMs: decodeStartedAt - requestStartedAt,
+            endMs: decodeEndMs,
+            source: "renderer",
+            parentId: "renderer:handle-wait",
+            detail: `${result.nodeCount} nodes, ${result.edgeCount} edges, ${result.comboCount} combos`,
+          },
+        ]);
         if (requestId !== viewRequestIdRef.current) {
+          useGraphProfilerStore.getState().completeRun(profilerRunId, {
+            status: "superseded",
+          });
           return;
         }
 
-        const { nodes, edges, combos, typeData: newTypeData } = result;
-        settypeData(newTypeData);
-        setGraphData({ nodes, edges, combos });
+        settypeData(result.getTypeData());
+        setGraphViewBuffer(result);
+        const attachEndMs = performance.now() - requestStartedAt;
+        useGraphProfilerStore.getState().mergeStages(profilerRunId, [
+          {
+            id: "renderer:attach-graph-buffer",
+            name: "Attach graph buffer",
+            startMs: decodeEndMs,
+            endMs: attachEndMs,
+            source: "renderer",
+            parentId: "renderer:handle-wait",
+          },
+        ]);
+        useGraphProfilerStore.getState().completeRun(profilerRunId, {
+          status: "completed",
+        });
       } catch (err) {
         console.error(err);
+        useGraphProfilerStore.getState().completeRun(profilerRunId, {
+          status: "failed",
+        });
       } finally {
         if (requestId === viewRequestIdRef.current) {
           setIsGeneratingView(false);
@@ -289,10 +427,14 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   );
 
   const graph = useGraph({
-    ...graphData,
+    viewBuffer: graphViewBuffer,
     projectPath,
     targetPath: selectedSubProjects[0] || projectPath,
   });
+
+  useEffect(() => {
+    graph.setProfileRunId(activeProfileRunId);
+  }, [graph, activeProfileRunId]);
 
   const debouncedRender = useMemo(
     () =>
@@ -535,7 +677,9 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
         for (const edge of graph.getAllEdges()) {
           const nextHighlighted = highlightedEdgeIds.has(edge.id);
           const nextDimmed =
-            highlightedEdgeIds.size > 0 ? !highlightedEdgeIds.has(edge.id) : false;
+            highlightedEdgeIds.size > 0
+              ? !highlightedEdgeIds.has(edge.id)
+              : false;
           const nextFlowRole = directEdgeIds.has(edge.id)
             ? "direct"
             : nextHighlighted
@@ -669,7 +813,13 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
         }, 50);
       }
     },
-    [setSelectedId, setCenteredItemId, graph, resetHighlights, applyFlowHighlights],
+    [
+      setSelectedId,
+      setCenteredItemId,
+      graph,
+      resetHighlights,
+      applyFlowHighlights,
+    ],
   );
 
   const onSelectEdge = useCallback(
@@ -741,17 +891,41 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     if (size.width === 0 || size.height === 0) return;
 
     if (!rendererRef.current) {
-      rendererRef.current = new GraphRenderer(
+      rendererRef.current = new PixiRenderer(
         graphContainerRef.current,
         graph,
         size.width,
         size.height,
         onSelect,
         onSelectEdge,
+        (zoom) => {
+          useViewportUiStore.getState().setZoom(zoom);
+        },
+        (range) => {
+          useViewportUiStore.getState().setZoomRange(range);
+        },
         (vp) => {
           if (!rendererRef.current?.viewportChangeInProgress) {
             setViewport(vp);
           }
+        },
+        (durationMs) => {
+          const runId = activeProfileRunIdRef.current;
+          if (!runId) return;
+          const store = useGraphProfilerStore.getState();
+          const run = store.runs.find((entry) => entry.id === runId);
+          const baseStartMs =
+            run?.stages.reduce((max, stage) => Math.max(max, stage.endMs), 0) ??
+            0;
+          store.mergeStages(runId, [
+            {
+              id: "renderer:pixi-render",
+              name: "Pixi render",
+              startMs: baseStartMs,
+              endMs: baseStartMs + durationMs,
+              source: "renderer",
+            },
+          ]);
         },
         document.documentElement.classList.contains("dark") ? "dark" : "light",
         customColors,
@@ -765,11 +939,14 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     if (rendererRef.current && !hasRestoredViewport.current && isLoaded) {
       const savedViewport = useAppStateStore.getState().viewport;
       if (savedViewport) {
+        useViewportUiStore.getState().setZoom(savedViewport.zoom);
         rendererRef.current.setViewport(
           savedViewport.x,
           savedViewport.y,
           savedViewport.zoom,
         );
+      } else {
+        useViewportUiStore.getState().setZoom(1);
       }
       hasRestoredViewport.current = true;
     }
@@ -794,9 +971,10 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
 
   useEffect(() => {
     if (
-      graphData.edges?.length == 0 ||
-      graphData.combos?.length == 0 ||
-      graphData.nodes?.length == 0
+      !graphViewBuffer ||
+      graphViewBuffer.edgeCount === 0 ||
+      graphViewBuffer.comboCount === 0 ||
+      graphViewBuffer.nodeCount === 0
     )
       return;
 
@@ -806,7 +984,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     if (!isGeneratingView) {
       debouncedRender();
     }
-  }, [graphData, graph, isGeneratingView, debouncedRender]);
+  }, [graphViewBuffer, graph, isGeneratingView, debouncedRender]);
 
   useEffect(() => {
     // After render, center on saved item if it exists AND we haven't restored a viewport
@@ -881,31 +1059,19 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
 
   // Resize observer for container
   const containerRef = useRef<HTMLDivElement>(null);
-  // const debouncedSetSize = useMemo(() => debounce(setSize, 100), []);
 
-  // useEffect(() => {
-  //   if (!containerRef.current) return;
-  //   const resizeObserver = new ResizeObserver((entries) => {
-  //     for (const entry of entries) {
-  //       const { width, height } = entry.contentRect;
-
-  //       // Always tell the renderer to resize immediately (it uses RAF internally now)
-  //       rendererRef.current?.resize(width, height);
-
-  //       if (isResizingRightSidebarWidth || isResizingRightSidebarHeight) {
-  //         debouncedSetSize({ width, height });
-  //       } else {
-  //         setSize({ width, height });
-  //       }
-  //     }
-  //   });
-  //   resizeObserver.observe(containerRef.current);
-  //   return () => resizeObserver.disconnect();
-  // }, [
-  //   isResizingRightSidebarWidth,
-  //   isResizingRightSidebarHeight,
-  //   debouncedSetSize,
-  // ]);
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        setSize({ width, height });
+        rendererRef.current?.resize(width, height);
+      }
+    });
+    resizeObserver.observe(containerRef.current);
+    return () => resizeObserver.disconnect();
+  }, []);
 
   // Force re-calculation of size when sidebar toggles or right sidebar width changes
   useEffect(() => {
@@ -913,7 +1079,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
       const { width, height } = containerRef.current.getBoundingClientRect();
       setSize({ width, height });
     }
-  }, [isSidebarOpen, selectedId, selectedEdgeId]);
+  }, [isSidebarOpen, selectedId, selectedEdgeId, isBottomPanelOpen]);
 
   // handle global shortcuts
   useEffect(() => {
@@ -1034,6 +1200,16 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     rendererRef.current?.setZoom(zoom);
   }, []);
 
+  const toggleBottomPanel = useCallback(() => {
+    setBottomPanelTab("source");
+    setBottomPanelOpen(!isBottomPanelOpen);
+  }, [isBottomPanelOpen, setBottomPanelOpen, setBottomPanelTab]);
+
+  const handleOpenErrors = useCallback(() => {
+    setBottomPanelTab("errors");
+    setBottomPanelOpen(true);
+  }, [setBottomPanelOpen, setBottomPanelTab]);
+
   const handleSelectNode = useCallback(
     (id: string) => {
       onSelect(id, true, true);
@@ -1057,6 +1233,66 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     [graph, onSelect],
   );
 
+  const sourceMarkers = useMemo(() => {
+    if (!sourceFilePath) return [];
+    const normalizedPath = sourceFilePath.replace(/\\/g, "/");
+
+    return graph
+      .getAllNodes()
+      .filter((node) => {
+        const fileName = (node.fileName || "").replace(/\\/g, "/");
+        return fileName === normalizedPath;
+      })
+      .map((node) => ({
+        id: node.id,
+        label: String(node.displayName || node.name || node.id),
+        line: node.loc?.line || 1,
+      }))
+      .sort((a, b) => a.line - b.line);
+  }, [graph, sourceFilePath]);
+
+  const totalErrorCount = fileErrors.length + resolveErrors.length;
+
+  useEffect(() => {
+    const item = selectedItem || graph.getCombo(selectedId || "");
+    const filePath = item?.fileName;
+    if (!filePath) return;
+    const normalizedPath = filePath.replace(/\\/g, "/");
+
+    if (sourceFilePath === normalizedPath) {
+      return;
+    }
+
+    let cancelled = false;
+    const cachedContent = sourceContentCacheRef.current.get(normalizedPath);
+    if (cachedContent !== undefined) {
+      setSourceFilePath(normalizedPath);
+      setSourceContent(cachedContent);
+    } else {
+      window.ipcRenderer
+        .invoke("read-source-file", filePath, projectPath)
+        .then((result) => {
+          if (cancelled) return;
+          const nextPath = result.path.replace(/\\/g, "/");
+          sourceContentCacheRef.current.set(nextPath, result.content);
+          setSourceFilePath(nextPath);
+          setSourceContent(result.content);
+        })
+        .catch((error) => {
+          console.error("Failed to read source file", error);
+        });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectPath, selectedId, selectedItem, graph, sourceFilePath]);
+
+  const handleOpenCurrentFile = useCallback(() => {
+    if (!sourceFilePath) return;
+    void window.ipcRenderer.invoke("open-vscode", sourceFilePath, projectPath);
+  }, [sourceFilePath, projectPath]);
+
   return (
     <div className="w-screen h-screen relative bg-background overflow-hidden">
       <SidebarProvider open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
@@ -1075,120 +1311,187 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
             onLayoutChanged={onLayoutChanged}
           >
             <ResizablePanel id="main" minSize="30%">
-              <div className="flex-1 relative min-w-0 h-full">
-                <SidebarTrigger
-                  className={cn(
-                    "absolute top-4 left-4 z-50",
-                    // isSidebarOpen && "hidden",
-                  )}
-                />
-                {isSearchOpen && (
-                  <div className="absolute top-4 right-4 z-50 flex items-center bg-popover border border-border rounded shadow-lg p-1 animate-in fade-in slide-in-from-top-2 duration-200">
-                    <div className="flex items-center gap-1">
-                      <div className="relative flex items-center">
-                        <input
-                          ref={searchInputRef}
-                          autoFocus
-                          type="text"
-                          value={search}
-                          placeholder="Find"
-                          onChange={(e) => onSearch(e.target.value)}
-                          className="bg-muted text-foreground pl-2 pr-16 py-1 outline-none text-sm w-64 border border-transparent focus:border-primary rounded-sm placeholder:text-muted-foreground"
-                        />
-                        <div className="absolute right-2 text-[11px] text-muted-foreground pointer-events-none">
-                          {matches.length > 0 ? (
-                            <span className="text-foreground">
-                              {currentMatchIndex + 1} of {matches.length}
-                            </span>
-                          ) : search !== "" ? (
-                            <span className="text-destructive">No results</span>
-                          ) : null}
+              <ResizablePanelGroup
+                orientation="vertical"
+                className="h-full"
+                groupRef={graphPanelGroupRef}
+                onLayoutChanged={(layout) => {
+                  const nextHeight = layout["graph-bottom-panel"];
+                  if (typeof nextHeight === "number" && nextHeight > 0) {
+                    setBottomPanelHeight(nextHeight);
+                  }
+                }}
+              >
+                <ResizablePanel
+                  id="graph-canvas"
+                  defaultSize={
+                    isBottomPanelOpen ? 100 - bottomPanelHeight : 100
+                  }
+                  minSize={35}
+                >
+                  <div className="flex-1 relative min-w-0 h-full">
+                    <SidebarTrigger
+                      className={cn("absolute top-4 left-4 z-[120]")}
+                    />
+                    <Card className="absolute bottom-4 right-4 z-[110] flex flex-row items-center gap-2 p-2 shadow-lg">
+                      <ViewSwitcher compact />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setIsSearchOpen(true)}
+                      >
+                        <Search className="h-4 w-4" />
+                        Search
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={toggleBottomPanel}
+                      >
+                        Source
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleReloadProject}
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                        Reload
+                      </Button>
+                      {totalErrorCount > 0 && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-2"
+                          onClick={handleOpenErrors}
+                        >
+                          <AlertTriangle className="h-3.5 w-3.5" />
+                          {totalErrorCount} issues
+                        </Button>
+                      )}
+                    </Card>
+                    {isSearchOpen && (
+                      <div className="absolute bottom-17.5 right-4 z-[110] flex items-center rounded border border-border bg-popover p-1 shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200">
+                        <div className="flex items-center gap-1">
+                          <div className="relative flex items-center">
+                            <input
+                              ref={searchInputRef}
+                              autoFocus
+                              type="text"
+                              value={search}
+                              placeholder="Find"
+                              onChange={(e) => onSearch(e.target.value)}
+                              className="bg-muted text-foreground pl-2 pr-16 py-1 outline-none text-sm w-64 border border-transparent focus:border-primary rounded-sm placeholder:text-muted-foreground"
+                            />
+                            <div className="absolute right-2 text-[11px] text-muted-foreground pointer-events-none">
+                              {matches.length > 0 ? (
+                                <span className="text-foreground">
+                                  {currentMatchIndex + 1} of {matches.length}
+                                </span>
+                              ) : search !== "" ? (
+                                <span className="text-destructive">
+                                  No results
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center border-l border-border pl-1 gap-1">
+                            <button
+                              onClick={goToPrevMatch}
+                              className="p-1 hover:bg-accent hover:text-accent-foreground rounded-sm text-muted-foreground transition-colors"
+                              title="Previous Match (Shift+Enter)"
+                            >
+                              <svg
+                                width="16"
+                                height="16"
+                                viewBox="0 0 16 16"
+                                fill="currentColor"
+                              >
+                                <path d="M7.707 5.293a1 1 0 0 1 1.414 0l4 4a1 1 0 0 1-1.414 1.414L8 7.414l-3.707 3.707a1 1 0 0 1-1.414-1.414l4-4z" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={goToNextMatch}
+                              className="p-1 hover:bg-accent hover:text-accent-foreground rounded-sm text-muted-foreground transition-colors"
+                              title="Next Match (Enter)"
+                            >
+                              <svg
+                                width="16"
+                                height="16"
+                                viewBox="0 0 16 16"
+                                fill="currentColor"
+                              >
+                                <path d="M7.707 10.707a1 1 0 0 0 1.414 0l4-4a1 1 0 0 0-1.414-1.414L8 8.586l-3.707-3.707a1 1 0 0 0-1.414 1.414l4 4z" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={() => setIsSearchOpen(false)}
+                              className="p-1 hover:bg-accent hover:text-accent-foreground rounded-sm text-muted-foreground transition-colors ml-1"
+                              title="Close (Esc)"
+                            >
+                              <svg
+                                width="16"
+                                height="16"
+                                viewBox="0 0 16 16"
+                                fill="currentColor"
+                              >
+                                <path d="M1.293 1.293a1 1 0 0 1 1.414 0L8 6.586l5.293-5.293a1 1 0 1 1 1.414 1.414L9.414 8l5.293 5.293a1 1 0 0 1-1.414 1.414L8 9.414l-5.293 5.293a1 1 0 0 1-1.414-1.414L8 9.414l-5.293 5.293a1 1 0 0 1-1.414-1.414L6.586 8 1.293 2.707a1 1 0 0 1 0-1.414z" />
+                              </svg>
+                            </button>
+                          </div>
                         </div>
                       </div>
-
-                      <div className="flex items-center border-l border-border pl-1 gap-1">
-                        <button
-                          onClick={goToPrevMatch}
-                          className="p-1 hover:bg-accent hover:text-accent-foreground rounded-sm text-muted-foreground transition-colors"
-                          title="Previous Match (Shift+Enter)"
-                        >
-                          <svg
-                            width="16"
-                            height="16"
-                            viewBox="0 0 16 16"
-                            fill="currentColor"
-                          >
-                            <path d="M7.707 5.293a1 1 0 0 1 1.414 0l4 4a1 1 0 0 1-1.414 1.414L8 7.414l-3.707 3.707a1 1 0 0 1-1.414-1.414l4-4z" />
-                          </svg>
-                        </button>
-                        <button
-                          onClick={goToNextMatch}
-                          className="p-1 hover:bg-accent hover:text-accent-foreground rounded-sm text-muted-foreground transition-colors"
-                          title="Next Match (Enter)"
-                        >
-                          <svg
-                            width="16"
-                            height="16"
-                            viewBox="0 0 16 16"
-                            fill="currentColor"
-                          >
-                            <path d="M7.707 10.707a1 1 0 0 0 1.414 0l4-4a1 1 0 0 0-1.414-1.414L8 8.586l-3.707-3.707a1 1 0 0 0-1.414 1.414l4 4z" />
-                          </svg>
-                        </button>
-                        <button
-                          onClick={() => setIsSearchOpen(false)}
-                          className="p-1 hover:bg-accent hover:text-accent-foreground rounded-sm text-muted-foreground transition-colors ml-1"
-                          title="Close (Esc)"
-                        >
-                          <svg
-                            width="16"
-                            height="16"
-                            viewBox="0 0 16 16"
-                            fill="currentColor"
-                          >
-                            <path d="M1.293 1.293a1 1 0 0 1 1.414 0L8 6.586l5.293-5.293a1 1 0 1 1 1.414 1.414L9.414 8l5.293 5.293a1 1 0 0 1-1.414 1.414L8 9.414l-5.293 5.293a1 1 0 0 1-1.414-1.414L8 9.414l-5.293 5.293a1 1 0 0 1-1.414-1.414L6.586 8 1.293 2.707a1 1 0 0 1 0-1.414z" />
-                          </svg>
-                        </button>
+                    )}
+                    <div
+                      ref={containerRef}
+                      className="w-full h-full overflow-hidden relative min-w-0"
+                    >
+                      <div
+                        className="absolute inset-0"
+                        ref={graphContainerRef}
+                      />
+                      {(isGeneratingView || isPending) && (
+                        <div className="absolute inset-0 z-[100] bg-background/50 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
+                          <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                          <span className="text-sm font-medium text-muted-foreground animate-pulse">
+                            Generating graph view...
+                          </span>
+                        </div>
+                      )}
+                      {/* Zoom Slider */}
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 z-[110]">
+                        <MemoizedViewportZoomSlider
+                          onChange={handleZoomChange}
+                        />
                       </div>
                     </div>
                   </div>
-                )}
-                <div
-                  ref={containerRef}
-                  className="w-full h-full overflow-hidden relative min-w-0"
+                </ResizablePanel>
+                <ResizableHandle withHandle />
+                <ResizablePanel
+                  id="graph-bottom-panel"
+                  panelRef={sourcePanelRef}
+                  defaultSize={bottomPanelHeight}
+                  minSize={16}
+                  collapsible
+                  collapsedSize={0}
                 >
-                  <div className="absolute inset-0" ref={graphContainerRef} />
-                  {/* {(isResizingRightSidebarWidth ||
-                    isResizingRightSidebarHeight) && (
-                    <div
-                      className={cn(
-                        "absolute inset-0 z-[100] bg-transparent",
-                        // isResizingRightSidebarWidth
-                        //   ? "cursor-ew-resize"
-                        //   :
-                        "cursor-ns-resize",
-                      )}
-                    />
-                  )} */}
-                  {(isGeneratingView || isPending) && (
-                    <div className="absolute inset-0 z-110 bg-background/50 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
-                      <Loader2 className="h-10 w-10 animate-spin text-primary" />
-                      <span className="text-sm font-medium text-muted-foreground animate-pulse">
-                        Generating graph view...
-                      </span>
-                    </div>
-                  )}
-                  {/* Zoom Slider */}
-                  <div className="absolute right-4 top-1/2 -translate-y-1/2 z-40">
-                    <ZoomSlider
-                      value={viewport?.zoom || 1}
-                      min={zoomRange.min}
-                      max={zoomRange.max}
-                      onChange={handleZoomChange}
-                    />
-                  </div>
-                </div>
-              </div>
+                  <SourceEditorPanel
+                    filePath={sourceFilePath}
+                    projectPath={projectPath}
+                    content={sourceContent}
+                    selectedNodeId={selectedId}
+                    markers={sourceMarkers}
+                    fileErrors={fileErrors}
+                    resolveErrors={resolveErrors}
+                    isOpen={isBottomPanelOpen}
+                    onSelectNode={handleSelectNode}
+                    onOpenFile={handleOpenCurrentFile}
+                    onClose={() => setBottomPanelOpen(false)}
+                  />
+                </ResizablePanel>
+              </ResizablePanelGroup>
             </ResizablePanel>
             {(selectedId || selectedEdgeId) && (
               <>
@@ -1196,7 +1499,6 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
                 <ResizablePanel id="sidebar" minSize="15%" maxSize="50%">
                   <RightSidebar
                     selectedId={selectedId}
-                    selectedEdgeId={selectedEdgeId}
                     selectedItemType={selectedItemType}
                     selectedEdge={selectedEdge}
                     graph={graph}
@@ -1217,5 +1519,22 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
 };
 
 const MemoizedProjectSidebar = React.memo(ProjectSidebar);
+const MemoizedViewportZoomSlider = React.memo(function ViewportZoomSlider({
+  onChange,
+}: {
+  onChange: (zoom: number) => void;
+}) {
+  const zoom = useViewportUiStore((s) => s.zoom);
+  const zoomRange = useViewportUiStore((s) => s.zoomRange);
+
+  return (
+    <ZoomSlider
+      value={zoom}
+      min={zoomRange.min}
+      max={zoomRange.max}
+      onChange={onChange}
+    />
+  );
+});
 
 export default ComponentGraph;

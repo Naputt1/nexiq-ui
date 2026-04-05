@@ -50,6 +50,160 @@ type InternalNode = Node & {
   radius: number;
 };
 
+class QuadTree {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+
+  mass: number = 0;
+  centerX: number = 0;
+  centerY: number = 0;
+
+  node: InternalNode | null = null;
+
+  NW: QuadTree | null = null;
+  NE: QuadTree | null = null;
+  SW: QuadTree | null = null;
+  SE: QuadTree | null = null;
+
+  constructor(x: number, y: number, width: number, height: number) {
+    this.x = x;
+    this.y = y;
+    this.width = width;
+    this.height = height;
+  }
+
+  insert(n: InternalNode) {
+    if (this.mass === 0) {
+      this.mass = n.mass;
+      this.centerX = n.x;
+      this.centerY = n.y;
+      this.node = n;
+      return;
+    }
+
+    this.centerX =
+      (this.centerX * this.mass + n.x * n.mass) / (this.mass + n.mass);
+    this.mass += n.mass;
+
+    if (this.node) {
+      if (this.node.x === n.x && this.node.y === n.y) {
+        n.x += Math.random() * 0.01 - 0.005;
+        n.y += Math.random() * 0.01 - 0.005;
+      }
+      this._insertIntoChildren(this.node);
+      this.node = null;
+    }
+
+    this._insertIntoChildren(n);
+  }
+
+  private _insertIntoChildren(n: InternalNode) {
+    const hw = this.width / 2;
+    const hh = this.height / 2;
+
+    const left = n.x < this.x + hw;
+    const top = n.y < this.y + hh;
+
+    if (top) {
+      if (left) {
+        if (!this.NW) this.NW = new QuadTree(this.x, this.y, hw, hh);
+        this.NW.insert(n);
+      } else {
+        if (!this.NE) this.NE = new QuadTree(this.x + hw, this.y, hw, hh);
+        this.NE.insert(n);
+      }
+    } else {
+      if (left) {
+        if (!this.SW) this.SW = new QuadTree(this.x, this.y + hh, hw, hh);
+        this.SW.insert(n);
+      } else {
+        if (!this.SE) this.SE = new QuadTree(this.x + hw, this.y + hh, hw, hh);
+        this.SE.insert(n);
+      }
+    }
+  }
+}
+
+function buildQuadTree(nodes: InternalNode[]): QuadTree | null {
+  if (nodes.length === 0) return null;
+
+  let minX = Infinity,
+    minY = Infinity;
+  let maxX = -Infinity,
+    maxY = -Infinity;
+  for (const n of nodes) {
+    if (n.x < minX) minX = n.x;
+    if (n.x > maxX) maxX = n.x;
+    if (n.y < minY) minY = n.y;
+    if (n.y > maxY) maxY = n.y;
+  }
+
+  const width = maxX - minX;
+  const height = maxY - minY;
+  const size = Math.max(width, height) + 2;
+
+  const tree = new QuadTree(minX - 1, minY - 1, size, size);
+  for (const n of nodes) {
+    tree.insert(n);
+  }
+  return tree;
+}
+
+function applyRepulsion(
+  ni: InternalNode,
+  tree: QuadTree,
+  opts: Required<ForceOptions>,
+  alpha: number,
+) {
+  if (!tree || tree.mass === 0) return;
+
+  const theta = opts.theta;
+  const collisionK = opts.collisionStrength;
+  const minNodeDist = opts.minNodeDistance;
+
+  if (tree.node === ni) return;
+
+  let dx = ni.x - tree.centerX;
+  let dy = ni.y - tree.centerY;
+  let dist2 = dx * dx + dy * dy;
+
+  if (dist2 === 0) {
+    dx = Math.random() * 0.1 - 0.05;
+    dy = Math.random() * 0.1 - 0.05;
+    dist2 = dx * dx + dy * dy;
+  }
+
+  const dist = Math.sqrt(dist2);
+
+  if (tree.node !== null || tree.width / dist < theta) {
+    const force = (opts.repulsionStrength * ni.mass * tree.mass) / (dist + 1);
+
+    let collisionForce = 0;
+    if (tree.node !== null) {
+      const nj = tree.node;
+      const effectiveMinDist = minNodeDist + ni.radius + nj.radius;
+      if (effectiveMinDist > 0 && dist < effectiveMinDist) {
+        const overlap = effectiveMinDist - dist;
+        collisionForce = collisionK * overlap * 100;
+      }
+    }
+
+    const totalForce = force + collisionForce;
+    const fx = (dx / dist) * totalForce * alpha;
+    const fy = (dy / dist) * totalForce * alpha;
+
+    ni.fx += fx;
+    ni.fy += fy;
+  } else {
+    if (tree.NW) applyRepulsion(ni, tree.NW, opts, alpha);
+    if (tree.NE) applyRepulsion(ni, tree.NE, opts, alpha);
+    if (tree.SW) applyRepulsion(ni, tree.SW, opts, alpha);
+    if (tree.SE) applyRepulsion(ni, tree.SE, opts, alpha);
+  }
+}
+
 export class ForceLayout {
   nodes: InternalNode[];
   edges: Edge[];
@@ -115,47 +269,13 @@ export class ForceLayout {
       nodes[i].fy = 0;
     }
 
-    // 1) repulsive forces (O(n^2))
-    const repulseCoef = opts.repulsionStrength;
-    const minNodeDist = opts.minNodeDistance;
-    const collisionK = opts.collisionStrength;
+    // 1) repulsive forces (O(n log n)) via Barnes-Hut
     const alpha = opts.alpha ?? 1.0;
+    const tree = buildQuadTree(nodes);
 
-    for (let i = 0; i < n; i++) {
-      const ni = nodes[i];
-      for (let j = i + 1; j < n; j++) {
-        const nj = nodes[j];
-        let dx = ni.x - nj.x;
-        let dy = ni.y - nj.y;
-        let dist2 = dx * dx + dy * dy;
-
-        if (dist2 === 0) {
-          dx = Math.random() * 0.1 - 0.05;
-          dy = Math.random() * 0.1 - 0.05;
-          dist2 = dx * dx + dy * dy;
-        }
-
-        const dist = Math.sqrt(dist2);
-        const ux = dx / dist;
-        const uy = dy / dist;
-
-        // Repulsion: inverse-linear distance (Better for long-range convergence)
-        let force = (repulseCoef * ni.mass * nj.mass) / (dist + 1);
-
-        // Collision / Minimum distance
-        const effectiveMinDist = minNodeDist + ni.radius + nj.radius;
-        if (effectiveMinDist > 0 && dist < effectiveMinDist) {
-          const overlap = effectiveMinDist - dist;
-          force += collisionK * overlap * 100;
-        }
-
-        const fx = ux * force * alpha;
-        const fy = uy * force * alpha;
-
-        ni.fx += fx;
-        ni.fy += fy;
-        nj.fx -= fx;
-        nj.fy -= fy;
+    if (tree) {
+      for (let i = 0; i < n; i++) {
+        applyRepulsion(nodes[i], tree, opts, alpha);
       }
     }
 
