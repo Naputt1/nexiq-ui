@@ -58,7 +58,6 @@ import type { FileAnalysisErrorRow, ResolveErrorRow } from "../electron/types";
 import { Card } from "./components/ui/card";
 import { ViewSwitcher } from "./components/ViewSwitcher";
 import type { GraphViewBufferView } from "./view-snapshot/codec";
-import { useRegisterZustandStore } from "@sucoza/zustand-devtools-plugin";
 
 interface ComponentGraphProps {
   projectPath: string;
@@ -100,10 +99,6 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
 
   const [isGeneratingView, setIsGeneratingView] = useState(false);
   const [isPending, startTransition] = useTransition();
-
-  useRegisterZustandStore("WorkerStore", useWorkerStore);
-  useRegisterZustandStore("AppStateStore", useAppStateStore);
-  useRegisterZustandStore("GraphProfilerStore", useGraphProfilerStore);
 
   // Persistence bridge for useDefaultLayout
   const storage = useMemo(
