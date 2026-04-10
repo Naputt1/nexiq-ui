@@ -10,7 +10,10 @@ import {
 
 import { type TypeDataDeclare, getDisplayName } from "@nexiq/shared";
 import type { GraphComboData, GraphNodeData, GraphData } from "@/graph/hook";
-import { useMemo } from "react";
+import { useGraphStore } from "@/hooks/use-graph-store";
+import { useEffect, useState, useMemo } from "react";
+import type { GraphNodeDetail } from "@nexiq/extension-sdk";
+
 import { getDetailSections } from "@/registry/detail-sections";
 import {
   Accordion,
@@ -43,6 +46,20 @@ export function NodeDetailsContent({
   hideHeader = false,
 }: NodeDetailsContentProps) {
   const allSections = useMemo(() => getDetailSections(), []);
+  const fetchNodeDetail = useGraphStore((s) => s.fetchNodeDetail);
+  const detailCache = useGraphStore((s) => s.detailCache);
+  const [loading, setLoading] = useState(false);
+
+  const detail = selectedId ? detailCache.get(selectedId) : undefined;
+
+  useEffect(() => {
+    if (selectedId && !detail && !loading) {
+      setLoading(true);
+      fetchNodeDetail(projectPath, selectedId).finally(() => {
+        setLoading(false);
+      });
+    }
+  }, [selectedId, detail, projectPath, fetchNodeDetail, loading]);
 
   if (!selectedId || !item) {
     return (
@@ -119,15 +136,22 @@ export function NodeDetailsContent({
                   </span>
                 </AccordionTrigger>
                 <AccordionContent>
-                  <Component
-                    selectedId={selectedId}
-                    item={item}
-                    graph={graph}
-                    projectPath={projectPath}
-                    typeData={typeData}
-                    onSelect={onSelect}
-                    renderNodes={renderNodes}
-                  />
+                  {loading && !detail ? (
+                    <div className="py-4 text-xs text-muted-foreground animate-pulse text-center">
+                      Loading details...
+                    </div>
+                  ) : (
+                    <Component
+                      selectedId={selectedId}
+                      item={item}
+                      graph={graph}
+                      projectPath={projectPath}
+                      typeData={typeData}
+                      detail={detail || undefined}
+                      onSelect={onSelect}
+                      renderNodes={renderNodes}
+                    />
+                  )}
                 </AccordionContent>
               </AccordionItem>
             );

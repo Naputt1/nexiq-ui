@@ -7,14 +7,17 @@ export const HooksSection: React.FC<DetailSectionProps> = ({
   item: baseItem,
   graph: baseGraph,
   onSelect,
+  detail,
 }) => {
   const item = baseItem as GraphNodeData;
   const graph = baseGraph as GraphData;
-  if (!item.hooks || item.hooks.length === 0) return null;
+  const detailRaw = detail?.raw as any;
+  const hooks = (detailRaw?.hooks ?? item.hooks) as string[] | undefined;
+  if (!hooks || hooks.length === 0) return null;
 
   return (
     <div className="space-y-1">
-      {item.hooks.map((hookId: string) => {
+      {hooks.map((hookId: string) => {
         const hookItem = graph.getPointByID(hookId);
         return (
           <div

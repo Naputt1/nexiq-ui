@@ -13,17 +13,19 @@ export const ChildrenSection: React.FC<DetailSectionProps> = ({
   item: baseItem,
   selectedId,
   typeData,
+  detail,
   renderNodes = [],
 }) => {
   const { customColors } = useConfigStore();
   const item = baseItem as GraphNodeData;
+  const detailRaw = detail?.raw as any;
+  const children = detailRaw?.children ?? item.children;
 
-  if (item.type !== "component" || !item.children) return null;
+  if (!item.hasChildren || !children || Object.keys(children).length === 0) return null;
 
   return (
     <div className="space-y-4">
       {renderNodes.map((v: GraphNodeData) => {
-        const children = item.children;
         const renderId = v.id.slice((selectedId! + "-render-").length);
         const render = children?.[renderId];
 

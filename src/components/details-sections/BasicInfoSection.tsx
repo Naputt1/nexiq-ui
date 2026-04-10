@@ -1,13 +1,18 @@
 import React from "react";
 import type { DetailSectionProps } from "@nexiq/extension-sdk";
 
-export const BasicInfoSection: React.FC<DetailSectionProps> = ({ item }) => {
+export const BasicInfoSection: React.FC<DetailSectionProps> = ({ item, detail }) => {
   const componentType =
-    typeof item.componentType === "string"
+    detail?.componentType ||
+    (typeof item.componentType === "string"
       ? item.componentType
       : item.type === "component"
         ? "Function"
-        : null;
+        : null);
+
+  const fileName = detail?.fileName || item.fileName;
+  const declarationKind = detail?.declarationKind || item.declarationKind;
+  const tag = detail?.tag || item.tag;
 
   return (
     <div className="space-y-1">
@@ -20,32 +25,32 @@ export const BasicInfoSection: React.FC<DetailSectionProps> = ({ item }) => {
         </span>
       </div>
 
-      {item.fileName && (
+      {fileName && (
         <div className="flex gap-2 text-xs">
           <span className="font-semibold text-muted-foreground/80 min-w-12 text-start">
             File:
           </span>
           <span className="text-muted-foreground break-all text-start">
-            {item.fileName}
+            {fileName}
           </span>
         </div>
       )}
 
-      {item.declarationKind && (
+      {declarationKind && (
         <div className="flex gap-2 text-xs">
           <span className="font-semibold text-muted-foreground/80 min-w-12 text-start">
             Kind:
           </span>
-          <span className="text-muted-foreground">{item.declarationKind}</span>
+          <span className="text-muted-foreground">{declarationKind}</span>
         </div>
       )}
 
-      {item.tag && (
+      {tag && (
         <div className="flex gap-2 text-xs">
           <span className="font-semibold text-muted-foreground/80 min-w-12 text-start">
             Tag:
           </span>
-          <span className="text-muted-foreground">{item.tag}</span>
+          <span className="text-muted-foreground">{tag}</span>
         </div>
       )}
       
