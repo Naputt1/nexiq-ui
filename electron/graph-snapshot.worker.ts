@@ -164,6 +164,7 @@ async function handleGenerateView(message: GenerateViewMessage) {
       profilerRunId: message.profilerRunId,
       kind: message.kind,
       encoded,
+      details: viewGeneration.result.details,
       stages,
     });
   } catch (error) {

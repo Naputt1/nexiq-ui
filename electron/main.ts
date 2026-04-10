@@ -49,6 +49,7 @@ const inlineLargeDataHandles = new Map<
     version: number;
     dataBuffer: ArrayBufferLike;
     metaBuffer: ArrayBufferLike;
+    details?: Record<string, GraphNodeDetail>;
   }
 >();
 
@@ -295,6 +296,7 @@ import type {
   BackendMessageType,
 } from "@nexiq/shared";
 import { resolvePath } from "./utils";
+import type { GraphNodeDetail } from "@nexiq/extension-sdk";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -413,6 +415,7 @@ function storeInlineLargeData(
   kind: LargeDataKind,
   key: string,
   encoded: Uint8Array,
+  details?: Record<string, GraphNodeDetail>,
 ) {
   const handleId = getInlineHandleId(kind, key);
   const previous = inlineLargeDataHandles.get(handleId);
@@ -432,6 +435,7 @@ function storeInlineLargeData(
     version,
     dataBuffer,
     metaBuffer,
+    details,
   };
   inlineLargeDataHandles.set(handleId, entry);
   broadcastLargeDataUpdate({
@@ -548,19 +552,20 @@ async function openInlineLargeData(
       targetPath,
       sqlitePath,
       {
-      type: "diff-analysis",
-      kind: args.kind,
-      projectRoot: args.projectRoot,
-      selectedCommit: args.selectedCommit,
-      subPath: args.subPath,
-      sqlitePath,
-      commitSqlitePath,
-      parentSqlitePath,
-      headSqlitePath,
+        type: "diff-analysis",
+        kind: args.kind,
+        projectRoot: args.projectRoot,
+        selectedCommit: args.selectedCommit,
+        subPath: args.subPath,
+        sqlitePath,
+        commitSqlitePath,
+        parentSqlitePath,
+        headSqlitePath,
       },
     );
     const encoded = diffPayload.encoded;
-    const requestEndMs = timings[0]!.endMs + (performance.now() - diffRequestStartedAt);
+    const requestEndMs =
+      timings[0]!.endMs + (performance.now() - diffRequestStartedAt);
     timings.push({
       id: "main:request-inline-result",
       name: "Request inline result",
@@ -662,7 +667,8 @@ async function openInlineLargeData(
       },
     );
     const encoded = payload.encoded;
-    const requestEndMs = timings[0]!.endMs + (performance.now() - requestStartedAt);
+    const requestEndMs =
+      timings[0]!.endMs + (performance.now() - requestStartedAt);
     timings.push({
       id: "main:request-inline-result",
       name: "Request inline result",
@@ -679,7 +685,12 @@ async function openInlineLargeData(
     );
 
     const storeStartedAt = performance.now();
-    const handle = storeInlineLargeData(args.kind, key, encoded);
+    const handle = storeInlineLargeData(
+      args.kind,
+      key,
+      encoded,
+      payload.details,
+    );
     const storeDurationMs = performance.now() - storeStartedAt;
     timings.push({
       id: "main:store-inline-buffer",
@@ -1588,6 +1599,27 @@ ipcMain.handle(
         contextId,
       },
     );
+  },
+);
+
+ipcMain.handle(
+  "get-node-detail",
+  async (
+    _: IpcMainInvokeEvent,
+    args: { projectRoot: string; nodeId: string },
+  ) => {
+    // Search for the node in all cached view results
+    for (const entry of inlineLargeDataHandles.values()) {
+      if (entry.kind === "view-result" && entry.details?.[args.nodeId]) {
+        return entry.details[args.nodeId];
+      }
+    }
+
+    // Fallback to backend if not found in local view results
+    return requestBackend("get_node_detail", {
+      projectPath: args.projectRoot,
+      nodeId: args.nodeId,
+    });
   },
 );
 

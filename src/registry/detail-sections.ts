@@ -23,13 +23,7 @@ const registry: DetailSection[] = [
     component: PropsSection,
     shouldShow: (baseItem) => {
       const item = baseItem as GraphNodeData;
-      const baseProps = baseItem.props as unknown[] | undefined;
-      return !!(
-        item.propType ||
-        baseItem.propType ||
-        (item.props && item.props.length > 0) ||
-        (baseProps && baseProps.length > 0)
-      );
+      return !!(item.hasProps || item.propType);
     },
     defaultOpen: true,
   },
@@ -40,7 +34,7 @@ const registry: DetailSection[] = [
     component: ChildrenSection,
     shouldShow: (baseItem) => {
       const item = baseItem as GraphNodeData;
-      return item.type === "component" && !!item.children;
+      return !!item.hasChildren;
     },
   },
   {
@@ -50,7 +44,7 @@ const registry: DetailSection[] = [
     component: HooksSection,
     shouldShow: (baseItem) => {
       const item = baseItem as GraphNodeData;
-      return !!(item.hooks && item.hooks.length > 0);
+      return !!item.hasHooks;
     },
   },
   {

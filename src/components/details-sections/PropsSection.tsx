@@ -10,11 +10,13 @@ import { type GraphNodeData } from "@/graph/hook";
 export const PropsSection: React.FC<DetailSectionProps> = ({
   item: baseItem,
   typeData,
+  detail,
 }) => {
   const { customColors } = useConfigStore();
   const item = baseItem as GraphNodeData;
-  const propType = (item.propType ?? baseItem.propType) as TypeData | undefined;
-  const props = (item.props ?? baseItem.props) as PropData[] | undefined;
+  const detailRaw = detail?.raw as any;
+  const propType = (detailRaw?.propType ?? item.propType ?? baseItem.propType) as TypeData | undefined;
+  const props = (detailRaw?.props ?? item.props ?? baseItem.props) as PropData[] | undefined;
 
   const renderGenerics = (params?: TypeDataParam[]) => {
     const genericsStyle = customColors?.genericsColor

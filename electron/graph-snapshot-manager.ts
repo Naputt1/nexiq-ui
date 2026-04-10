@@ -3,6 +3,7 @@ import {
   type MessagePortMain,
   type WebContents,
 } from "electron";
+import { type GraphNodeDetail } from "@nexiq/extension-sdk";
 import { Worker } from "node:worker_threads";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,6 +50,7 @@ interface IncomingWorkerMessage extends LargeDataUpdateEvent {
     parentId?: string;
     detail?: string;
   }[];
+  details?: Record<string, GraphNodeDetail>;
 }
 
 interface OutgoingWorkerMessage {
@@ -71,6 +73,7 @@ interface InlineRequest {
       parentId?: string;
       detail?: string;
     }[];
+    details?: Record<string, GraphNodeDetail>;
   }) => void;
   reject: (reason?: unknown) => void;
   timeout: ReturnType<typeof setTimeout>;
@@ -187,6 +190,7 @@ export class GraphSnapshotManager {
           request.resolve({
             encoded: message.encoded,
             stages: message.stages,
+            details: (message as any).details,
           });
         }
         return;
@@ -298,6 +302,7 @@ export class GraphSnapshotManager {
       parentId?: string;
       detail?: string;
     }[];
+    details?: Record<string, GraphNodeDetail>;
   }> {
     const controllerId = this.getControllerId(kind, key);
     const existing = this.controllers.get(controllerId);

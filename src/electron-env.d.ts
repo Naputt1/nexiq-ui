@@ -159,6 +159,7 @@ declare global {
         listener: (payload: IpcEvents[K]) => void,
       ): () => void;
       send(channel: string, ...args: unknown[]): void;
+      invoke(channel: "get-node-detail", args: { projectRoot: string; nodeId: string }): Promise<any>;
       invoke(channel: "get-last-project"): Promise<string | null>;
       invoke(
         channel: "set-last-project",
