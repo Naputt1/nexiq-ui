@@ -3,7 +3,6 @@ import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App.tsx";
 import { HashRouter } from "react-router-dom";
-import { ZustandDevToolsPanel } from "@sucoza/zustand-devtools-plugin";
 
 const root = createRoot(document.getElementById("root")!);
 
@@ -43,10 +42,6 @@ const init = async () => {
               {
                 name: "Worker Registry",
                 render: <WorkerStatePluginComponent />,
-              },
-              {
-                name: "Zustand Stores",
-                render: () => <ZustandDevToolsPanel />,
               },
             ]}
           />

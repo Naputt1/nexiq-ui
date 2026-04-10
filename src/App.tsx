@@ -7,17 +7,12 @@ import { useProjectStore } from "./hooks/use-project-store";
 
 import { ProjectSettings } from "./pages/ProjectSettings";
 import { GlobalSettings } from "./pages/GlobalSettings";
-import { useRegisterZustandStore } from "@sucoza/zustand-devtools-plugin";
 import { useAppStateStore } from "./hooks/use-app-state-store";
 import { useGraphProfilerStore } from "./hooks/use-graph-profiler-store";
 
 function App() {
   const { projectRoot: storedProjectRoot, setProjectRoot } = useProjectStore();
   const [searchParams] = useSearchParams();
-
-  useRegisterZustandStore("ProjectStore", useProjectStore);
-  useRegisterZustandStore("AppStateStore", useAppStateStore);
-  useRegisterZustandStore("GraphProfilerStore", useGraphProfilerStore);
 
   // Try to get projectPath from hash (via useSearchParams) or from main URL search
   const urlProjectPath =
