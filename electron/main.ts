@@ -5,6 +5,7 @@ import {
   ipcMain,
   dialog,
   Menu,
+  nativeTheme,
   type MessagePortMain,
   type MenuItemConstructorOptions,
   type IpcMainInvokeEvent,
@@ -449,6 +450,17 @@ function storeInlineLargeData(
   return buildHandleFromEntry(entry);
 }
 
+function applyTheme(theme: "dark" | "light") {
+  nativeTheme.themeSource = theme;
+  const backgroundColor = theme === "dark" ? "#09090b" : "#ffffff";
+
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) {
+      window.setBackgroundColor(backgroundColor);
+    }
+  }
+}
+
 function getDiffAnalysisKey(
   projectRoot: string,
   selectedCommit: string | null | undefined,
@@ -734,6 +746,7 @@ function createWindow(projectPath?: string, forceEmpty: boolean = false) {
     webPreferences: {
       preload: path.join(__dirname, "preload.mjs"),
     },
+    backgroundColor: store.getGlobalConfig().theme === "dark" ? "#09090b" : "#ffffff",
   });
 
   window.maximize();
@@ -799,6 +812,7 @@ function createWindow(projectPath?: string, forceEmpty: boolean = false) {
     } else if (forceEmpty) {
       params.append("empty", "true");
     }
+    params.append("theme", store.getGlobalConfig().theme);
 
     const queryString = params.toString();
     if (queryString) {
@@ -813,6 +827,7 @@ function createWindow(projectPath?: string, forceEmpty: boolean = false) {
     } else if (forceEmpty) {
       params.append("empty", "true");
     }
+    params.append("theme", store.getGlobalConfig().theme);
 
     const queryString = params.toString();
     if (queryString) {
@@ -971,6 +986,7 @@ app.on("activate", () => {
 app.whenReady().then(() => {
   createMenu();
   startBackend();
+  applyTheme(store.getGlobalConfig().theme);
 
   if (process.platform === "darwin") {
     const dockMenu = Menu.buildFromTemplate([
@@ -1646,6 +1662,9 @@ ipcMain.handle(
   "save-global-config",
   async (_: IpcMainInvokeEvent, config: GlobalSettings) => {
     store.saveGlobalConfig(config);
+    if (config.theme) {
+      applyTheme(config.theme);
+    }
     return true;
   },
 );
