@@ -1,4 +1,4 @@
-import { X, Info } from "lucide-react";
+import { X, Info, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -11,8 +11,7 @@ import {
 import { type TypeDataDeclare, getDisplayName } from "@nexiq/shared";
 import type { GraphComboData, GraphNodeData, GraphData } from "@/graph/hook";
 import { useGraphStore } from "@/hooks/use-graph-store";
-import { useEffect, useState, useMemo } from "react";
-import type { GraphNodeDetail } from "@nexiq/extension-sdk";
+import { useMemo } from "react";
 
 import { getDetailSections } from "@/registry/detail-sections";
 import {
@@ -46,20 +45,10 @@ export function NodeDetailsContent({
   hideHeader = false,
 }: NodeDetailsContentProps) {
   const allSections = useMemo(() => getDetailSections(), []);
-  const fetchNodeDetail = useGraphStore((s) => s.fetchNodeDetail);
-  const detailCache = useGraphStore((s) => s.detailCache);
-  const [loading, setLoading] = useState(false);
+  const details = useGraphStore((s) => s.details);
 
-  const detail = selectedId ? detailCache.get(selectedId) : undefined;
-
-  useEffect(() => {
-    if (selectedId && !detail && !loading) {
-      setLoading(true);
-      fetchNodeDetail(projectPath, selectedId).finally(() => {
-        setLoading(false);
-      });
-    }
-  }, [selectedId, detail, projectPath, fetchNodeDetail, loading]);
+  // Synchronous lookup — no IPC, no loading, no retries
+  const detail = selectedId ? details[selectedId] : undefined;
 
   if (!selectedId || !item) {
     return (
@@ -74,6 +63,50 @@ export function NodeDetailsContent({
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
+    );
+  }
+
+  // If node is selected but has no detail record (e.g. a scope/combo), show a
+  // clear message and stop — don't call the server.
+  if (!detail) {
+    return (
+      <div className="flex flex-col h-full overflow-hidden">
+        {!hideHeader && (
+          <div className="flex flex-row justify-between items-start p-4 pb-2 shrink-0 border-b border-border">
+            <div className="flex flex-col gap-1 overflow-hidden text-start">
+              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                {item.type}
+              </span>
+              <div className="text-lg font-bold flex items-center gap-1 truncate">
+                <span className="text-primary">
+                  {item.displayName || getDisplayName(item.name)}
+                </span>
+              </div>
+            </div>
+            {onClose && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onClose}
+                className="h-8 w-8 text-muted-foreground hover:text-foreground shrink-0"
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            )}
+          </div>
+        )}
+        <Empty className="h-full border-none flex-1">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <AlertCircle className="h-4 w-4 text-muted-foreground" />
+            </EmptyMedia>
+            <EmptyTitle>No Details Available</EmptyTitle>
+            <EmptyDescription>
+              This item does not have any detail information.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      </div>
     );
   }
 
@@ -136,22 +169,16 @@ export function NodeDetailsContent({
                   </span>
                 </AccordionTrigger>
                 <AccordionContent>
-                  {loading && !detail ? (
-                    <div className="py-4 text-xs text-muted-foreground animate-pulse text-center">
-                      Loading details...
-                    </div>
-                  ) : (
-                    <Component
-                      selectedId={selectedId}
-                      item={item}
-                      graph={graph}
-                      projectPath={projectPath}
-                      typeData={typeData}
-                      detail={detail || undefined}
-                      onSelect={onSelect}
-                      renderNodes={renderNodes}
-                    />
-                  )}
+                  <Component
+                    selectedId={selectedId}
+                    item={item}
+                    graph={graph}
+                    projectPath={projectPath}
+                    typeData={typeData}
+                    detail={detail}
+                    onSelect={onSelect}
+                    renderNodes={renderNodes}
+                  />
                 </AccordionContent>
               </AccordionItem>
             );

@@ -1,258 +1,308 @@
-import type { TypeDataDeclare } from "@nexiq/shared";
-import type { GraphArrowData, GraphComboData, GraphNodeData } from "@/graph/hook";
+import { FlatBuffers } from "@nexiq/shared";
+import * as flatbuffers from "flatbuffers";
+import type {
+  GraphArrowData,
+  GraphComboData,
+  GraphNodeData,
+} from "@/graph/hook";
 import type { GraphViewResult } from "../views/types";
+import { type GraphNodeDetail } from "@nexiq/extension-sdk";
 
-const GRAPH_VIEW_MAGIC = 0x47564246; // GVBF
-const GRAPH_VIEW_VERSION = 1;
-const HEADER_LENGTH = 7;
-
-type GraphItemDetail = GraphNodeData | GraphComboData | GraphArrowData;
-
-function encodeString(value: string) {
-  return new TextEncoder().encode(value);
-}
-
-function decodeString(bytes: Uint8Array) {
-  return new TextDecoder().decode(bytes);
-}
-
-function serializeGraphItem(value: GraphItemDetail) {
-  return JSON.stringify(value);
-}
-
-function parseGraphItem<T extends GraphItemDetail>(value: string) {
-  return JSON.parse(value) as T;
-}
-
-function parseJsonValue<T>(value: string) {
-  return JSON.parse(value) as T;
-}
-
-function buildStringTable(strings: string[]) {
-  const encodedStrings = strings.map(encodeString);
-  const offsets = new Int32Array(strings.length);
-  const lengths = new Int32Array(strings.length);
-  let totalLength = 0;
-
-  for (let i = 0; i < encodedStrings.length; i += 1) {
-    offsets[i] = totalLength;
-    lengths[i] = encodedStrings[i].byteLength;
-    totalLength += encodedStrings[i].byteLength;
-  }
-
-  const blob = new Uint8Array(totalLength);
-  for (let i = 0; i < encodedStrings.length; i += 1) {
-    blob.set(encodedStrings[i], offsets[i]);
-  }
-
-  return { offsets, lengths, blob };
-}
+// The Magic and Version are now handled by FlatBuffers file_identifier "NXGV"
 
 export class GraphViewBufferView {
-  nodeCount: number;
-  edgeCount: number;
-  comboCount: number;
-  private stringIndexes: {
-    nodes: Int32Array;
-    edges: Int32Array;
-    combos: Int32Array;
-    typeData: number;
-  };
-  private offsets: Int32Array;
-  private lengths: Int32Array;
-  private blob: Uint8Array;
-  private stringCache = new Map<number, string>();
-  private nodeCache = new Map<number, GraphNodeData>();
-  private edgeCache = new Map<number, GraphArrowData>();
-  private comboCache = new Map<number, GraphComboData>();
-  private typeDataCache?: Record<string, TypeDataDeclare>;
+  private view: FlatBuffers.GraphView;
   private materializedCache?: GraphViewResult;
 
   constructor(buffer: ArrayBufferLike) {
-    const header = new Int32Array(buffer, 0, HEADER_LENGTH);
-    if (header[0] !== GRAPH_VIEW_MAGIC) {
-      throw new Error("Invalid graph view buffer");
+    const uint8Array = new Uint8Array(buffer);
+    const byteBuffer = new flatbuffers.ByteBuffer(uint8Array);
+
+    if (!FlatBuffers.GraphView.bufferHasIdentifier(byteBuffer)) {
+      throw new Error("Invalid graph view buffer identifier");
     }
-    if (header[1] !== GRAPH_VIEW_VERSION) {
-      throw new Error(`Unsupported graph view version: ${header[1]}`);
-    }
 
-    this.nodeCount = header[2];
-    this.edgeCount = header[3];
-    this.comboCount = header[4];
-    const stringCount = header[5];
-    const typeDataIndex = header[6];
-
-    let byteOffset = HEADER_LENGTH * Int32Array.BYTES_PER_ELEMENT;
-
-    this.stringIndexes = {
-      nodes: new Int32Array(buffer, byteOffset, this.nodeCount),
-      edges: new Int32Array(
-        buffer,
-        byteOffset + this.nodeCount * Int32Array.BYTES_PER_ELEMENT,
-        this.edgeCount,
-      ),
-      combos: new Int32Array(
-        buffer,
-        byteOffset +
-          (this.nodeCount + this.edgeCount) * Int32Array.BYTES_PER_ELEMENT,
-        this.comboCount,
-      ),
-      typeData: typeDataIndex,
-    };
-
-    byteOffset +=
-      (this.nodeCount + this.edgeCount + this.comboCount) *
-      Int32Array.BYTES_PER_ELEMENT;
-
-    this.offsets = new Int32Array(buffer, byteOffset, stringCount);
-    byteOffset += stringCount * Int32Array.BYTES_PER_ELEMENT;
-
-    this.lengths = new Int32Array(buffer, byteOffset, stringCount);
-    byteOffset += stringCount * Int32Array.BYTES_PER_ELEMENT;
-
-    this.blob = new Uint8Array(buffer, byteOffset);
+    this.view = FlatBuffers.GraphView.getRootAsGraphView(byteBuffer);
   }
 
-  private readString(index: number) {
-    const cached = this.stringCache.get(index);
-    if (cached !== undefined) {
-      return cached;
-    }
-
-    const start = this.offsets[index];
-    const length = this.lengths[index];
-    const value = decodeString(this.blob.subarray(start, start + length));
-    this.stringCache.set(index, value);
-    return value;
+  get nodeCount() {
+    return this.view.nodesLength();
+  }
+  get edgeCount() {
+    return this.view.edgesLength();
+  }
+  get comboCount() {
+    return this.view.combosLength();
   }
 
   getTypeData() {
-    if (!this.typeDataCache) {
-      this.typeDataCache = parseJsonValue<Record<string, TypeDataDeclare>>(
-        this.readString(this.stringIndexes.typeData),
-      );
-    }
-    return this.typeDataCache;
+    return this.materialize().typeData;
   }
 
-  getNode(index: number) {
-    const cached = this.nodeCache.get(index);
-    if (cached) {
-      return cached;
-    }
-    const value = parseGraphItem<GraphNodeData>(
-      this.readString(this.stringIndexes.nodes[index]),
-    );
-    this.nodeCache.set(index, value);
-    return value;
-  }
-
-  getEdge(index: number) {
-    const cached = this.edgeCache.get(index);
-    if (cached) {
-      return cached;
-    }
-    const value = parseGraphItem<GraphArrowData>(
-      this.readString(this.stringIndexes.edges[index]),
-    );
-    this.edgeCache.set(index, value);
-    return value;
-  }
-
-  getCombo(index: number) {
-    const cached = this.comboCache.get(index);
-    if (cached) {
-      return cached;
-    }
-    const value = parseGraphItem<GraphComboData>(
-      this.readString(this.stringIndexes.combos[index]),
-    );
-    this.comboCache.set(index, value);
-    return value;
-  }
-
-  materialize() {
+  materialize(): GraphViewResult {
     if (this.materializedCache) {
       return this.materializedCache;
     }
-    const nodes = Array.from({ length: this.nodeCount }, (_, index) =>
-      this.getNode(index),
-    );
-    const edges = Array.from({ length: this.edgeCount }, (_, index) =>
-      this.getEdge(index),
-    );
-    const combos = Array.from({ length: this.comboCount }, (_, index) =>
-      this.getCombo(index),
-    );
+
+    const nodes: GraphNodeData[] = [];
+    for (let i = 0; i < this.view.nodesLength(); i++) {
+      const node = this.view.nodes(i)!;
+      nodes.push({
+        id: node.id()!,
+        name: node.name()!,
+        displayName: node.displayName()!,
+        type: this.mapItemType(node.type()),
+        combo: node.comboId() || undefined,
+        color: node.color() || undefined,
+        radius: node.radius() > 0 ? node.radius() : undefined,
+      } as GraphNodeData);
+    }
+
+    const combos: GraphComboData[] = [];
+    for (let i = 0; i < this.view.combosLength(); i++) {
+      const combo = this.view.combos(i)!;
+      combos.push({
+        id: combo.id()!,
+        name: combo.name()!,
+        displayName: combo.displayName()!,
+        type: this.mapItemType(combo.type()),
+        combo: combo.parentId() || undefined,
+        collapsed: combo.collapsed(),
+        color: combo.color() || undefined,
+        radius: combo.radius() > 0 ? combo.radius() : undefined,
+      } as GraphComboData);
+    }
+
+    const edges: GraphArrowData[] = [];
+    for (let i = 0; i < this.view.edgesLength(); i++) {
+      const edge = this.view.edges(i)!;
+      edges.push({
+        id: edge.id()!,
+        source: edge.source()!,
+        target: edge.target()!,
+        name: edge.name() || undefined,
+        edgeKind: edge.kind()!,
+        category: edge.category()!,
+      } as GraphArrowData);
+    }
+
+    const details: Record<string, GraphNodeDetail> = {};
+    for (let i = 0; i < this.view.detailsLength(); i++) {
+      const detail = this.view.details(i)!;
+      const loc = detail.loc();
+      details[detail.id()!] = {
+        id: detail.id()!,
+        fileName: detail.fileName() || undefined,
+        projectPath: detail.projectPath() || undefined,
+        loc: loc ? { line: loc.line(), column: loc.column() } : undefined,
+        raw: detail.dataJson() ? JSON.parse(detail.dataJson()!) : undefined,
+      };
+    }
 
     this.materializedCache = {
       nodes,
       edges,
       combos,
-      typeData: this.getTypeData(),
-    } satisfies GraphViewResult;
+      details,
+      // typeData is currently not in the FBS root directly but can be added or parsed from details if needed
+      typeData: {},
+    };
     return this.materializedCache;
+  }
+
+  private mapItemType(type: FlatBuffers.ItemType): string {
+    switch (type) {
+      case FlatBuffers.ItemType.Package:
+        return "package";
+      case FlatBuffers.ItemType.Scope:
+        return "scope";
+      case FlatBuffers.ItemType.Component:
+        return "component";
+      case FlatBuffers.ItemType.Hook:
+        return "hook";
+      case FlatBuffers.ItemType.State:
+        return "state";
+      case FlatBuffers.ItemType.Memo:
+        return "memo";
+      case FlatBuffers.ItemType.Callback:
+        return "callback";
+      case FlatBuffers.ItemType.Ref:
+        return "ref";
+      case FlatBuffers.ItemType.Effect:
+        return "effect";
+      case FlatBuffers.ItemType.Prop:
+        return "prop";
+      case FlatBuffers.ItemType.Render:
+        return "render";
+      case FlatBuffers.ItemType.RenderGroup:
+        return "render-group";
+      case FlatBuffers.ItemType.SourceGroup:
+        return "source-group";
+      case FlatBuffers.ItemType.PathGroup:
+        return "path-group";
+      default:
+        return "scope";
+    }
   }
 }
 
 export function encodeGraphViewSnapshot(result: GraphViewResult): Uint8Array {
-  const strings: string[] = [];
-  const pushString = (value: string) => {
-    const index = strings.length;
-    strings.push(value);
-    return index;
-  };
+  const builder = new flatbuffers.Builder(1024 * 1024);
 
-  const nodeIndexes = new Int32Array(result.nodes.length);
-  const edgeIndexes = new Int32Array(result.edges.length);
-  const comboIndexes = new Int32Array(result.combos.length);
+  const nodeOffsets = result.nodes.map((node) => {
+    // Pre-create all strings before starting the object to avoid nesting issues
+    const id = builder.createString(String(node.id));
+    const nameStr = typeof node.name === "string" ? node.name : String(node.name || "");
+    const name = builder.createString(nameStr);
+    const displayName = builder.createString(String(node.displayName || ""));
+    const comboId = node.combo ? builder.createString(String(node.combo)) : 0;
+    const color = node.color ? builder.createString(String(node.color)) : 0;
 
-  for (let i = 0; i < result.nodes.length; i += 1) {
-    nodeIndexes[i] = pushString(serializeGraphItem(result.nodes[i]));
+    FlatBuffers.GraphNode.startGraphNode(builder);
+    FlatBuffers.GraphNode.addId(builder, id);
+    FlatBuffers.GraphNode.addType(builder, mapToItemType(node.type as string));
+    FlatBuffers.GraphNode.addName(builder, name);
+    FlatBuffers.GraphNode.addDisplayName(builder, displayName);
+    if (comboId) FlatBuffers.GraphNode.addComboId(builder, comboId);
+    if (color) FlatBuffers.GraphNode.addColor(builder, color);
+    FlatBuffers.GraphNode.addRadius(builder, node.radius || 0);
+    return FlatBuffers.GraphNode.endGraphNode(builder);
+  });
+  const nodesVector = FlatBuffers.GraphView.createNodesVector(
+    builder,
+    nodeOffsets,
+  );
+
+  const comboOffsets = result.combos.map((combo) => {
+    const id = builder.createString(String(combo.id));
+    const nameStr = typeof combo.name === "string" ? combo.name : String(combo.name || "");
+    const name = builder.createString(nameStr);
+    const displayName = builder.createString(String(combo.displayName || ""));
+    const parentId = combo.combo ? builder.createString(String(combo.combo)) : 0;
+    const color = combo.color ? builder.createString(String(combo.color)) : 0;
+
+    FlatBuffers.GraphCombo.startGraphCombo(builder);
+    FlatBuffers.GraphCombo.addId(builder, id);
+    FlatBuffers.GraphCombo.addType(
+      builder,
+      mapToItemType(combo.type as string),
+    );
+    FlatBuffers.GraphCombo.addName(builder, name);
+    FlatBuffers.GraphCombo.addDisplayName(builder, displayName);
+    if (parentId) FlatBuffers.GraphCombo.addParentId(builder, parentId);
+    if (color) FlatBuffers.GraphCombo.addColor(builder, color);
+    FlatBuffers.GraphCombo.addCollapsed(builder, !!combo.collapsed);
+    FlatBuffers.GraphCombo.addRadius(builder, combo.radius || 0);
+    return FlatBuffers.GraphCombo.endGraphCombo(builder);
+  });
+  const combosVector = FlatBuffers.GraphView.createCombosVector(
+    builder,
+    comboOffsets,
+  );
+
+  const edgeOffsets = result.edges.map((edge) => {
+    const id = builder.createString(edge.id);
+    const source = builder.createString(edge.source);
+    const target = builder.createString(edge.target);
+    const name = builder.createString(edge.name || "");
+    const kind = builder.createString(edge.edgeKind || "");
+    const category = builder.createString(edge.category || "");
+
+    FlatBuffers.GraphEdge.startGraphEdge(builder);
+    FlatBuffers.GraphEdge.addId(builder, id);
+    FlatBuffers.GraphEdge.addSource(builder, source);
+    FlatBuffers.GraphEdge.addTarget(builder, target);
+    FlatBuffers.GraphEdge.addName(builder, name);
+    FlatBuffers.GraphEdge.addKind(builder, kind);
+    FlatBuffers.GraphEdge.addCategory(builder, category);
+    return FlatBuffers.GraphEdge.endGraphEdge(builder);
+  });
+  const edgesVector = FlatBuffers.GraphView.createEdgesVector(
+    builder,
+    edgeOffsets,
+  );
+
+  const detailOffsets = Object.values(result.details || {}).map((detail) => {
+    const id = builder.createString(detail.id);
+    const fileName = detail.fileName
+      ? builder.createString(detail.fileName)
+      : 0;
+    const projectPath = detail.projectPath
+      ? builder.createString(detail.projectPath)
+      : 0;
+    const dataJson = detail.raw
+      ? builder.createString(JSON.stringify(detail.raw))
+      : 0;
+
+    const loc = detail.loc
+      ? FlatBuffers.Loc.createLoc(
+          builder,
+          detail.loc.line,
+          detail.loc.column,
+        )
+      : 0;
+
+    FlatBuffers.GraphNodeDetail.startGraphNodeDetail(builder);
+    FlatBuffers.GraphNodeDetail.addId(builder, id);
+    if (fileName) FlatBuffers.GraphNodeDetail.addFileName(builder, fileName);
+    if (projectPath)
+      FlatBuffers.GraphNodeDetail.addProjectPath(builder, projectPath);
+    if (loc) FlatBuffers.GraphNodeDetail.addLoc(builder, loc);
+    if (dataJson) FlatBuffers.GraphNodeDetail.addDataJson(builder, dataJson);
+    return FlatBuffers.GraphNodeDetail.endGraphNodeDetail(builder);
+  });
+  const detailsVector = FlatBuffers.GraphView.createDetailsVector(
+    builder,
+    detailOffsets,
+  );
+
+  FlatBuffers.GraphView.startGraphView(builder);
+  FlatBuffers.GraphView.addNodes(builder, nodesVector);
+  FlatBuffers.GraphView.addCombos(builder, combosVector);
+  FlatBuffers.GraphView.addEdges(builder, edgesVector);
+  FlatBuffers.GraphView.addDetails(builder, detailsVector);
+  const root = FlatBuffers.GraphView.endGraphView(builder);
+
+  builder.finish(root, "NXGV");
+  return builder.asUint8Array();
+}
+
+function mapToItemType(type: string | number | undefined): FlatBuffers.ItemType {
+  if (typeof type === "number") return type;
+  if (!type) return FlatBuffers.ItemType.Scope;
+  const t = type.toLowerCase().replace(/-/g, "").replace(/group$/, "group"); // normalization
+  switch (t) {
+    case "package":
+      return FlatBuffers.ItemType.Package;
+    case "scope":
+      return FlatBuffers.ItemType.Scope;
+    case "component":
+      return FlatBuffers.ItemType.Component;
+    case "hook":
+      return FlatBuffers.ItemType.Hook;
+    case "state":
+      return FlatBuffers.ItemType.State;
+    case "memo":
+      return FlatBuffers.ItemType.Memo;
+    case "callback":
+      return FlatBuffers.ItemType.Callback;
+    case "ref":
+      return FlatBuffers.ItemType.Ref;
+    case "effect":
+      return FlatBuffers.ItemType.Effect;
+    case "prop":
+      return FlatBuffers.ItemType.Prop;
+    case "render":
+      return FlatBuffers.ItemType.Render;
+    case "rendergroup":
+      return FlatBuffers.ItemType.RenderGroup;
+    case "sourcegroup":
+      return FlatBuffers.ItemType.SourceGroup;
+    case "pathgroup":
+      return FlatBuffers.ItemType.PathGroup;
+    default:
+      return FlatBuffers.ItemType.Scope;
   }
-  for (let i = 0; i < result.edges.length; i += 1) {
-    edgeIndexes[i] = pushString(serializeGraphItem(result.edges[i]));
-  }
-  for (let i = 0; i < result.combos.length; i += 1) {
-    comboIndexes[i] = pushString(serializeGraphItem(result.combos[i]));
-  }
-
-  const typeDataIndex = pushString(JSON.stringify(result.typeData));
-  const { offsets, lengths, blob } = buildStringTable(strings);
-
-  const byteLength =
-    HEADER_LENGTH * Int32Array.BYTES_PER_ELEMENT +
-    (nodeIndexes.length + edgeIndexes.length + comboIndexes.length) *
-      Int32Array.BYTES_PER_ELEMENT +
-    offsets.byteLength +
-    lengths.byteLength +
-    blob.byteLength;
-
-  const buffer = new ArrayBuffer(byteLength);
-  const header = new Int32Array(buffer, 0, HEADER_LENGTH);
-  header[0] = GRAPH_VIEW_MAGIC;
-  header[1] = GRAPH_VIEW_VERSION;
-  header[2] = result.nodes.length;
-  header[3] = result.edges.length;
-  header[4] = result.combos.length;
-  header[5] = strings.length;
-  header[6] = typeDataIndex;
-
-  let byteOffset = HEADER_LENGTH * Int32Array.BYTES_PER_ELEMENT;
-  new Int32Array(buffer, byteOffset, nodeIndexes.length).set(nodeIndexes);
-  byteOffset += nodeIndexes.byteLength;
-  new Int32Array(buffer, byteOffset, edgeIndexes.length).set(edgeIndexes);
-  byteOffset += edgeIndexes.byteLength;
-  new Int32Array(buffer, byteOffset, comboIndexes.length).set(comboIndexes);
-  byteOffset += comboIndexes.byteLength;
-  new Int32Array(buffer, byteOffset, offsets.length).set(offsets);
-  byteOffset += offsets.byteLength;
-  new Int32Array(buffer, byteOffset, lengths.length).set(lengths);
-  byteOffset += lengths.byteLength;
-  new Uint8Array(buffer, byteOffset).set(blob);
-
-  return new Uint8Array(buffer);
 }
 
 export function decodeGraphViewSnapshot(data: Uint8Array) {

@@ -11,7 +11,6 @@ import type {
   UIItemState,
 } from "@nexiq/shared";
 import type { GraphData } from "../hook";
-import type { LabelData } from "../label";
 import type { GraphArrow } from "./arrow";
 import type { GraphCombo } from "./combo";
 import type { GraphNode } from "./node";
@@ -76,7 +75,6 @@ export interface PointData {
   y?: number;
   color?: string;
   radius?: number;
-  label?: LabelData;
   combo?: string;
   highlighted?: boolean;
 }
@@ -150,7 +148,7 @@ export interface GraphArrowData {
   id: string;
   source: string;
   target: string;
-  label?: string;
+  name?: string;
   edgeKind?: string;
   category?: string;
   flowRole?: "direct" | "side-effect" | null;

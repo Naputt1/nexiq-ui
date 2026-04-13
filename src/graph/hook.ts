@@ -399,18 +399,10 @@ export class GraphData {
 
     this.batch(() => {
       this.clear();
-      const combos = Array.from({ length: viewBuffer.comboCount }, (_, index) =>
-        viewBuffer.getCombo(index),
-      );
-      const nodes = Array.from({ length: viewBuffer.nodeCount }, (_, index) =>
-        viewBuffer.getNode(index),
-      );
-      const edges = Array.from({ length: viewBuffer.edgeCount }, (_, index) =>
-        viewBuffer.getEdge(index),
-      );
-      this.addCombos(combos);
-      this.addNodes(nodes);
-      this.addEdges(edges);
+      const result = viewBuffer.materialize();
+      this.addCombos(result.combos);
+      this.addNodes(result.nodes);
+      this.addEdges(result.edges);
     });
   }
 
@@ -1906,10 +1898,12 @@ export class GraphData {
   }
 }
 
+const EMPTY_ARRAY: any[] = [];
+
 const useGraph: (option: useGraphProps) => GraphData = ({
-  nodes = [],
-  edges = [],
-  combos = [],
+    nodes = EMPTY_ARRAY,
+    edges = EMPTY_ARRAY,
+    combos = EMPTY_ARRAY,
   viewBuffer = null,
   config,
   projectPath,
@@ -1922,6 +1916,11 @@ const useGraph: (option: useGraphProps) => GraphData = ({
   useEffect(() => {
     if (viewBuffer) {
       data.setDataFromViewBuffer(viewBuffer, projectPath, targetPath);
+      // Push details from buffer into store for synchronous lookup
+      import("../hooks/use-graph-store").then(({ useGraphStore }) => {
+        const result = viewBuffer.materialize();
+        useGraphStore.getState().setDetails(result.details || {});
+      });
       return;
     }
     data.setData(nodes, edges, combos, projectPath, targetPath);

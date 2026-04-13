@@ -8,7 +8,6 @@ import type {
   VariableScope,
 } from "@nexiq/shared";
 import * as PIXI from "pixi.js";
-import type { LabelData } from "../label";
 import type { GraphCombo } from "./combo";
 import type {
   BaseNodeData,
@@ -32,7 +31,6 @@ export abstract class BaseNode implements Renderable {
   projectPath?: string;
   fileName: string;
   pureFileName?: string;
-  label?: LabelData;
   color: string;
   highlighted: boolean = false;
   isLayoutCalculated: boolean = false;
@@ -80,7 +78,6 @@ export abstract class BaseNode implements Renderable {
     this.projectPath = data.projectPath;
     this.fileName = data.fileName ?? "";
     this.pureFileName = data.pureFileName;
-    this.label = data.label;
     this.color = data.color ?? "blue";
     this.highlighted = data.highlighted ?? false;
     this.isLayoutCalculated = data.isLayoutCalculated ?? false;
@@ -111,17 +108,15 @@ export abstract class BaseNode implements Renderable {
     offsetY: number,
     context: RenderContext,
   ) {
-    if (!this.label) return;
+    const displayName = this.getDisplayName();
+    if (!displayName) return;
 
     // TODO: optimiseation by prebuild the font
     const hiResFactor = 1; // Used 1 instead of 4 to save VRAM. `resolution: devicePixelRatio` is enough for retina handling.
     const text = new PIXI.BitmapText({
-      text: this.label.text,
+      text: displayName,
       style: {
-        fill:
-          this.label.fill ||
-          context.customColors?.labelColor ||
-          (context.theme === "dark" ? "white" : "black"),
+        fill: context.theme === "dark" ? "white" : "black",
         fontSize: 12 * this.scale * hiResFactor,
         align: "center",
       },
@@ -134,6 +129,24 @@ export abstract class BaseNode implements Renderable {
     container.addChild(text);
   }
 
+  private getDisplayName(): string {
+    if (typeof this.name === "string") return this.name;
+    if (!this.name) return "";
+
+    const pattern = this.name;
+    if (pattern.type === "identifier") {
+      return pattern.name;
+    } else if (pattern.type === "object" || pattern.type === "array") {
+      return pattern.raw || (pattern.type === "object" ? "{...}" : "[...]");
+    } else if (pattern.type === "rest") {
+      return "...";
+    } else if (pattern.type === "void") {
+      return "";
+    }
+
+    return String(this.name);
+  }
+
   protected updateLabel(
     container: PIXI.Container,
     offsetY: number,
@@ -143,13 +156,7 @@ export abstract class BaseNode implements Renderable {
       (child) => child.label === `label-${this.id}`,
     ) as PIXI.BitmapText | undefined;
 
-    if (!this.label) {
-      existing?.destroy();
-      return;
-    }
-
     const fill =
-      this.label.fill ||
       context.customColors?.labelColor ||
       (context.theme === "dark" ? "white" : "black");
 
@@ -158,7 +165,7 @@ export abstract class BaseNode implements Renderable {
       return;
     }
 
-    existing.text = this.label.text;
+    existing.text = this.getDisplayName();
     existing.style.fill = fill;
     existing.style.fontSize = 12 * this.scale;
     existing.anchor.set(0.5, 0);

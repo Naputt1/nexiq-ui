@@ -19,6 +19,22 @@ export type GenerateViewRequest = {
   profilerLogicalKey?: string;
 };
 
+export interface ViewGenerationStage {
+  id: string;
+  name: string;
+  startMs: number;
+  endMs: number;
+  parentId?: string;
+  detail?: string;
+}
+
+export interface GenerateGraphViewResult {
+  result: GraphViewResult;
+  stages: ViewGenerationStage[];
+  nodeDataBuffer?: SharedArrayBuffer;
+  detailBuffer?: SharedArrayBuffer;
+}
+
 export type SerializedViewRegistry = {
   registry: Record<string, { id: string; priority: number }[]>;
 };

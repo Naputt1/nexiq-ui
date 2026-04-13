@@ -190,7 +190,7 @@ export class GraphSnapshotManager {
           request.resolve({
             encoded: message.encoded,
             stages: message.stages,
-            details: (message as any).details,
+            details: message.details,
           });
         }
         return;
@@ -310,7 +310,11 @@ export class GraphSnapshotManager {
       existing && existing.sqlitePath === sqlitePath
         ? existing
         : this.createWorker(kind, key, sqlitePath, { inlineOnly: true });
-    if (existing && existing !== controller && existing.sqlitePath !== sqlitePath) {
+    if (
+      existing &&
+      existing !== controller &&
+      existing.sqlitePath !== sqlitePath
+    ) {
       existing.worker.terminate();
     }
 

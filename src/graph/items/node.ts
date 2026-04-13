@@ -71,13 +71,25 @@ export class GraphNode extends BaseNode {
       const event = e.originalEvent as unknown as PointerEvent;
       if (event.ctrlKey || event.metaKey) {
         e.stopPropagation();
-        window.ipcRenderer.invoke(
-          "open-vscode",
-          this.fileName,
-          this.projectPath || context.graph.projectPath,
-          this.loc?.line,
-          this.loc?.column,
-        );
+        // fileName and loc live in the details map (from the FlatBuffer), not on the node
+        import("../../hooks/use-graph-store").then(({ useGraphStore }) => {
+          const detail = useGraphStore.getState().details[this.id];
+          const fileName = detail?.fileName || this.fileName;
+          const projectPath =
+            detail?.projectPath ||
+            this.projectPath ||
+            context.graph.projectPath;
+          const loc = detail?.loc || this.loc;
+          if (fileName) {
+            window.ipcRenderer.invoke(
+              "open-vscode",
+              fileName,
+              projectPath,
+              loc?.line,
+              loc?.column,
+            );
+          }
+        });
       } else {
         context.onSelect?.(this.id, false);
       }
@@ -104,25 +116,23 @@ export class GraphNode extends BaseNode {
     // Draw Node Circle
     graphics.circle(0, 0, this.radius);
     graphics.fill(fillColor);
+    graphics.stroke({
+      color: this.highlighted ? highlightColor : fillColor,
+      width: (this.highlighted ? 2 : 1) * this.scale,
+      alignment: 0,
+    });
 
     if (this.highlighted) {
-      graphics.stroke({
-        color: highlightColor,
-        width: 2 * this.scale,
-        alignment: 0, // Inside
-      });
-      // PixiJS v8 shadow/blur is more complex, skipping for now or using a simple filter if performance allows
+      // PixiJS v8 shadow/blur is more complex, skipping for now
     }
 
     container.addChild(graphics);
 
-    if (this.label) {
-      this.renderLabel(
-        container,
-        (this.radius || 0) + 10 * this.scale,
-        context,
-      );
-    }
+    this.renderLabel(
+      container,
+      (this.radius || 0) + 10 * this.scale,
+      context,
+    );
 
     this.renderGitStatus(container, this.radius, 4, context);
 
@@ -150,15 +160,13 @@ export class GraphNode extends BaseNode {
       graphics.circle(0, 0, this.radius);
       graphics.fill(this.getFillColor(context));
 
+      const fillColor = this.getFillColor(context);
       const highlightColor =
         context.customColors?.nodeHighlight ||
         (context.theme === "dark" ? "#3b82f6" : "#2563eb");
+
       graphics.stroke({
-        color: this.highlighted
-          ? highlightColor
-          : context.theme === "dark"
-            ? "#555"
-            : "#ccc",
+        color: this.highlighted ? highlightColor : fillColor,
         width: (this.highlighted ? 3 : 1) * this.scale,
       });
     }

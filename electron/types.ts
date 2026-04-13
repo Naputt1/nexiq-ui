@@ -8,7 +8,10 @@ import type {
   ResolveErrorRow,
 } from "@nexiq/shared";
 import type { GraphAppearance } from "@nexiq/extension-sdk";
-import type { GraphSnapshotUpdateEvent, LargeDataUpdateEvent } from "../src/graph-snapshot/types";
+import type {
+  GraphSnapshotUpdateEvent,
+  LargeDataUpdateEvent,
+} from "../src/graph-snapshot/types";
 
 export type {
   NexiqConfig,
