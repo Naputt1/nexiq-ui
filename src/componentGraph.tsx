@@ -191,10 +191,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   useEffect(() => {
     if (rendererRef.current) {
       rendererRef.current.setCustomColors(customColors || {});
-      const resolvedTheme = document.documentElement.classList.contains("dark")
-        ? "dark"
-        : "light";
-      rendererRef.current.setTheme(resolvedTheme);
+      rendererRef.current.setTheme(theme);
     }
   }, [customColors, theme]);
 
@@ -924,7 +921,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
             },
           ]);
         },
-        document.documentElement.classList.contains("dark") ? "dark" : "light",
+        theme,
         customColors,
       );
     } else {
