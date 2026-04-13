@@ -88,13 +88,25 @@ export class GraphCombo extends BaseNode {
       const event = e.originalEvent as unknown as PointerEvent;
       if (event.ctrlKey || event.metaKey) {
         e.stopPropagation();
-        window.ipcRenderer.invoke(
-          "open-vscode",
-          this.fileName,
-          this.projectPath || context.graph.projectPath,
-          this.loc?.line,
-          this.loc?.column,
-        );
+        // fileName and loc live in the details map (from the FlatBuffer), not on the combo
+        import("../../hooks/use-graph-store").then(({ useGraphStore }) => {
+          const detail = useGraphStore.getState().details[this.id];
+          const fileName = detail?.fileName || this.fileName;
+          const projectPath =
+            detail?.projectPath ||
+            this.projectPath ||
+            context.graph.projectPath;
+          const loc = detail?.loc || this.loc;
+          if (fileName) {
+            window.ipcRenderer.invoke(
+              "open-vscode",
+              fileName,
+              projectPath,
+              loc?.line,
+              loc?.column,
+            );
+          }
+        });
       } else {
         context.onSelect?.(this.id, false);
       }
@@ -136,11 +148,7 @@ export class GraphCombo extends BaseNode {
       graphics.fill({ color: 0x000000, alpha: 0.01 }); // Almost transparent but clickable
     }
 
-    const strokeColor = this.highlighted
-      ? highlightColor
-      : context.theme === "dark"
-        ? "#555"
-        : fillColor;
+    const strokeColor = this.highlighted ? highlightColor : fillColor;
 
     graphics.stroke({
       color: strokeColor,
@@ -208,11 +216,7 @@ export class GraphCombo extends BaseNode {
       const highlightColor =
         context.customColors?.comboHighlight ||
         (context.theme === "dark" ? "#3b82f6" : "#2563eb");
-      const strokeColor = this.highlighted
-        ? highlightColor
-        : context.theme === "dark"
-          ? "#555"
-          : fillColor;
+      const strokeColor = this.highlighted ? highlightColor : fillColor;
 
       rootBg.stroke({
         color: strokeColor,

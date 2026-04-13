@@ -5,6 +5,7 @@ import { performance } from "node:perf_hooks";
 import { type GraphViewResult, type Extension } from "@nexiq/extension-sdk";
 import { getTaskData } from "@nexiq/extension-sdk";
 import { type GraphViewType, type UIStateMap } from "@nexiq/shared";
+
 import {
   getTasksForView,
   registerTask,
@@ -16,6 +17,7 @@ import type {
   GenerateViewRequest,
   SerializedViewRegistry,
   TaskContext,
+  ViewGenerationStage,
 } from "../src/views/types";
 
 interface GenerateGraphViewOptions extends GenerateViewRequest {
@@ -23,18 +25,12 @@ interface GenerateGraphViewOptions extends GenerateViewRequest {
   snapshotData?: GraphSnapshotData;
 }
 
-export interface ViewGenerationStage {
-  id: string;
-  name: string;
-  startMs: number;
-  endMs: number;
-  parentId?: string;
-  detail?: string;
-}
-
 export interface GenerateGraphViewResult {
   result: GraphViewResult;
   stages: ViewGenerationStage[];
+  nodeDataBuffer?: SharedArrayBuffer;
+  detailBuffer?: SharedArrayBuffer;
+  bufferBytesWritten?: number;
 }
 
 const loadedExtensionState = new Map<
@@ -122,7 +118,9 @@ async function loadProjectExtensions(projectRoot: string) {
         cached &&
         cached.configMtimeMs === configStat.mtimeMs &&
         cached.extensionNames.length === extensionNames.length &&
-        cached.extensionNames.every((name, index) => name === extensionNames[index])
+        cached.extensionNames.every(
+          (name, index) => name === extensionNames[index],
+        )
       ) {
         return {
           startMs: 0,
@@ -147,9 +145,13 @@ async function loadProjectExtensions(projectRoot: string) {
               resolvedPath = name;
             }
           }
-          const extension: Extension = await import(resolvedPath).then(
-            (m) => m.default || m,
-          );
+          const extension: Extension = name.endsWith(".node")
+            ? typeof __non_webpack_require__ !== "undefined"
+              ? __non_webpack_require__(resolvedPath)
+              : // eslint-disable-next-line @typescript-eslint/no-require-imports
+                require(resolvedPath)
+            : await import(resolvedPath).then((m) => m.default || m);
+
           if (extension?.viewTasks) {
             for (const [vType, tasks] of Object.entries(extension.viewTasks)) {
               for (const task of tasks) {
@@ -217,15 +219,21 @@ export async function generateGraphView(
     : undefined;
 
   try {
+    const detailBuffer = new SharedArrayBuffer(10 * 1024 * 1024); // 10MB for details
+    const nodeDataBuffer = new SharedArrayBuffer(10 * 1024 * 1024); // 10MB for nodes/edges
+
     const context: TaskContext = {
       db: db,
       projectRoot,
       analysisPaths,
       viewType,
       snapshotData,
+      detailBuffer,
+      nodeDataBuffer,
     };
-    (context as TaskContext & { taskDataCache?: GraphSnapshotData | undefined }).taskDataCache =
-      snapshotData;
+    (
+      context as TaskContext & { taskDataCache?: GraphSnapshotData | undefined }
+    ).taskDataCache = snapshotData;
 
     let cursorMs = extensionLoad.endMs;
     if (db && !snapshotData) {
@@ -246,7 +254,16 @@ export async function generateGraphView(
     for (const task of tasks) {
       const taskStartedAt = performance.now();
       try {
-        result = task.run(result, context);
+        let bufferBytesWritten: number | void;
+        if (task.runBuffer) {
+          bufferBytesWritten = task.runBuffer(nodeDataBuffer, detailBuffer, context);
+          if (typeof bufferBytesWritten === "number" && bufferBytesWritten > 0) {
+            (result as any).bufferBytesWritten = ((result as any).bufferBytesWritten || 0) + bufferBytesWritten;
+          }
+        } else if (task.run) {
+          result = task.run(result, context);
+        }
+
         const durationMs = performance.now() - taskStartedAt;
         stages.push({
           id: `view:task:${task.id}`,
@@ -291,6 +308,9 @@ export async function generateGraphView(
     return {
       result: finalResult,
       stages,
+      nodeDataBuffer,
+      detailBuffer,
+      bufferBytesWritten: (result as any).bufferBytesWritten,
     };
   } finally {
     if (db) db.close();

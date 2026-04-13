@@ -9,7 +9,10 @@ import { encodeGraphSnapshot } from "../src/graph-snapshot/codec";
 import { readGraphSnapshotFromSqlite } from "./graph-snapshot-db";
 import type { LargeDataKind } from "../src/graph-snapshot/types";
 import { generateGraphView } from "./view-generator";
-import { encodeGraphViewSnapshot } from "../src/view-snapshot/codec";
+import {
+  encodeGraphViewSnapshot,
+  decodeGraphViewSnapshot,
+} from "../src/view-snapshot/codec";
 import {
   analyzeDatabaseDiff,
   createEmptyDatabaseData,
@@ -17,6 +20,7 @@ import {
 import { toDatabaseData } from "../src/graph-snapshot/types";
 import fs from "node:fs";
 import type { GraphViewType } from "./types";
+import type { GraphNodeDetail } from "@nexiq/extension-sdk";
 
 interface InitializeMessage {
   type: "initialize";
@@ -138,7 +142,27 @@ async function handleGenerateView(message: GenerateViewMessage) {
     });
     const computeDurationMs = performance.now() - generationStartedAt;
 
-    const encoded = encodeGraphViewSnapshot(viewGeneration.result);
+    // Use encoded result for backward compatibility or the buffers directly if they were populated
+    let encoded: Uint8Array;
+    let details: Record<string, GraphNodeDetail> = {};
+
+    if (
+      viewGeneration.bufferBytesWritten &&
+      viewGeneration.nodeDataBuffer &&
+      viewGeneration.bufferBytesWritten > 0
+    ) {
+      encoded = new Uint8Array(
+        viewGeneration.nodeDataBuffer.slice(
+          0,
+          viewGeneration.bufferBytesWritten,
+        ),
+      );
+      const bufView = decodeGraphViewSnapshot(encoded);
+      details = bufView.materialize().details || {};
+    } else {
+      encoded = encodeGraphViewSnapshot(viewGeneration.result);
+      details = viewGeneration.result.details || {};
+    }
     const totalDurationMs = performance.now() - generationStartedAt;
     const stages: ProfileStage[] = [
       ...viewGeneration.stages,
@@ -158,13 +182,17 @@ async function handleGenerateView(message: GenerateViewMessage) {
         detail: `${encoded.byteLength} bytes`,
       },
     ];
+
     parentPort?.postMessage({
       type: "inline-result",
       requestId: message.requestId,
       profilerRunId: message.profilerRunId,
       kind: message.kind,
       encoded,
-      details: viewGeneration.result.details,
+      // If we used runBuffer, the buffers are already in the context and handled by the generator
+      nodeDataBuffer: viewGeneration.nodeDataBuffer,
+      detailBuffer: viewGeneration.detailBuffer,
+      details,
       stages,
     });
   } catch (error) {

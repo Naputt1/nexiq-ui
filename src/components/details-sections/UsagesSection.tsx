@@ -21,7 +21,11 @@ export function UsagesSection({
   const inbound = usageEdges.filter((edge) => edge.target === selectedId);
   const outbound = usageEdges.filter((edge) => edge.source === selectedId);
 
-  const renderEdgeButton = (edgeId: string, targetId: string, label: string) => {
+  const renderEdgeButton = (
+    edgeId: string,
+    targetId: string,
+    label: string,
+  ) => {
     const point = graph.getPointByID(targetId);
     return (
       <Button
@@ -47,7 +51,7 @@ export function UsagesSection({
             Inbound
           </div>
           {inbound.map((edge) =>
-            renderEdgeButton(edge.id, edge.source, edge.edgeKind || edge.label || "usage"),
+            renderEdgeButton(edge.id, edge.source, edge.edgeKind || "usage"),
           )}
         </div>
       )}
@@ -57,7 +61,7 @@ export function UsagesSection({
             Outbound
           </div>
           {outbound.map((edge) =>
-            renderEdgeButton(edge.id, edge.target, edge.edgeKind || edge.label || "usage"),
+            renderEdgeButton(edge.id, edge.target, edge.edgeKind || "usage"),
           )}
         </div>
       )}

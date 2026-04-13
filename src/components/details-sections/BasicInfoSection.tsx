@@ -1,7 +1,10 @@
 import React from "react";
 import type { DetailSectionProps } from "@nexiq/extension-sdk";
 
-export const BasicInfoSection: React.FC<DetailSectionProps> = ({ item, detail }) => {
+export const BasicInfoSection: React.FC<DetailSectionProps> = ({
+  item,
+  detail,
+}) => {
   const componentType =
     detail?.componentType ||
     (typeof item.componentType === "string"
@@ -10,9 +13,9 @@ export const BasicInfoSection: React.FC<DetailSectionProps> = ({ item, detail })
         ? "Function"
         : null);
 
-  const fileName = detail?.fileName || item.fileName;
-  const declarationKind = detail?.declarationKind || item.declarationKind;
-  const tag = detail?.tag || item.tag;
+  const fileName = detail?.fileName;
+  const declarationKind = detail?.declarationKind;
+  const tag = detail?.tag;
 
   return (
     <div className="space-y-1">
@@ -53,7 +56,7 @@ export const BasicInfoSection: React.FC<DetailSectionProps> = ({ item, detail })
           <span className="text-muted-foreground">{tag}</span>
         </div>
       )}
-      
+
       {componentType && (
         <div className="flex gap-2 text-xs">
           <span className="font-semibold text-muted-foreground/80 min-w-12 text-start">

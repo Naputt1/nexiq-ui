@@ -715,7 +715,8 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
         for (const combo of combos) {
           if (combo.id.endsWith("-render")) continue;
 
-          const isMatch = combo.label?.text.toLowerCase().includes(lowerValue);
+          const text = (combo.displayName || String(combo.name || "")).toLowerCase();
+          const isMatch = text.includes(lowerValue);
           if (isMatch) {
             if (!combo.highlighted) {
               combo.highlighted = true;
@@ -730,7 +731,8 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
 
         const nodes = graph.getAllNodes();
         for (const node of nodes) {
-          const isMatch = node.label?.text.toLowerCase().includes(lowerValue);
+          const text = (node.displayName || String(node.name || "")).toLowerCase();
+          const isMatch = text.includes(lowerValue);
           if (isMatch) {
             if (!node.highlighted) {
               node.highlighted = true;

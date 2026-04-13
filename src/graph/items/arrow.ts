@@ -16,7 +16,7 @@ export class GraphArrow implements Renderable {
   id: string;
   source: string;
   target: string;
-  label?: string;
+  name?: string;
   edgeKind?: string;
   category?: string;
   flowRole?: "direct" | "side-effect" | null;
@@ -35,7 +35,7 @@ export class GraphArrow implements Renderable {
     this.id = data.id;
     this.source = data.source;
     this.target = data.target;
-    this.label = data.label;
+    this.name = data.name;
     this.edgeKind = data.edgeKind;
     this.category = data.category;
     this.flowRole = data.flowRole ?? null;
@@ -162,6 +162,7 @@ export class GraphArrow implements Renderable {
 
     container.addChild(graphics);
     container.addChild(hitArea);
+    this.renderLabel(container, context);
     parent.addChild(container);
 
     return container;
@@ -201,6 +202,8 @@ export class GraphArrow implements Renderable {
           });
       }
     }
+
+    this.renderLabel(container, context);
   }
 
   getArrowColor(context: RenderContext): string | number {
@@ -211,6 +214,44 @@ export class GraphArrow implements Renderable {
         : this.highlighted
           ? context.customColors?.nodeHighlight || "#2563eb"
           : getDefaultArrowColor(context.customColors, context.theme);
+  }
+
+  private renderLabel(container: PIXI.Container, context: RenderContext) {
+    const existing = container.children.find(
+      (child) => child.label === `label-${this.id}`,
+    ) as PIXI.BitmapText | undefined;
+
+    if (!this.name || this.points.length < 4) {
+      existing?.destroy();
+      return;
+    }
+
+    const midX = (this.points[0] + this.points[2]) / 2;
+    const midY = (this.points[1] + this.points[3]) / 2;
+
+    const text =
+      existing ??
+      new PIXI.BitmapText({
+        text: this.name,
+        style: {
+          fill: context.theme === "dark" ? "white" : "black",
+          fontSize: 10 * this.scale,
+          align: "center",
+        },
+      });
+
+    text.text = this.name;
+    text.style.fontSize = 10 * this.scale;
+    text.style.fill =
+      context.customColors?.labelColor ||
+      (context.theme === "dark" ? "white" : "black");
+    text.anchor.set(0.5, 0.5);
+    text.position.set(midX, midY - 6 * this.scale);
+    text.label = `label-${this.id}`;
+
+    if (!existing) {
+      container.addChild(text);
+    }
   }
 
   private drawArrow(graphics: PIXI.Graphics, color: string | number) {

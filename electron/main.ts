@@ -1602,26 +1602,8 @@ ipcMain.handle(
   },
 );
 
-ipcMain.handle(
-  "get-node-detail",
-  async (
-    _: IpcMainInvokeEvent,
-    args: { projectRoot: string; nodeId: string },
-  ) => {
-    // Search for the node in all cached view results
-    for (const entry of inlineLargeDataHandles.values()) {
-      if (entry.kind === "view-result" && entry.details?.[args.nodeId]) {
-        return entry.details[args.nodeId];
-      }
-    }
 
-    // Fallback to backend if not found in local view results
-    return requestBackend("get_node_detail", {
-      projectPath: args.projectRoot,
-      nodeId: args.nodeId,
-    });
-  },
-);
+
 
 ipcMain.handle(
   "get-project-icon",
