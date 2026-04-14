@@ -452,7 +452,7 @@ function storeInlineLargeData(
 
 function applyTheme(theme: "dark" | "light") {
   nativeTheme.themeSource = theme;
-  const backgroundColor = theme === "dark" ? "#09090b" : "#ffffff";
+  const backgroundColor = theme === "dark" ? "#1e1e1e" : "#ffffff";
 
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) {
@@ -746,7 +746,8 @@ function createWindow(projectPath?: string, forceEmpty: boolean = false) {
     webPreferences: {
       preload: path.join(__dirname, "preload.mjs"),
     },
-    backgroundColor: store.getGlobalConfig().theme === "dark" ? "#09090b" : "#ffffff",
+    backgroundColor:
+      store.getGlobalConfig().theme === "dark" ? "#09090b" : "#ffffff",
   });
 
   window.maximize();
@@ -1617,9 +1618,6 @@ ipcMain.handle(
     );
   },
 );
-
-
-
 
 ipcMain.handle(
   "get-project-icon",
