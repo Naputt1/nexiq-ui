@@ -272,6 +272,9 @@ function mapItemTypeToEnum(type: string | undefined): number {
       return 12;
     case "path-group":
       return 13;
+    case "normal":
+    case "variable":
+      return 14;
     case undefined:
     default:
       return 1; // Default to scope for unknown
