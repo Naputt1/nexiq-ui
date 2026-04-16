@@ -42,13 +42,20 @@ export function getTasksForView(view: GraphViewType): GraphViewTask[] {
 /**
  * Allows extensions or other modules to register new tasks dynamically.
  */
-export function registerTask(view: GraphViewType, task: GraphViewTask) {
+export function registerTask(
+  view: GraphViewType,
+  task: GraphViewTask,
+  extensionPath?: string,
+) {
   if (!registry[view]) {
     registry[view] = [];
   }
   // Check if task already registered
   if (registry[view].some((t) => t.id === task.id)) return;
 
+  if (extensionPath) {
+    task.extensionPath = extensionPath;
+  }
   registry[view].push(task);
 }
 

@@ -39,7 +39,7 @@ export const GitSection: React.FC<DetailSectionProps> = ({
     <GitDiffView
       diffs={itemDiffs}
       fileName={item.pureFileName || ""}
-      scope={item.scope}
+      scope={typeof item.scope === "object" ? item.scope : undefined}
     />
   );
 };

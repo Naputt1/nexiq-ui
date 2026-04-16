@@ -1898,7 +1898,7 @@ export class GraphData {
   }
 }
 
-const EMPTY_ARRAY: any[] = [];
+const EMPTY_ARRAY: never[] = [];
 
 const useGraph: (option: useGraphProps) => GraphData = ({
     nodes = EMPTY_ARRAY,

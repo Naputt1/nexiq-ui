@@ -39,7 +39,7 @@ export abstract class BaseNode implements Renderable {
   [key: string]: unknown;
 
   // From DetailItemData
-  scope?: VariableScope;
+  scope?: VariableScope | string;
   loc?: VariableLoc;
   props?: PropData[];
   propData?: PropData;

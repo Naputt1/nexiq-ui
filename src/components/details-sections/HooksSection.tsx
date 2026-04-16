@@ -11,8 +11,11 @@ export const HooksSection: React.FC<DetailSectionProps> = ({
 }) => {
   const item = baseItem as GraphNodeData;
   const graph = baseGraph as GraphData;
-  const detailRaw = detail?.raw as any;
-  const hooks = (detailRaw?.hooks ?? item.hooks) as string[] | undefined;
+  const hooks = (detail?.raw &&
+  typeof detail?.raw === "object" &&
+  "hooks" in detail.raw
+    ? (detail.raw as { hooks: string[] }).hooks
+    : (item as { hooks?: string[] }).hooks) as string[] | undefined;
   if (!hooks || hooks.length === 0) return null;
 
   return (

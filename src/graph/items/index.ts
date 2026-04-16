@@ -85,7 +85,7 @@ export interface DetailItemData {
   projectPath?: string;
   fileName?: string;
   pureFileName?: string;
-  scope?: VariableScope;
+  scope?: VariableScope | string;
   loc?: VariableLoc;
   props?: PropData[];
   propData?: PropData;

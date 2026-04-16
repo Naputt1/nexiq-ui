@@ -1,4 +1,3 @@
-// @ts-nocheck
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,10 +40,10 @@ async function merge() {
   });
 
   const reporter = istanbulReports.create("html");
-  (reporter as any).execute(context);
+  reporter.execute(context);
 
   const textReporter = istanbulReports.create("text");
-  (textReporter as any).execute(context);
+  textReporter.execute(context);
 
   console.log(`Coverage report generated in ${outputDir}`);
 }

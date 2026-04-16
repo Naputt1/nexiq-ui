@@ -3,6 +3,7 @@ import type { DetailSectionProps } from "@nexiq/extension-sdk";
 import {
   getDisplayName,
   type ComponentInfoRenderDependency,
+  type ComponentInfoRender,
 } from "@nexiq/shared";
 import { TypeRenderer } from "../type-renderer";
 import { useConfigStore } from "@/hooks/use-config-store";
@@ -18,8 +19,12 @@ export const ChildrenSection: React.FC<DetailSectionProps> = ({
 }) => {
   const { customColors } = useConfigStore();
   const item = baseItem as GraphNodeData;
-  const detailRaw = detail?.raw as any;
-  const children = detailRaw?.children ?? item.children;
+  const children = (detail?.raw &&
+  typeof detail.raw === "object" &&
+  "children" in detail.raw
+    ? (detail.raw as { children: Record<string, ComponentInfoRender> }).children
+    : (item as { children?: Record<string, ComponentInfoRender> })
+        .children) as Record<string, ComponentInfoRender> | undefined;
 
   if (!item.hasChildren || !children || Object.keys(children).length === 0) return null;
 

@@ -13,6 +13,7 @@ import type {
   UIStateMap,
 } from "@nexiq/shared";
 import type { GraphSnapshotData } from "../src/graph-snapshot/types";
+import path from "path";
 
 interface UIStateRow {
   id: string;
@@ -89,9 +90,35 @@ export interface ReadOptions {
 
 export function openUnifiedDatabase(
   sqlitePath: string,
-  _analysisPaths?: string[], // analysisPaths not needed for simple open
+  _analysisPaths?: string[],
+  options: { readonly?: boolean } = { readonly: true },
 ): Database.Database {
-  return new Database(sqlitePath, { readonly: true });
+  // Ensure absolute path resolution for reliable access in workers
+  const absolutePath = path.isAbsolute(sqlitePath)
+    ? sqlitePath
+    : path.resolve(process.cwd(), sqlitePath);
+
+  if (!fs.existsSync(absolutePath)) {
+    throw new Error(`SQLite database file does not exist at: ${absolutePath}`);
+  }
+
+  if (!options.readonly) {
+    console.warn(
+      `[SQLite] Opening database at ${absolutePath} with write permissions. This is discouraged for view generation; use in-memory buffers instead.`,
+    );
+  }
+
+  try {
+    return new Database(absolutePath, options);
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[SQLite Error] Failed to open database at ${absolutePath}: ${errorMsg}`,
+    );
+    throw new Error(
+      `Unable to open database file at ${absolutePath}: ${errorMsg}`,
+    );
+  }
 }
 
 export function readGraphSnapshotFromSqlite(
@@ -110,7 +137,17 @@ export function readGraphSnapshotFromSqlite(
     includeUiState: true,
   },
 ): GraphSnapshotData {
-  const db = new Database(sqlitePath, { readonly: true });
+  const absolutePath = path.isAbsolute(sqlitePath)
+    ? sqlitePath
+    : path.resolve(process.cwd(), sqlitePath);
+
+  if (!fs.existsSync(absolutePath)) {
+    throw new Error(
+      `SQLite database file does not exist at: ${absolutePath} (readGraphSnapshotFromSqlite)`,
+    );
+  }
+
+  const db = new Database(absolutePath, { readonly: true });
   try {
     // Check if this is a workspace database
     if (tableExists(db, "workspace_packages")) {
@@ -139,8 +176,16 @@ export function readGraphSnapshotFromSqlite(
 
       // Read each package database
       filteredPackages.forEach((pkg, index) => {
-        if (!fs.existsSync(pkg.db_path)) return;
+        if (!fs.existsSync(pkg.db_path)) {
+          console.warn(
+            `[SQLite] Package database not found at ${pkg.db_path} for package ${pkg.name}`,
+          );
+          return;
+        }
 
+        console.log(
+          `[SQLite] Opening package database: ${pkg.name} at ${pkg.db_path}`,
+        );
         const pkgDb = new Database(pkg.db_path, { readonly: true });
         try {
           const pkgPath = pkg.path;
