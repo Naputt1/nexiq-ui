@@ -26,13 +26,15 @@ import {
 } from "../electron/types";
 import type { GraphData } from "./graph/hook";
 
-import type { Extension } from "@nexiq/extension-sdk";
+import type { Extension, GraphNodeDetail } from "@nexiq/extension-sdk";
 import type {
   GenerateViewRequest,
   SerializedViewRegistry,
 } from "./views/types";
 
 declare global {
+  const __non_webpack_require__: NodeJS.Require;
+
   namespace NodeJS {
     interface ProcessEnv {
       APP_ROOT: string;
@@ -159,7 +161,7 @@ declare global {
         listener: (payload: IpcEvents[K]) => void,
       ): () => void;
       send(channel: string, ...args: unknown[]): void;
-      invoke(channel: "get-node-detail", args: { projectRoot: string; nodeId: string }): Promise<any>;
+      invoke(channel: "get-node-detail", args: { projectRoot: string; nodeId: string }): Promise<GraphNodeDetail | null>;
       invoke(channel: "get-last-project"): Promise<string | null>;
       invoke(
         channel: "set-last-project",

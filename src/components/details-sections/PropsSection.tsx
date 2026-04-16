@@ -2,7 +2,11 @@ import React from "react";
 import type { DetailSectionProps } from "@nexiq/extension-sdk";
 import { TypeRenderer } from "../type-renderer";
 import { TypeRefRenderer } from "../type-ref-renderer";
-import { type PropData, type TypeData, type TypeDataParam } from "@nexiq/shared";
+import {
+  type PropData,
+  type TypeData,
+  type TypeDataParam,
+} from "@nexiq/shared";
 import { useConfigStore } from "@/hooks/use-config-store";
 import { cn } from "@/lib/utils";
 import { type GraphNodeData } from "@/graph/hook";
@@ -14,9 +18,16 @@ export const PropsSection: React.FC<DetailSectionProps> = ({
 }) => {
   const { customColors } = useConfigStore();
   const item = baseItem as GraphNodeData;
-  const detailRaw = detail?.raw as any;
-  const propType = (detailRaw?.propType ?? item.propType ?? baseItem.propType) as TypeData | undefined;
-  const props = (detailRaw?.props ?? item.props ?? baseItem.props) as PropData[] | undefined;
+  const propType = (detail?.raw &&
+  typeof detail.raw === "object" &&
+  "propType" in detail.raw
+    ? (detail.raw as { propType: TypeData }).propType
+    : (item as { propType?: TypeData }).propType) as TypeData | undefined;
+  const props = (detail?.raw &&
+  typeof detail.raw === "object" &&
+  "props" in detail.raw
+    ? (detail.raw as { props: PropData[] }).props
+    : (item as { props?: PropData[] }).props) as PropData[] | undefined;
 
   const renderGenerics = (params?: TypeDataParam[]) => {
     const genericsStyle = customColors?.genericsColor

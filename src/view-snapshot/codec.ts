@@ -55,6 +55,7 @@ export class GraphViewBufferView {
         combo: node.comboId() || undefined,
         color: node.color() || undefined,
         radius: node.radius() > 0 ? node.radius() : undefined,
+        gitStatus: node.gitStatus() || undefined,
       } as GraphNodeData);
     }
 
@@ -70,6 +71,7 @@ export class GraphViewBufferView {
         collapsed: combo.collapsed(),
         color: combo.color() || undefined,
         radius: combo.radius() > 0 ? combo.radius() : undefined,
+        gitStatus: combo.gitStatus() || undefined,
       } as GraphComboData);
     }
 
@@ -166,6 +168,10 @@ export function encodeGraphViewSnapshot(result: GraphViewResult): Uint8Array {
     if (comboId) FlatBuffers.GraphNode.addComboId(builder, comboId);
     if (color) FlatBuffers.GraphNode.addColor(builder, color);
     FlatBuffers.GraphNode.addRadius(builder, node.radius || 0);
+
+    const gitStatus = node.gitStatus ? builder.createString(node.gitStatus) : 0;
+    if (gitStatus) FlatBuffers.GraphNode.addGitStatus(builder, gitStatus);
+
     return FlatBuffers.GraphNode.endGraphNode(builder);
   });
   const nodesVector = FlatBuffers.GraphView.createNodesVector(
@@ -193,6 +199,10 @@ export function encodeGraphViewSnapshot(result: GraphViewResult): Uint8Array {
     if (color) FlatBuffers.GraphCombo.addColor(builder, color);
     FlatBuffers.GraphCombo.addCollapsed(builder, !!combo.collapsed);
     FlatBuffers.GraphCombo.addRadius(builder, combo.radius || 0);
+
+    const gitStatus = combo.gitStatus ? builder.createString(combo.gitStatus) : 0;
+    if (gitStatus) FlatBuffers.GraphCombo.addGitStatus(builder, gitStatus);
+
     return FlatBuffers.GraphCombo.endGraphCombo(builder);
   });
   const combosVector = FlatBuffers.GraphView.createCombosVector(

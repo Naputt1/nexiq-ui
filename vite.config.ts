@@ -38,6 +38,10 @@ export default defineConfig(({ mode }) => ({
                   __dirname,
                   "electron/graph-snapshot.worker.ts",
                 ),
+                "extension-worker-wrapper": path.resolve(
+                  __dirname,
+                  "electron/extension-worker-wrapper.ts",
+                ),
               },
               output: {
                 entryFileNames: "[name].js",

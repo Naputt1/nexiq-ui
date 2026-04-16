@@ -1,4 +1,4 @@
-import init, { ForceLayout } from "@nexiq/layout-wasm";
+import init, { ForceLayout, type InitOutput } from "@nexiq/layout-wasm";
 import type { ForceOptions } from "./layout";
 
 export type LayoutRequest = {
@@ -20,7 +20,7 @@ export type LayoutResponse = {
   positions: Float32Array;
 };
 
-let wasmPromise: Promise<any> | null = null;
+let wasmPromise: Promise<InitOutput> | null = null;
 
 async function ensureWasm() {
   if (!wasmPromise) {
