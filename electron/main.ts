@@ -1561,17 +1561,35 @@ ipcMain.handle(
 ipcMain.handle(
   "read-state",
   async (_: IpcMainInvokeEvent, projectRoot: string) => {
-    return requestBackend("read_state", { projectPath: projectRoot });
+    const statePath = path.join(projectRoot, ".nexiq", "state.json");
+    if (fs.existsSync(statePath)) {
+      try {
+        return JSON.parse(fs.readFileSync(statePath, "utf-8"));
+      } catch (e) {
+        console.error("Failed to parse state file", e);
+      }
+    }
+    return null;
   },
 );
 
 ipcMain.handle(
   "save-state",
   async (_: IpcMainInvokeEvent, projectRoot: string, state: AppStateData) => {
-    return requestBackend("save_state", {
-      projectPath: projectRoot,
-      state,
-    });
+    try {
+      const dotDir = path.join(projectRoot, ".nexiq");
+      if (!fs.existsSync(dotDir)) {
+        fs.mkdirSync(dotDir, { recursive: true });
+      }
+      fs.writeFileSync(
+        path.join(dotDir, "state.json"),
+        JSON.stringify(state, null, 2),
+      );
+      return true;
+    } catch (e) {
+      console.error("Failed to save state file", e);
+      return false;
+    }
   },
 );
 
