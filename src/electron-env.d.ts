@@ -189,7 +189,6 @@ declare global {
       invoke(
         channel: "read-source-file",
         filePath: string,
-        projectRoot: string,
       ): Promise<SourceFilePayload>;
       invoke(
         channel: "get-analysis-errors",

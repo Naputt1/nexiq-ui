@@ -296,7 +296,6 @@ import type {
   BackendMessageType,
 } from "@nexiq/shared";
 import { type UIStateMap } from "../src/graph/types";
-import { resolvePath } from "./utils";
 import type { GraphNodeDetail } from "@nexiq/extension-sdk";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1086,11 +1085,10 @@ ipcMain.handle("get-recent-projects", () => {
 
 ipcMain.handle(
   "read-source-file",
-  async (_: IpcMainInvokeEvent, filePath: string, projectRoot: string) => {
-    const resolvedPath = resolvePath(projectRoot, filePath);
+  async (_: IpcMainInvokeEvent, filePath: string) => {
     return {
-      path: resolvedPath,
-      content: fs.readFileSync(resolvedPath, "utf8"),
+      path: filePath,
+      content: fs.readFileSync(filePath, "utf8"),
     };
   },
 );
