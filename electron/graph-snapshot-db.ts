@@ -10,21 +10,9 @@ import type {
   RenderRow,
   ScopeRow,
   SymbolRow,
-  UIStateMap,
 } from "@nexiq/shared";
 import type { GraphSnapshotData } from "../src/graph-snapshot/types";
 import path from "path";
-
-interface UIStateRow {
-  id: string;
-  x: number;
-  y: number;
-  radius: number | null;
-  collapsed_radius: number | null;
-  expanded_radius: number | null;
-  is_layout_calculated: number;
-  collapsed: number;
-}
 
 interface WorkspacePackageRow {
   path: string;
@@ -54,27 +42,6 @@ function optionalRows<T>(db: Database.Database, table: string): T[] {
   return db.prepare(`SELECT * FROM ${table}`).all() as T[];
 }
 
-export function readUIState(db: Database.Database): UIStateMap {
-  if (!tableExists(db, "ui_state")) {
-    return {};
-  }
-
-  const rows = db.prepare("SELECT * FROM ui_state").all() as UIStateRow[];
-  const state: UIStateMap = {};
-  for (const row of rows) {
-    state[row.id] = {
-      x: row.x,
-      y: row.y,
-      radius: row.radius ?? undefined,
-      collapsedRadius: row.collapsed_radius ?? undefined,
-      expandedRadius: row.expanded_radius ?? undefined,
-      isLayoutCalculated: !!row.is_layout_calculated,
-      collapsed: !!row.collapsed,
-    };
-  }
-  return state;
-}
-
 export interface ReadOptions {
   includePackages?: boolean;
   includePackageDependencies?: boolean;
@@ -85,7 +52,6 @@ export interface ReadOptions {
   includeRenders?: boolean;
   includeExports?: boolean;
   includeRelations?: boolean;
-  includeUiState?: boolean;
 }
 
 export function openUnifiedDatabase(
@@ -134,7 +100,6 @@ export function readGraphSnapshotFromSqlite(
     includeRenders: true,
     includeExports: true,
     includeRelations: true,
-    includeUiState: true,
   },
 ): GraphSnapshotData {
   const absolutePath = path.isAbsolute(sqlitePath)
@@ -170,7 +135,7 @@ export function readGraphSnapshotFromSqlite(
         renders: [],
         exports: [],
         relations: [],
-        uiState: options.includeUiState ? readUIState(db) : {},
+        uiState: {},
         diff: undefined,
       };
 
@@ -342,7 +307,7 @@ export function readGraphSnapshotFromSqlite(
       relations: options.includeRelations
         ? requiredRows<RelationRow>(db, "relations")
         : [],
-      uiState: options.includeUiState ? readUIState(db) : {},
+      uiState: {},
       diff: undefined,
     };
   } finally {

@@ -125,21 +125,6 @@ describe("readGraphSnapshotFromSqlite", () => {
     db.prepare(
       "INSERT INTO exports (id, scope_id, symbol_id, entity_id, name, is_default) VALUES (?, ?, ?, ?, ?, ?)",
     ).run("export:App", "scope:module", "symbol:App", null, "default", 1);
-    db.exec(`
-      CREATE TABLE ui_state (
-        id TEXT PRIMARY KEY,
-        x REAL,
-        y REAL,
-        radius REAL,
-        collapsed_radius REAL,
-        expanded_radius REAL,
-        is_layout_calculated BOOLEAN,
-        collapsed BOOLEAN
-      );
-    `);
-    db.prepare(
-      "INSERT INTO ui_state (id, x, y, radius, collapsed_radius, expanded_radius, is_layout_calculated, collapsed) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    ).run("symbol:App", 10, 20, 30, null, null, 1, 0);
     db.close();
 
     const snapshot = readGraphSnapshotFromSqlite(dbPath);
@@ -149,7 +134,7 @@ describe("readGraphSnapshotFromSqlite", () => {
     expect(snapshot.symbols).toHaveLength(1);
     expect(snapshot.packages).toEqual([]);
     expect(snapshot.package_dependencies).toEqual([]);
-    expect(snapshot.uiState["symbol:App"]?.x).toBe(10);
+    expect(snapshot.uiState).toEqual({});
   });
 
   it("loads package metadata only when package tables exist", () => {

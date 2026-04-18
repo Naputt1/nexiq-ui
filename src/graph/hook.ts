@@ -22,7 +22,7 @@ export {
   type GraphArrowData,
   type CurRender,
 };
-import { type UIItemState } from "@nexiq/shared";
+import { type UIItemState, type UIStateMap } from "@nexiq/shared";
 import type { GraphViewBufferView } from "../view-snapshot/codec";
 import { useGraphProfilerStore } from "../hooks/use-graph-profiler-store";
 
@@ -173,16 +173,19 @@ export class GraphData {
         this.layoutRequestStartedAt.delete(id);
         if (this.profileRunId && startedAt != null) {
           const store = useGraphProfilerStore.getState();
-          const run = store.runs.find((entry) => entry.id === this.profileRunId);
+          const run = store.runs.find(
+            (entry) => entry.id === this.profileRunId,
+          );
           const baseStartMs =
-            run?.stages.reduce(
-              (max, stage) => Math.max(max, stage.endMs),
-              0,
-            ) ?? 0;
+            run?.stages.reduce((max, stage) => Math.max(max, stage.endMs), 0) ??
+            0;
           const durationMs = performance.now() - startedAt;
           store.mergeStages(this.profileRunId, [
             {
-              id: id === "root" ? "renderer:root-layout" : `renderer:combo-layout:${id}`,
+              id:
+                id === "root"
+                  ? "renderer:root-layout"
+                  : `renderer:combo-layout:${id}`,
               name: id === "root" ? "Root layout" : `Combo layout: ${id}`,
               startMs: baseStartMs,
               endMs: baseStartMs + durationMs,
@@ -406,6 +409,42 @@ export class GraphData {
     });
   }
 
+  public applyUIState(state: UIStateMap) {
+    this.batch(() => {
+      for (const [id, s] of Object.entries(state)) {
+        const node = this.nodes.get(id);
+        if (node) {
+          node.x = s.x;
+          node.y = s.y;
+          if (s.radius != null) node.radius = s.radius;
+          node.isLayoutCalculated = !!s.isLayoutCalculated;
+          continue;
+        }
+
+        const combo = this.combos.get(id);
+        if (combo) {
+          combo.x = s.x;
+          combo.y = s.y;
+          if (s.radius != null) combo.radius = s.radius;
+          if (s.collapsedRadius != null)
+            combo.collapsedRadius = s.collapsedRadius;
+          if (s.expandedRadius != null) combo.expandedRadius = s.expandedRadius;
+          combo.isLayoutCalculated = !!s.isLayoutCalculated;
+          combo.collapsed = !!s.collapsed;
+        }
+      }
+
+      // Re-calculate radius for expanded combos that might have been updated
+      for (const combo of Array.from(this.combos.values())) {
+        if (!combo.collapsed && !combo.isLayoutCalculated) {
+          combo.expandedRadius = this.calculateComboRadius(combo);
+        }
+      }
+
+      this.markModified();
+    }, true);
+  }
+
   public setProfileRunId(runId: string | null) {
     this.profileRunId = runId;
   }
@@ -547,8 +586,7 @@ export class GraphData {
     const radii = new Float32Array(points.length);
     const fixed = new Uint8Array(points.length);
     const edgePairs = Object.values(combo.child?.edges ?? {}).filter(
-      (edge) =>
-        pointIndex.has(edge.source) && pointIndex.has(edge.target),
+      (edge) => pointIndex.has(edge.source) && pointIndex.has(edge.target),
     );
     const sources = new Uint32Array(edgePairs.length);
     const targets = new Uint32Array(edgePairs.length);
@@ -560,7 +598,8 @@ export class GraphData {
       radii[index] = Number(
         "collapsedRadius" in point ? point.expandedRadius : point.radius,
       );
-      fixed[index] = point.id === this.draggingId || point.id === fixedId ? 1 : 0;
+      fixed[index] =
+        point.id === this.draggingId || point.id === fixedId ? 1 : 0;
     }
 
     for (let index = 0; index < edgePairs.length; index += 1) {
@@ -569,7 +608,10 @@ export class GraphData {
       targets[index] = pointIndex.get(edge.target)!;
     }
 
-    this.layoutRequestOrder.set(combo.id, points.map((point) => point.id));
+    this.layoutRequestOrder.set(
+      combo.id,
+      points.map((point) => point.id),
+    );
     this.layoutRequestStartedAt.set(combo.id, performance.now());
     this.worker.postMessage({
       type: "layout",
@@ -1732,8 +1774,7 @@ export class GraphData {
     const radii = new Float32Array(points.length);
     const fixed = new Uint8Array(points.length);
     const edgePairs = Array.from(this.edges.values()).filter(
-      (edge) =>
-        pointIndex.has(edge.source) && pointIndex.has(edge.target),
+      (edge) => pointIndex.has(edge.source) && pointIndex.has(edge.target),
     );
     const sources = new Uint32Array(edgePairs.length);
     const targets = new Uint32Array(edgePairs.length);
@@ -1745,7 +1786,8 @@ export class GraphData {
       radii[index] = Number(
         "collapsedRadius" in point ? point.expandedRadius : point.radius,
       );
-      fixed[index] = point.id === this.draggingId || point.id === fixedId ? 1 : 0;
+      fixed[index] =
+        point.id === this.draggingId || point.id === fixedId ? 1 : 0;
     }
 
     for (let index = 0; index < edgePairs.length; index += 1) {
@@ -1754,7 +1796,10 @@ export class GraphData {
       targets[index] = pointIndex.get(edge.target)!;
     }
 
-    this.layoutRequestOrder.set("root", points.map((point) => point.id));
+    this.layoutRequestOrder.set(
+      "root",
+      points.map((point) => point.id),
+    );
     this.layoutRequestStartedAt.set("root", performance.now());
     this.worker.postMessage({
       type: "layout",
@@ -1901,9 +1946,9 @@ export class GraphData {
 const EMPTY_ARRAY: never[] = [];
 
 const useGraph: (option: useGraphProps) => GraphData = ({
-    nodes = EMPTY_ARRAY,
-    edges = EMPTY_ARRAY,
-    combos = EMPTY_ARRAY,
+  nodes = EMPTY_ARRAY,
+  edges = EMPTY_ARRAY,
+  combos = EMPTY_ARRAY,
   viewBuffer = null,
   config,
   projectPath,

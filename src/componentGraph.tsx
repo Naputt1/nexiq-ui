@@ -383,6 +383,16 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
 
         settypeData(result.getTypeData());
         setGraphViewBuffer(result);
+
+        // Fetch and apply UI state after graph buffer is set
+        window.ipcRenderer
+          .invoke("get-graph-position", projectPath, view)
+          .then((uiState) => {
+            if (uiState && Object.keys(uiState).length > 0) {
+              graph.applyUIState(uiState);
+            }
+          });
+
         const attachEndMs = performance.now() - requestStartedAt;
         useGraphProfilerStore.getState().mergeStages(profilerRunId, [
           {
@@ -850,15 +860,11 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     const savePositions = debounce(() => {
       const positions = extractUIState(graph);
 
-      const targetPath =
-        selectedSubProjects.length === 1
-          ? selectedSubProjects[0] || projectPath
-          : projectPath;
       if (Object.keys(positions).length > 0) {
         window.ipcRenderer.invoke(
           "update-graph-position",
           projectPath,
-          targetPath,
+          view,
           positions,
         );
       }

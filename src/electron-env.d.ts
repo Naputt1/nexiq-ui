@@ -161,7 +161,10 @@ declare global {
         listener: (payload: IpcEvents[K]) => void,
       ): () => void;
       send(channel: string, ...args: unknown[]): void;
-      invoke(channel: "get-node-detail", args: { projectRoot: string; nodeId: string }): Promise<GraphNodeDetail | null>;
+      invoke(
+        channel: "get-node-detail",
+        args: { projectRoot: string; nodeId: string },
+      ): Promise<GraphNodeDetail | null>;
       invoke(channel: "get-last-project"): Promise<string | null>;
       invoke(
         channel: "set-last-project",
@@ -170,10 +173,15 @@ declare global {
       invoke(
         channel: "update-graph-position",
         projectRoot: string,
-        analysisPath: string,
+        viewName: string,
         positions: UIStateMap,
-        contextId?: string,
       ): Promise<boolean>;
+      invoke(
+        channel: "get-graph-position",
+        projectRoot: string,
+        viewName: string,
+      ): Promise<UIStateMap>;
+
       invoke(
         channel: "get-project-icon",
         projectRoot: string,

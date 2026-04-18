@@ -2,20 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { type GraphViewResult, type GraphViewTask } from "@nexiq/extension-sdk";
 import { getTasksForView } from "../src/views/registry";
 
-const {
-  mockReadGraphSnapshotFromSqlite,
-  mockOpenUnifiedDatabase,
-  mockReadUIState,
-} = vi.hoisted(() => ({
-  mockReadGraphSnapshotFromSqlite: vi.fn(),
-  mockOpenUnifiedDatabase: vi.fn(),
-  mockReadUIState: vi.fn(() => ({})),
-}));
+const { mockReadGraphSnapshotFromSqlite, mockOpenUnifiedDatabase } = vi.hoisted(
+  () => ({
+    mockReadGraphSnapshotFromSqlite: vi.fn(),
+    mockOpenUnifiedDatabase: vi.fn(),
+  }),
+);
 
 vi.mock("./graph-snapshot-db", () => ({
   readGraphSnapshotFromSqlite: mockReadGraphSnapshotFromSqlite,
   openUnifiedDatabase: mockOpenUnifiedDatabase,
-  readUIState: mockReadUIState,
 }));
 
 vi.mock("../src/views/registry", () => ({
@@ -55,15 +51,13 @@ describe("view-generator", () => {
   beforeEach(() => {
     mockReadGraphSnapshotFromSqlite.mockReset();
     mockOpenUnifiedDatabase.mockReset();
-    mockReadUIState.mockReset();
-    mockReadUIState.mockReturnValue({});
     mockOpenUnifiedDatabase.mockReturnValue({
       prepare: vi.fn().mockReturnValue({ all: vi.fn().mockReturnValue([]) }),
       close: vi.fn(),
     });
   });
 
-  it("applies UI state for sqlite-backed generation", async () => {
+  it("generates graph view for sqlite-backed generation", async () => {
     mockReadGraphSnapshotFromSqlite.mockReturnValue({
       packages: [],
       package_dependencies: [],
@@ -74,28 +68,7 @@ describe("view-generator", () => {
       renders: [],
       exports: [],
       relations: [],
-      uiState: {
-        "symbol:App": {
-          x: 10,
-          y: 20,
-          radius: 30,
-          collapsedRadius: undefined,
-          expandedRadius: undefined,
-          isLayoutCalculated: true,
-          collapsed: false,
-        },
-      },
-    });
-    mockReadUIState.mockReturnValue({
-      "symbol:App": {
-        x: 10,
-        y: 20,
-        radius: 30,
-        collapsedRadius: undefined,
-        expandedRadius: undefined,
-        isLayoutCalculated: true,
-        collapsed: false,
-      },
+      uiState: {},
     });
 
     const result = await generateGraphView({
@@ -106,14 +79,11 @@ describe("view-generator", () => {
 
     expect(result.result.nodes[0]).toMatchObject({
       id: "symbol:App",
-      x: 10,
-      y: 20,
-      radius: 20, // Ignore 30 from UI state
+      radius: 20,
     });
-    expect(mockReadUIState).toHaveBeenCalledTimes(1);
   });
 
-  it("supports repeated sqlite-backed generation without renderer worker state", async () => {
+  it("supports repeated sqlite-backed generation", async () => {
     mockReadGraphSnapshotFromSqlite.mockReturnValue({
       packages: [],
       package_dependencies: [],
@@ -124,28 +94,7 @@ describe("view-generator", () => {
       renders: [],
       exports: [],
       relations: [],
-      uiState: {
-        "symbol:App": {
-          x: 10,
-          y: 20,
-          radius: 30,
-          collapsedRadius: undefined,
-          expandedRadius: undefined,
-          isLayoutCalculated: true,
-          collapsed: false,
-        },
-      },
-    });
-    mockReadUIState.mockReturnValue({
-      "symbol:App": {
-        x: 10,
-        y: 20,
-        radius: 30,
-        collapsedRadius: undefined,
-        expandedRadius: undefined,
-        isLayoutCalculated: true,
-        collapsed: false,
-      },
+      uiState: {},
     });
 
     const first = await generateGraphView({
@@ -160,11 +109,10 @@ describe("view-generator", () => {
     });
 
     expect(first.result.nodes[0]?.id).toBe("symbol:App");
-    expect(second.result.nodes[0]).toMatchObject({ x: 10, y: 20 });
-    expect(mockReadUIState).toHaveBeenCalledTimes(2);
+    expect(second.result.nodes[0]?.id).toBe("symbol:App");
   });
 
-  it("supports diff-based generation from snapshot data", async () => {
+  it("supports generation from snapshot data", async () => {
     const result = await generateGraphView({
       projectRoot: "/repo",
       view: "component",
@@ -178,25 +126,13 @@ describe("view-generator", () => {
         renders: [],
         exports: [],
         relations: [],
-        uiState: {
-          "symbol:App": {
-            x: 100,
-            y: 200,
-            radius: 40,
-            collapsedRadius: undefined,
-            expandedRadius: undefined,
-            isLayoutCalculated: true,
-            collapsed: false,
-          },
-        },
+        uiState: {},
       },
     });
 
     expect(result.result.nodes[0]).toMatchObject({
       id: "symbol:App",
-      x: 100,
-      y: 200,
-      radius: 20, // Ignore 40 from UI state
+      radius: 20,
     });
   });
 
@@ -219,18 +155,15 @@ describe("view-generator", () => {
       },
     ] as GraphViewTask[]);
 
-    mockReadUIState.mockReturnValue({
-      "node:1": { x: 100, y: 100, radius: 20 },
-    });
-
     const result = await generateGraphView({
       projectRoot: "/repo",
       view: "component",
+      sqlitePath: "/tmp/test.sqlite",
     });
 
     expect(result.result.nodes[0]).toMatchObject({
       id: "node:1",
-      radius: 50, // Lock winning
+      radius: 50,
       appearanceOverride: { color: "red", radius: 50 },
     });
   });
@@ -255,19 +188,10 @@ describe("view-generator", () => {
       },
     ] as GraphViewTask[]);
 
-    mockReadUIState.mockReturnValue({
-      "combo:1": {
-        x: 0,
-        y: 0,
-        radius: 30,
-        collapsedRadius: 30,
-        expandedRadius: 100,
-      },
-    });
-
     const result = await generateGraphView({
       projectRoot: "/repo",
       view: "component",
+      sqlitePath: "/tmp/test.sqlite",
     });
 
     expect(result.result.combos[0]).toMatchObject({
