@@ -1,5 +1,23 @@
 import { type GraphData } from "../hook";
-import { type UIStateMap } from "@nexiq/shared";
+import { type UIStateMap } from "../types";
+
+/**
+ * Generates a deterministic position based on a string ID.
+ * Useful for consistent initial layout.
+ */
+export function getDeterministicPosition(
+  id: string,
+  range = 100,
+): { x: number; y: number } {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = (hash << 5) - hash + id.charCodeAt(i);
+    hash |= 0; // Convert to 32bit integer
+  }
+  const x = ((hash & 0xffff) / 0xffff - 0.5) * range;
+  const y = (((hash >> 16) & 0xffff) / 0xffff - 0.5) * range;
+  return { x, y };
+}
 
 /**
  * Extracts all relevant UI state (positions, radii, layout status) from the graph.

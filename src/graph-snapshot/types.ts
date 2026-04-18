@@ -1,7 +1,6 @@
 import type {
   AnalyzedDiff,
   DatabaseData,
-  UIStateMap,
   EntityRow,
   ScopeRow,
   FileRow,
@@ -11,6 +10,7 @@ import type {
   PackageRow,
   PackageDependencyRow,
 } from "@nexiq/shared";
+import { type UIStateMap } from "../graph/types";
 import type { GraphViewType } from "../../electron/types";
 
 export type LargeDataKind =

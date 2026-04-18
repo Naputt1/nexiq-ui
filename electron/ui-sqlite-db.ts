@@ -1,6 +1,6 @@
 import { SqliteDB } from "@nexiq/shared/db";
-import { type UIStateMap } from "@nexiq/shared";
 import type { Database } from "better-sqlite3";
+import { type UIStateMap } from "../src/graph/types";
 
 interface UIStateRow {
   id: string;

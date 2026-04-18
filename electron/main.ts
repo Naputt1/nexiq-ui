@@ -291,11 +291,11 @@ import type {
   GitStatus,
   GitCommit,
   GitFileDiff,
-  UIStateMap,
   NexiqConfig,
   BackendRequestMap,
   BackendMessageType,
 } from "@nexiq/shared";
+import { type UIStateMap } from "../src/graph/types";
 import { resolvePath } from "./utils";
 import type { GraphNodeDetail } from "@nexiq/extension-sdk";
 

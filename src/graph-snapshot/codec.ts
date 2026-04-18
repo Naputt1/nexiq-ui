@@ -9,8 +9,8 @@ import type {
   RenderRow as SharedRenderRow,
   ScopeRow as SharedScopeRow,
   SymbolRow as SharedSymbolRow,
-  UIItemState,
 } from "@nexiq/shared";
+import { type UIItemState } from "../graph/types";
 import { GRAPH_SNAPSHOT_FILE_IDENTIFIER } from "./constants";
 import {
   DiffData,
