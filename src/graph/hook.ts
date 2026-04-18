@@ -22,7 +22,8 @@ export {
   type GraphArrowData,
   type CurRender,
 };
-import { type UIItemState, type UIStateMap } from "@nexiq/shared";
+import { type UIItemState, type UIStateMap } from "./types";
+import { getDeterministicPosition } from "./utils/ui-state";
 import type { GraphViewBufferView } from "../view-snapshot/codec";
 import { useGraphProfilerStore } from "../hooks/use-graph-profiler-store";
 
@@ -736,8 +737,8 @@ export class GraphData {
         radius,
         color: (c.color as string) ?? this.config.node.color,
         isLayoutCalculated: !!(savedUi as UIItemState)?.isLayoutCalculated,
-        x: x ?? (Math.random() - 0.5) * (size + 1) * 10 * scale,
-        y: y ?? (Math.random() - 0.5) * (size + 1) * 10 * scale,
+        x: x ?? getDeterministicPosition(c.id, (size + 1) * 10 * scale).x,
+        y: y ?? getDeterministicPosition(c.id, (size + 1) * 10 * scale).y,
         parent: parentCombo,
         scale,
       });
@@ -795,11 +796,11 @@ export class GraphData {
             x:
               (n.ui as UIItemState)?.x ??
               (n.x as number) ??
-              (Math.random() - 0.5) * 100, // Use UI position if available
+              getDeterministicPosition(n.id, 100).x, // Use UI position if available
             y:
               (n.ui as UIItemState)?.y ??
               (n.y as number) ??
-              (Math.random() - 0.5) * 100,
+              getDeterministicPosition(n.id, 100).y,
             scale: 1,
           }),
         );
@@ -1027,11 +1028,12 @@ export class GraphData {
           x:
             (c.ui as UIItemState)?.x ??
             (c.x as number) ??
-            (Math.random() - 0.5) * (size + 1) * 50 * scale,
+            getDeterministicPosition(c.id, (size + 1) * 50 * scale).x,
           y:
             (c.ui as UIItemState)?.y ??
             (c.y as number) ??
-            (Math.random() - 0.5) * (size + 1) * 50 * scale,
+            getDeterministicPosition(c.id, (size + 1) * 50 * scale).y,
+
           padding: (c.padding as number) ?? this.config.combo.padding,
           isLayoutCalculated: !!(savedUi as UIItemState)?.isLayoutCalculated,
           parent: parentCombo,
@@ -1093,8 +1095,8 @@ export class GraphData {
             color: c.color ?? this.config.combo.color,
             collapsedRadius: c.ui?.collapsedRadius ?? collapsedRadius,
             expandedRadius: c.ui?.expandedRadius ?? expandedRadius,
-            x: c.ui?.x ?? c.x ?? (Math.random() - 0.5) * combos.length * 10,
-            y: c.ui?.y ?? c.y ?? (Math.random() - 0.5) * combos.length * 10,
+            x: c.ui?.x ?? c.x ?? getDeterministicPosition(c.id, combos.length * 10).x,
+            y: c.ui?.y ?? c.y ?? getDeterministicPosition(c.id, combos.length * 10).y,
             padding: c.padding ?? this.config.combo.padding,
             isLayoutCalculated: !!c.ui?.isLayoutCalculated,
             scale: 1,

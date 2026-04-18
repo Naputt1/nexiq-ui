@@ -8,8 +8,8 @@ import type {
   VariableLoc,
   VariableName,
   VariableScope,
-  UIItemState,
 } from "@nexiq/shared";
+import { type UIItemState } from "../types";
 import type { GraphData } from "../hook";
 import type { GraphArrow } from "./arrow";
 import type { GraphCombo } from "./combo";

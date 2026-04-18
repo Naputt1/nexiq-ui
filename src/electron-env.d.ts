@@ -1,12 +1,7 @@
 /// <reference types="vite-plugin-electron/electron-env" />
 
-import {
-  DatabaseData,
-  GitStatus,
-  GitCommit,
-  GitFileDiff,
-  UIStateMap,
-} from "@nexiq/shared";
+import { DatabaseData, GitStatus, GitCommit, GitFileDiff } from "@nexiq/shared";
+import { type UIStateMap } from "./graph/types";
 import type {
   LargeDataKind,
   LargeDataRequestArgs,
