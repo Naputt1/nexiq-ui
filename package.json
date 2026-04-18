@@ -75,6 +75,7 @@
   "dependencies": {
     "@nexiq/component-extension": "file:../nexiq/packages/component-extension",
     "@nexiq/extension-sdk": "file:../nexiq/packages/extension-sdk",
+    "@nexiq/file-extension": "file:../nexiq/packages/file-extension",
     "@nexiq/git-extension": "file:../nexiq/packages/git-extension",
     "@nexiq/layout-wasm": "file:./layout-wasm/pkg",
     "@nexiq/shared": "file:../nexiq/packages/shared",

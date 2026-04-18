@@ -1,14 +1,13 @@
 import { type GraphViewType } from "../../electron/types";
 import { type GraphViewTask } from "./types";
-import { fileTask } from "./tasks/fileTask";
-import { packageTask } from "./tasks/packageTask";
+import { fileTask, packageTask } from "@nexiq/file-extension";
 import { allExtensions } from "./tasks/all-tasks";
 import { componentRustTask } from "@nexiq/component-extension";
 import { gitTask } from "@nexiq/git-extension";
 
 const registry: Record<string, GraphViewTask[]> = {
   component: [componentRustTask, gitTask],
-  file: [fileTask, gitTask],
+  file: [componentRustTask, fileTask, gitTask],
   router: [gitTask], // Default to gitTask for router too
   package: [packageTask, gitTask],
 };
