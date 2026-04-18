@@ -1598,42 +1598,53 @@ ipcMain.handle(
   async (
     _: IpcMainInvokeEvent,
     projectRoot: string,
-    analysisPath: string,
+    viewName: string,
     positions: UIStateMap,
-    contextId?: string,
   ) => {
-    let sqlitePath = projectSqlitePaths.get(analysisPath);
-    if (!sqlitePath) {
-      // If not in cache, try to get it from backend
-      const { sqlitePath: sp } = await resolveSqlitePath(
-        projectRoot,
-        analysisPath === projectRoot ? undefined : analysisPath,
-      );
-      sqlitePath = sp;
-    }
-
-    if (sqlitePath && fs.existsSync(sqlitePath)) {
-      try {
-        const db = new Database(sqlitePath);
-        const uiDb = new UISqliteDB(db);
-        uiDb.saveUIState(positions);
-        db.close();
-        return true;
-      } catch (e) {
-        console.error("Failed to save UI state to sqlite", e);
+    try {
+      const dotDir = path.join(projectRoot, ".nexiq");
+      if (!fs.existsSync(dotDir)) {
+        fs.mkdirSync(dotDir, { recursive: true });
       }
+      const uiSqlitePath = path.join(dotDir, "ui_state.sqlite");
+      const db = new Database(uiSqlitePath);
+      try {
+        const uiDb = new UISqliteDB(db);
+        uiDb.saveUIState(positions, viewName);
+        return true;
+      } finally {
+        db.close();
+      }
+    } catch (e) {
+      console.error("Failed to save UI state to sqlite", e);
+      return false;
     }
+  },
+);
 
-    // Fallback to backend process if direct write fails or sqlitePath not found
-    return (requestBackend as (...args: unknown[]) => Promise<boolean>)(
-      "update_graph_position",
-      {
-        projectPath: projectRoot,
-        subProject: analysisPath === projectRoot ? undefined : analysisPath,
-        positions,
-        contextId,
-      },
-    );
+ipcMain.handle(
+  "get-graph-position",
+  async (
+    _: IpcMainInvokeEvent,
+    projectRoot: string,
+    viewName: string,
+  ): Promise<UIStateMap> => {
+    try {
+      const uiSqlitePath = path.join(projectRoot, ".nexiq", "ui_state.sqlite");
+      if (!fs.existsSync(uiSqlitePath)) {
+        return {};
+      }
+      const db = new Database(uiSqlitePath);
+      try {
+        const uiDb = new UISqliteDB(db);
+        return uiDb.getUIState(viewName);
+      } finally {
+        db.close();
+      }
+    } catch (e) {
+      console.error("Failed to get UI state from sqlite", e);
+      return {};
+    }
   },
 );
 

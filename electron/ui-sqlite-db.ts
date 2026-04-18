@@ -4,6 +4,7 @@ import type { Database } from "better-sqlite3";
 
 interface UIStateRow {
   id: string;
+  view_name: string;
   x: number;
   y: number;
   radius: number | null;
@@ -22,24 +23,26 @@ export class UISqliteDB extends SqliteDB {
   private initUISchema() {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS ui_state (
-        id TEXT PRIMARY KEY,
+        id TEXT,
+        view_name TEXT,
         x REAL,
         y REAL,
         radius REAL,
         collapsed_radius REAL,
         expanded_radius REAL,
         is_layout_calculated BOOLEAN,
-        collapsed BOOLEAN
+        collapsed BOOLEAN,
+        PRIMARY KEY (id, view_name)
       );
     `);
   }
 
-  public saveUIState(positions: UIStateMap) {
+  public saveUIState(positions: UIStateMap, viewName: string) {
     const upsert = this.db.prepare(`
       INSERT OR REPLACE INTO ui_state (
-        id, x, y, radius, collapsed_radius, expanded_radius, is_layout_calculated, collapsed
+        id, view_name, x, y, radius, collapsed_radius, expanded_radius, is_layout_calculated, collapsed
       ) VALUES (
-        @id, @x, @y, @radius, @collapsed_radius, @expanded_radius, @is_layout_calculated, @collapsed
+        @id, @view_name, @x, @y, @radius, @collapsed_radius, @expanded_radius, @is_layout_calculated, @collapsed
       )
     `);
 
@@ -47,6 +50,7 @@ export class UISqliteDB extends SqliteDB {
       for (const [id, state] of Object.entries(states)) {
         upsert.run({
           id,
+          view_name: viewName,
           x: state.x,
           y: state.y,
           radius: state.radius ?? null,
@@ -61,10 +65,10 @@ export class UISqliteDB extends SqliteDB {
     transaction(positions);
   }
 
-  public getUIState(): UIStateMap {
+  public getUIState(viewName: string): UIStateMap {
     const rows = this.db
-      .prepare("SELECT * FROM ui_state")
-      .all() as UIStateRow[];
+      .prepare("SELECT * FROM ui_state WHERE view_name = ?")
+      .all(viewName) as UIStateRow[];
     const state: UIStateMap = {};
 
     for (const row of rows) {

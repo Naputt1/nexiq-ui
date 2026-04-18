@@ -33,6 +33,7 @@ export interface GenerateGraphViewResult {
   stages: ViewGenerationStage[];
   nodeDataBuffer?: SharedArrayBuffer;
   detailBuffer?: SharedArrayBuffer;
+  bufferBytesWritten: number;
 }
 
 export type SerializedViewRegistry = {
