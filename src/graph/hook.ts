@@ -413,30 +413,24 @@ export class GraphData {
   public applyUIState(state: UIStateMap) {
     this.batch(() => {
       for (const [id, s] of Object.entries(state)) {
-        const node = this.nodes.get(id);
-        if (node) {
-          node.x = s.x;
-          node.y = s.y;
-          if (s.radius != null) node.radius = s.radius;
-          node.isLayoutCalculated = !!s.isLayoutCalculated;
-          continue;
-        }
+        const item = this.getPointByID(id);
+        if (!item) continue;
 
-        const combo = this.combos.get(id);
-        if (combo) {
-          combo.x = s.x;
-          combo.y = s.y;
-          if (s.radius != null) combo.radius = s.radius;
+        item.x = s.x;
+        item.y = s.y;
+        if (s.radius != null) item.radius = s.radius;
+        item.isLayoutCalculated = !!s.isLayoutCalculated;
+
+        if (item instanceof GraphCombo) {
           if (s.collapsedRadius != null)
-            combo.collapsedRadius = s.collapsedRadius;
-          if (s.expandedRadius != null) combo.expandedRadius = s.expandedRadius;
-          combo.isLayoutCalculated = !!s.isLayoutCalculated;
-          combo.collapsed = !!s.collapsed;
+            item.collapsedRadius = s.collapsedRadius;
+          if (s.expandedRadius != null) item.expandedRadius = s.expandedRadius;
+          item.collapsed = !!s.collapsed;
         }
       }
 
       // Re-calculate radius for expanded combos that might have been updated
-      for (const combo of Array.from(this.combos.values())) {
+      for (const combo of this.getAllCombos()) {
         if (!combo.collapsed && !combo.isLayoutCalculated) {
           combo.expandedRadius = this.calculateComboRadius(combo);
         }
@@ -1095,8 +1089,14 @@ export class GraphData {
             color: c.color ?? this.config.combo.color,
             collapsedRadius: c.ui?.collapsedRadius ?? collapsedRadius,
             expandedRadius: c.ui?.expandedRadius ?? expandedRadius,
-            x: c.ui?.x ?? c.x ?? getDeterministicPosition(c.id, combos.length * 10).x,
-            y: c.ui?.y ?? c.y ?? getDeterministicPosition(c.id, combos.length * 10).y,
+            x:
+              c.ui?.x ??
+              c.x ??
+              getDeterministicPosition(c.id, combos.length * 10).x,
+            y:
+              c.ui?.y ??
+              c.y ??
+              getDeterministicPosition(c.id, combos.length * 10).y,
             padding: c.padding ?? this.config.combo.padding,
             isLayoutCalculated: !!c.ui?.isLayoutCalculated,
             scale: 1,

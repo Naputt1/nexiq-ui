@@ -35,6 +35,7 @@ import {
 } from "react-resizable-panels";
 
 import { setupAutoSave, useAppStateStore } from "./hooks/use-app-state-store";
+import { useGraphStore } from "./hooks/use-graph-store";
 import { useGitStore } from "./hooks/useGitStore";
 import { useConfigStore } from "./hooks/use-config-store";
 import { useWorkerStore } from "./hooks/use-worker-store";
@@ -91,6 +92,8 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   const setBottomPanelTab = useAppStateStore((s) => s.setBottomPanelTab);
   const sidebarWidth = useAppStateStore((s) => s.sidebar.right.width);
   const setViewport = useAppStateStore((s) => s.setViewport);
+
+  const details = useGraphStore((s) => s.details);
 
   const status = useGitStore((s) => s.status);
   const clearAnalyzedDiffCache = useGitStore((s) => s.clearAnalyzedDiffCache);
@@ -225,6 +228,12 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   const snapshotKeyRef = useRef<string | null>(null);
   const viewRequestIdRef = useRef(0);
   const activeProfileRunIdRef = useRef<string | null>(null);
+
+  const graph = useGraph({
+    viewBuffer: graphViewBuffer,
+    projectPath,
+    targetPath: selectedSubProjects[0] || projectPath,
+  });
 
   useEffect(() => {
     setBackendAvailable(true);
@@ -425,14 +434,9 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
       activeTab,
       subPath,
       view,
+      graph,
     ],
   );
-
-  const graph = useGraph({
-    viewBuffer: graphViewBuffer,
-    projectPath,
-    targetPath: selectedSubProjects[0] || projectPath,
-  });
 
   useEffect(() => {
     graph.setProfileRunId(activeProfileRunId);
@@ -887,7 +891,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     return () => {
       graph.unbind(unbind);
     };
-  }, [graph, projectPath, selectedSubProjects]);
+  }, [graph, projectPath, selectedSubProjects, view]);
 
   // Initialize/Update Renderer
   useEffect(() => {
@@ -963,6 +967,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     isLoaded,
     setViewport,
     customColors,
+    theme,
   ]);
 
   // Clean up
@@ -1227,14 +1232,18 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
       const combos = graph.getAllCombos();
 
       const match =
-        combos.find((c) => c.pureFileName === filePath) ||
-        nodes.find((n) => n.fileName?.startsWith(filePath));
+        combos.find(
+          (c) => (details[c.id]?.fileName || c.pureFileName) === filePath,
+        ) ||
+        nodes.find((n) =>
+          (details[n.id]?.fileName || n.fileName)?.startsWith(filePath),
+        );
 
       if (match) {
         onSelect(match.id);
       }
     },
-    [graph, onSelect],
+    [graph, onSelect, details],
   );
 
   const sourceMarkers = useMemo(() => {
@@ -1244,7 +1253,11 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     return graph
       .getAllNodes()
       .filter((node) => {
-        const fileName = (node.fileName || "").replace(/\\/g, "/");
+        const fileName = (
+          details[node.id]?.fileName ||
+          node.fileName ||
+          ""
+        ).replace(/\\/g, "/");
         return fileName === normalizedPath;
       })
       .map((node) => ({
@@ -1253,13 +1266,15 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
         line: node.loc?.line || 1,
       }))
       .sort((a, b) => a.line - b.line);
-  }, [graph, sourceFilePath]);
+  }, [graph, sourceFilePath, details]);
 
   const totalErrorCount = fileErrors.length + resolveErrors.length;
 
   useEffect(() => {
     const item = selectedItem || graph.getCombo(selectedId || "");
-    const filePath = item?.fileName;
+    const filePath =
+      item?.fileName ||
+      (selectedId ? details[selectedId]?.fileName : undefined);
     if (!filePath) return;
     const normalizedPath = filePath.replace(/\\/g, "/");
 
@@ -1274,7 +1289,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
       setSourceContent(cachedContent);
     } else {
       window.ipcRenderer
-        .invoke("read-source-file", filePath, projectPath)
+        .invoke("read-source-file", filePath)
         .then((result) => {
           if (cancelled) return;
           const nextPath = result.path.replace(/\\/g, "/");
@@ -1290,7 +1305,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     return () => {
       cancelled = true;
     };
-  }, [projectPath, selectedId, selectedItem, graph, sourceFilePath]);
+  }, [projectPath, selectedId, selectedItem, graph, sourceFilePath, details]);
 
   const handleOpenCurrentFile = useCallback(() => {
     if (!sourceFilePath) return;
@@ -1335,9 +1350,9 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
                 >
                   <div className="flex-1 relative min-w-0 h-full">
                     <SidebarTrigger
-                      className={cn("absolute top-4 left-4 z-[120]")}
+                      className={cn("absolute top-4 left-4 z-120")}
                     />
-                    <Card className="absolute bottom-4 right-4 z-[110] flex flex-row items-center gap-2 p-2 shadow-lg">
+                    <Card className="absolute bottom-4 right-4 z-20 flex flex-row items-center gap-2 p-2 shadow-lg">
                       <ViewSwitcher compact />
                       <Button
                         variant="ghost"
@@ -1375,7 +1390,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
                       )}
                     </Card>
                     {isSearchOpen && (
-                      <div className="absolute bottom-17.5 right-4 z-[110] flex items-center rounded border border-border bg-popover p-1 shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200">
+                      <div className="absolute bottom-17.5 right-4 z-20 flex items-center rounded border border-border bg-popover p-1 shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200">
                         <div className="flex items-center gap-1">
                           <div className="relative flex items-center">
                             <input
@@ -1456,7 +1471,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
                         ref={graphContainerRef}
                       />
                       {(isGeneratingView || isPending) && (
-                        <div className="absolute inset-0 z-[100] bg-background/50 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
+                        <div className="absolute inset-0 z-10 bg-background/50 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
                           <Loader2 className="h-10 w-10 animate-spin text-primary" />
                           <span className="text-sm font-medium text-muted-foreground animate-pulse">
                             Generating graph view...
@@ -1464,7 +1479,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
                         </div>
                       )}
                       {/* Zoom Slider */}
-                      <div className="absolute left-4 top-1/2 -translate-y-1/2 z-[110]">
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 z-20">
                         <MemoizedViewportZoomSlider
                           onChange={handleZoomChange}
                         />
