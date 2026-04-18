@@ -7,8 +7,9 @@ settings:
 overrides:
   '@nexiq/component-extension': link:../nexiq/packages/component-extension
   '@nexiq/extension-sdk': link:../nexiq/packages/extension-sdk
-  '@nexiq/shared': link:../nexiq/packages/shared
+  '@nexiq/file-extension': link:../nexiq/packages/file-extension
   '@nexiq/git-extension': link:../nexiq/packages/git-extension
+  '@nexiq/shared': link:../nexiq/packages/shared
 
 importers:
 
@@ -20,6 +21,9 @@ importers:
       '@nexiq/extension-sdk':
         specifier: link:../nexiq/packages/extension-sdk
         version: link:../nexiq/packages/extension-sdk
+      '@nexiq/file-extension':
+        specifier: link:../nexiq/packages/file-extension
+        version: link:../nexiq/packages/file-extension
       '@nexiq/git-extension':
         specifier: link:../nexiq/packages/git-extension
         version: link:../nexiq/packages/git-extension

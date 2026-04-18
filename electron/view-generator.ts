@@ -3,8 +3,8 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import Database from "better-sqlite3";
 import * as flatbuffers from "flatbuffers";
+import tmp from "tmp";
 import {
-  type GraphViewResult,
   type Extension,
   initOutputTables,
   type OutEdge,
@@ -13,7 +13,7 @@ import {
 } from "@nexiq/extension-sdk";
 import { type OutNode } from "@nexiq/extension-sdk";
 import { FlatBuffers as FB } from "@nexiq/shared";
-import { type GraphViewType } from "@nexiq/shared";
+import { type GraphViewType, type WorkspacePackageRow } from "@nexiq/shared";
 
 import {
   getTasksForView,
@@ -22,6 +22,7 @@ import {
 } from "../src/views/registry";
 import type { GraphSnapshotData } from "../src/graph-snapshot/types";
 import type {
+  GenerateGraphViewResult,
   GenerateViewRequest,
   GraphViewTask,
   SerializedViewRegistry,
@@ -29,26 +30,194 @@ import type {
   ViewGenerationStage,
 } from "../src/views/types";
 
+/**
+ * Standard analysis schema tables to be aggregated in memory.
+ * Includes all columns to ensure compatibility with native tasks.
+ */
+function initDataTables(db: Database.Database) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS packages (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      version TEXT,
+      path TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS files (
+      id INTEGER PRIMARY KEY,
+      path TEXT UNIQUE NOT NULL,
+      package_id TEXT,
+      hash TEXT NOT NULL,
+      fingerprint TEXT NOT NULL,
+      default_export TEXT,
+      star_exports_json TEXT
+    );
+    CREATE TABLE IF NOT EXISTS scopes (
+      id TEXT PRIMARY KEY,
+      file_id INTEGER NOT NULL,
+      parent_id TEXT,
+      kind TEXT NOT NULL,
+      entity_id TEXT,
+      data_json TEXT
+    );
+    CREATE TABLE IF NOT EXISTS entities (
+      id TEXT PRIMARY KEY,
+      scope_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      name TEXT,
+      type TEXT,
+      line INTEGER,
+      column INTEGER,
+      end_line INTEGER,
+      end_column INTEGER,
+      declaration_kind TEXT,
+      data_json TEXT
+    );
+    CREATE TABLE IF NOT EXISTS symbols (
+      id TEXT PRIMARY KEY,
+      entity_id TEXT NOT NULL,
+      scope_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      path TEXT,
+      is_alias BOOLEAN DEFAULT 0,
+      has_default BOOLEAN DEFAULT 0,
+      data_json TEXT
+    );
+    CREATE TABLE IF NOT EXISTS renders (
+      id TEXT PRIMARY KEY,
+      file_id INTEGER NOT NULL,
+      parent_entity_id TEXT NOT NULL,
+      parent_render_id TEXT,
+      render_index INTEGER NOT NULL,
+      tag TEXT NOT NULL,
+      symbol_id TEXT,
+      line INTEGER,
+      column INTEGER,
+      kind TEXT NOT NULL,
+      data_json TEXT
+    );
+    CREATE TABLE IF NOT EXISTS exports (
+      id TEXT PRIMARY KEY,
+      scope_id TEXT NOT NULL,
+      symbol_id TEXT,
+      entity_id TEXT,
+      name TEXT,
+      is_default BOOLEAN DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS relations (
+      from_id TEXT NOT NULL,
+      to_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      line INTEGER,
+      column INTEGER,
+      data_json TEXT,
+      PRIMARY KEY (from_id, to_id, kind, line, column)
+    );
+  `);
+}
+
+/**
+ * Aggregates distributed package SQLite data into the shared in-memory database
+ * for monorepo projects. Prefixes IDs to avoid collisions.
+ */
+async function aggregateMonorepoData(
+  db: Database.Database,
+  projectRoot: string,
+  analysisPaths?: string[],
+) {
+  const tableExists = (name: string) => {
+    const row = db
+      .prepare(
+        "SELECT 1 FROM source.sqlite_master WHERE type='table' AND name=?",
+      )
+      .get(name);
+    return !!row;
+  };
+
+  if (!tableExists("workspace_packages")) return;
+
+  initDataTables(db);
+
+  const workspacePackages = db
+    .prepare<[], WorkspacePackageRow>("SELECT * FROM source.workspace_packages")
+    .all();
+  const filteredPackages =
+    analysisPaths && analysisPaths.length > 0
+      ? workspacePackages.filter((p) => analysisPaths.includes(p.path))
+      : workspacePackages;
+
+  for (let i = 0; i < filteredPackages.length; i++) {
+    const pkg = filteredPackages[i];
+    const offset = (i + 1) * 1000000;
+    const pkgId = pkg.package_id;
+    const prefix = `workspace:${pkgId}:`;
+
+    const pkgDbPath = path.isAbsolute(pkg.db_path)
+      ? pkg.db_path
+      : path.resolve(projectRoot, pkg.db_path);
+
+    if (!fs.existsSync(pkgDbPath)) {
+      console.warn(`Package database not found at ${pkgDbPath}`);
+      continue;
+    }
+
+    db.prepare(`ATTACH DATABASE ? AS pkg_${i}`).run(pkgDbPath);
+
+    const pkgRelPath = pkg.path.replace(/^\/+/, "").replace(/\/+$/, "");
+
+    try {
+      // Merge tables with offset remapping and ID prefixing
+      db.exec(`
+        INSERT OR IGNORE INTO main.packages (id, name, version, path)
+        SELECT '${pkgId}', name, version, path FROM pkg_${i}.packages;
+
+        INSERT OR IGNORE INTO main.files (id, path, package_id, hash, fingerprint, default_export, star_exports_json)
+        SELECT id + ${offset}, 
+               '/${pkgRelPath}' || CASE WHEN path LIKE '/%' THEN path ELSE '/' || path END, 
+               '${pkgId}', hash, fingerprint, default_export, star_exports_json FROM pkg_${i}.files;
+
+        INSERT OR IGNORE INTO main.scopes (id, file_id, parent_id, kind, entity_id, data_json)
+        SELECT '${prefix}' || id, file_id + ${offset}, 
+               CASE WHEN parent_id IS NOT NULL THEN '${prefix}' || parent_id ELSE NULL END, 
+               kind, 
+               CASE WHEN entity_id IS NOT NULL THEN '${prefix}' || entity_id ELSE NULL END, 
+               data_json FROM pkg_${i}.scopes;
+
+        INSERT OR IGNORE INTO main.entities (id, scope_id, kind, name, type, line, column, end_line, end_column, declaration_kind, data_json)
+        SELECT '${prefix}' || id, '${prefix}' || scope_id, kind, name, type, line, column, end_line, end_column, declaration_kind, data_json FROM pkg_${i}.entities;
+
+        INSERT OR IGNORE INTO main.symbols (id, entity_id, scope_id, name, path, is_alias, has_default, data_json)
+        SELECT '${prefix}' || id, '${prefix}' || entity_id, '${prefix}' || scope_id, name, path, is_alias, has_default, data_json FROM pkg_${i}.symbols;
+
+        INSERT OR IGNORE INTO main.renders (id, file_id, parent_entity_id, parent_render_id, tag, symbol_id, line, column, kind, data_json)
+        SELECT '${prefix}' || id, file_id + ${offset}, '${prefix}' || parent_entity_id, 
+               CASE WHEN parent_render_id IS NOT NULL THEN '${prefix}' || parent_render_id ELSE NULL END, 
+               tag, 
+               CASE WHEN symbol_id IS NOT NULL THEN '${prefix}' || symbol_id ELSE NULL END, 
+               line, column, kind, data_json FROM pkg_${i}.renders;
+
+        INSERT OR IGNORE INTO main.exports (id, scope_id, symbol_id, entity_id, name, is_default)
+        SELECT '${prefix}' || id, '${prefix}' || scope_id, 
+               CASE WHEN symbol_id IS NOT NULL THEN '${prefix}' || symbol_id ELSE NULL END, 
+               CASE WHEN entity_id IS NOT NULL THEN '${prefix}' || entity_id ELSE NULL END, 
+               name, is_default FROM pkg_${i}.exports;
+
+        INSERT OR IGNORE INTO main.relations (from_id, to_id, kind, line, column, data_json)
+        SELECT CASE WHEN from_id LIKE 'symbol:%' OR from_id LIKE 'entity:%' OR from_id LIKE 'scope:%' THEN '${prefix}' || from_id ELSE from_id END,
+               CASE WHEN to_id LIKE 'symbol:%' OR to_id LIKE 'entity:%' OR to_id LIKE 'scope:%' THEN '${prefix}' || to_id ELSE to_id END,
+               kind, line, column, data_json FROM pkg_${i}.relations;
+      `);
+    } catch (err) {
+      console.error(`Failed to merge package ${pkgId}:`, err);
+    } finally {
+      db.prepare(`DETACH DATABASE pkg_${i}`).run();
+    }
+  }
+}
+
 interface GenerateGraphViewOptions extends GenerateViewRequest {
   sqlitePath?: string;
   snapshotData?: GraphSnapshotData;
 }
-
-export interface GenerateGraphViewResult {
-  result: GraphViewResult;
-  stages: ViewGenerationStage[];
-  nodeDataBuffer?: SharedArrayBuffer;
-  detailBuffer?: SharedArrayBuffer;
-  bufferBytesWritten?: number;
-}
-
-const loadedExtensionState = new Map<
-  string,
-  {
-    configMtimeMs: number;
-    extensionNames: string[];
-  }
->();
 
 async function loadProjectExtensions(projectRoot: string) {
   const startedAt = performance.now();
@@ -132,6 +301,14 @@ async function loadProjectExtensions(projectRoot: string) {
   };
 }
 
+const loadedExtensionState = new Map<
+  string,
+  {
+    configMtimeMs: number;
+    extensionNames: string[];
+  }
+>();
+
 /**
  * Run a task's runSqlite function directly against the shared in-memory database.
  * This avoids spawning a worker and eliminates serialize/deserialize round-trips
@@ -169,18 +346,19 @@ async function runTaskInProcess(
     const insNode = db.prepare(
       "INSERT OR REPLACE INTO out_nodes (id, name, type, combo_id, color, radius, display_name, git_status, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
-    for (const d of outNodes)
+    for (const node of outNodes) {
       insNode.run(
-        d.id,
-        d.name,
-        d.type,
-        d.combo_id,
-        d.color,
-        d.radius,
-        d.display_name,
-        d.git_status,
-        d.meta_json,
+        node.id,
+        node.name,
+        node.type ?? null,
+        node.combo_id ?? null,
+        node.color ?? null,
+        node.radius ?? null,
+        node.display_name ?? null,
+        node.git_status ?? null,
+        node.meta_json ?? null,
       );
+    }
 
     // Edges
     const outEdges = rustDb
@@ -189,16 +367,17 @@ async function runTaskInProcess(
     const insEdge = db.prepare(
       "INSERT OR REPLACE INTO out_edges (id, source, target, name, kind, category, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
     );
-    for (const d of outEdges)
+    for (const edge of outEdges) {
       insEdge.run(
-        d.id,
-        d.source,
-        d.target,
-        d.name,
-        d.kind,
-        d.category,
-        d.meta_json,
+        edge.id,
+        edge.source,
+        edge.target,
+        edge.name ?? null,
+        edge.kind ?? null,
+        edge.category ?? null,
+        edge.meta_json ?? null,
       );
+    }
 
     // Combos
     const outCombos = rustDb
@@ -207,19 +386,20 @@ async function runTaskInProcess(
     const insCombo = db.prepare(
       "INSERT OR REPLACE INTO out_combos (id, name, type, parent_id, color, radius, collapsed, display_name, git_status, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
-    for (const d of outCombos)
+    for (const combo of outCombos) {
       insCombo.run(
-        d.id,
-        d.name,
-        d.type,
-        d.parent_id,
-        d.color,
-        d.radius,
-        d.collapsed,
-        d.display_name,
-        d.git_status,
-        d.meta_json,
+        combo.id,
+        combo.name,
+        combo.type ?? null,
+        combo.parent_id ?? null,
+        combo.color ?? null,
+        combo.radius ?? null,
+        combo.collapsed ? 1 : 0,
+        combo.display_name ?? null,
+        combo.git_status ?? null,
+        combo.meta_json ?? null,
       );
+    }
 
     // Details
     const outDetails = rustDb
@@ -228,157 +408,146 @@ async function runTaskInProcess(
     const insDetail = db.prepare(
       'INSERT OR REPLACE INTO out_details (id, file_name, project_path, line, "column", data_json) VALUES (?, ?, ?, ?, ?, ?)',
     );
-    for (const d of outDetails)
+    for (const detail of outDetails) {
       insDetail.run(
-        d.id,
-        d.file_name,
-        d.project_path,
-        d.line,
-        d.column,
-        d.data_json,
+        detail.id,
+        detail.file_name ?? null,
+        detail.project_path ?? null,
+        detail.line ?? null,
+        detail.column ?? null,
+        detail.data_json ?? null,
       );
+    }
+
+    rustDb.close();
   }
 }
 
-function mapItemTypeToEnum(type: string | undefined): number {
-  switch (type?.toLowerCase()) {
-    case "package":
-      return 0;
-    case "scope":
-      return 1;
-    case "component":
-    case "function":
-    case "class":
-      return 2;
-    case "hook":
-      return 3;
-    case "state":
-      return 4;
-    case "memo":
-      return 5;
-    case "callback":
-      return 6;
-    case "ref":
-      return 7;
-    case "effect":
-      return 8;
-    case "prop":
-      return 9;
-    case "render":
-      return 10;
-    case "render-group":
-      return 11;
-    case "source-group":
-      return 12;
-    case "path-group":
-      return 13;
-    case "normal":
-    case "variable":
-      return 14;
-    case undefined:
-    default:
-      return 1; // Default to scope for unknown
-  }
-}
-
+/**
+ * Convert output tables from SQLite to a packed FlatBuffer structure.
+ */
 function convertSqliteToFlatBuffers(db: Database.Database): {
   nodeDataBuffer: SharedArrayBuffer;
   detailBuffer: SharedArrayBuffer;
   bytesWritten: number;
 } {
+  const builder = new flatbuffers.Builder(1024 * 1024);
+
+  // 1. Fetch data from SQLite output tables
   const nodes = db.prepare<[], OutNode>("SELECT * FROM out_nodes").all();
   const edges = db.prepare<[], OutEdge>("SELECT * FROM out_edges").all();
   const combos = db.prepare<[], OutCombo>("SELECT * FROM out_combos").all();
   const details = db.prepare<[], OutDetail>("SELECT * FROM out_details").all();
 
-  const builder = new flatbuffers.Builder(10 * 1024 * 1024);
-
-  const nodeOffsets = nodes.map((n) => {
-    const id = builder.createString(n.id);
-    const name = builder.createString(n.name);
-    const type = mapItemTypeToEnum(n.type);
-    const comboId = n.combo_id ? builder.createString(n.combo_id) : 0;
-    const color = n.color ? builder.createString(n.color) : 0;
-    const displayName = n.display_name
-      ? builder.createString(n.display_name)
+  // 2. Serialize to FlatBuffers
+  const nodeOffsets: number[] = [];
+  for (const node of nodes) {
+    const idOffset = builder.createString(node.id);
+    const nameOffset = builder.createString(node.name || "");
+    const comboOffset = node.combo_id ? builder.createString(node.combo_id) : 0;
+    const colorOffset = node.color ? builder.createString(node.color) : 0;
+    const displayNameOffset = node.display_name
+      ? builder.createString(node.display_name)
       : 0;
-    const gitStatus = n.git_status ? builder.createString(n.git_status) : 0;
+    const gitStatusOffset = node.git_status
+      ? builder.createString(node.git_status)
+      : 0;
 
     FB.GraphNode.startGraphNode(builder);
-    FB.GraphNode.addId(builder, id);
-    FB.GraphNode.addName(builder, name);
-    FB.GraphNode.addType(builder, type);
-    FB.GraphNode.addComboId(builder, comboId);
-    FB.GraphNode.addColor(builder, color);
-    FB.GraphNode.addRadius(builder, n.radius || 0);
-    FB.GraphNode.addDisplayName(builder, displayName);
-    FB.GraphNode.addGitStatus(builder, gitStatus);
-    return FB.GraphNode.endGraphNode(builder);
-  });
+    FB.GraphNode.addId(builder, idOffset);
+    FB.GraphNode.addName(builder, nameOffset);
+    FB.GraphNode.addType(builder, mapToFBItemType(node.type));
+    if (comboOffset) FB.GraphNode.addComboId(builder, comboOffset);
+    if (colorOffset) FB.GraphNode.addColor(builder, colorOffset);
+    if (node.radius) FB.GraphNode.addRadius(builder, node.radius);
+    if (displayNameOffset)
+      FB.GraphNode.addDisplayName(builder, displayNameOffset);
+    if (gitStatusOffset) FB.GraphNode.addGitStatus(builder, gitStatusOffset);
 
-  const edgeOffsets = edges.map((e) => {
-    const id = builder.createString(e.id);
-    const source = builder.createString(e.source);
-    const target = builder.createString(e.target);
-    const name = builder.createString(e.name);
-    const kind = builder.createString(e.kind);
-    const category = builder.createString(e.category);
+    nodeOffsets.push(FB.GraphNode.endGraphNode(builder));
+  }
+
+  const edgeOffsets: number[] = [];
+  for (const edge of edges) {
+    const idOffset = builder.createString(edge.id);
+    const sourceOffset = builder.createString(edge.source);
+    const targetOffset = builder.createString(edge.target);
+    const nameOffset = edge.name ? builder.createString(edge.name) : 0;
+    const kindOffset = edge.kind ? builder.createString(edge.kind) : 0;
+    const categoryOffset = edge.category
+      ? builder.createString(edge.category)
+      : 0;
 
     FB.GraphEdge.startGraphEdge(builder);
-    FB.GraphEdge.addId(builder, id);
-    FB.GraphEdge.addSource(builder, source);
-    FB.GraphEdge.addTarget(builder, target);
-    FB.GraphEdge.addName(builder, name);
-    FB.GraphEdge.addKind(builder, kind);
-    FB.GraphEdge.addCategory(builder, category);
-    return FB.GraphEdge.endGraphEdge(builder);
-  });
+    FB.GraphEdge.addId(builder, idOffset);
+    FB.GraphEdge.addSource(builder, sourceOffset);
+    FB.GraphEdge.addTarget(builder, targetOffset);
+    if (nameOffset) FB.GraphEdge.addName(builder, nameOffset);
+    if (kindOffset) FB.GraphEdge.addKind(builder, kindOffset);
+    if (categoryOffset) FB.GraphEdge.addCategory(builder, categoryOffset);
+    edgeOffsets.push(FB.GraphEdge.endGraphEdge(builder));
+  }
 
-  const comboOffsets = combos.map((c) => {
-    const id = builder.createString(c.id);
-    const name = builder.createString(c.name);
-    const type = mapItemTypeToEnum(c.type);
-    const parentId = c.parent_id ? builder.createString(c.parent_id) : 0;
-    const color = c.color ? builder.createString(c.color) : 0;
-    const displayName = c.display_name
-      ? builder.createString(c.display_name)
+  const comboOffsets: number[] = [];
+  for (const combo of combos) {
+    const idOffset = builder.createString(combo.id);
+    const nameOffset = builder.createString(combo.name || "");
+    const parentOffset = combo.parent_id
+      ? builder.createString(combo.parent_id)
       : 0;
-    const gitStatus = c.git_status ? builder.createString(c.git_status) : 0;
+    const colorOffset = combo.color ? builder.createString(combo.color) : 0;
+    const displayNameOffset = combo.display_name
+      ? builder.createString(combo.display_name)
+      : 0;
+    const gitStatusOffset = combo.git_status
+      ? builder.createString(combo.git_status)
+      : 0;
 
     FB.GraphCombo.startGraphCombo(builder);
-    FB.GraphCombo.addId(builder, id);
-    FB.GraphCombo.addName(builder, name);
-    FB.GraphCombo.addType(builder, type);
-    FB.GraphCombo.addParentId(builder, parentId);
-    FB.GraphCombo.addColor(builder, color);
-    FB.GraphCombo.addRadius(builder, c.radius || 0);
-    FB.GraphCombo.addCollapsed(builder, !!c.collapsed);
-    FB.GraphCombo.addDisplayName(builder, displayName);
-    FB.GraphCombo.addGitStatus(builder, gitStatus);
-    return FB.GraphCombo.endGraphCombo(builder);
-  });
+    FB.GraphCombo.addId(builder, idOffset);
+    FB.GraphCombo.addName(builder, nameOffset);
+    FB.GraphCombo.addType(builder, mapToFBItemType(combo.type));
+    if (parentOffset) FB.GraphCombo.addParentId(builder, parentOffset);
+    if (colorOffset) FB.GraphCombo.addColor(builder, colorOffset);
+    if (combo.radius) FB.GraphCombo.addRadius(builder, combo.radius);
+    FB.GraphCombo.addCollapsed(builder, !!combo.collapsed);
+    if (displayNameOffset)
+      FB.GraphCombo.addDisplayName(builder, displayNameOffset);
+    if (gitStatusOffset) FB.GraphCombo.addGitStatus(builder, gitStatusOffset);
 
-  const detailOffsets = details.map((d) => {
-    const id = builder.createString(d.id);
-    const fileName = d.file_name ? builder.createString(d.file_name) : 0;
-    const projectPath = d.project_path
-      ? builder.createString(d.project_path)
+    comboOffsets.push(FB.GraphCombo.endGraphCombo(builder));
+  }
+
+  const detailOffsets: number[] = [];
+  for (const detail of details) {
+    const idOffset = builder.createString(detail.id);
+    const fileNameOffset = detail.file_name
+      ? builder.createString(detail.file_name)
       : 0;
-    const dataJson = d.data_json ? builder.createString(d.data_json) : 0;
+    const projectPathOffset = detail.project_path
+      ? builder.createString(detail.project_path)
+      : 0;
+    const dataJsonOffset = detail.data_json
+      ? builder.createString(detail.data_json)
+      : 0;
 
-    FB.Loc.startLoc(builder);
-    FB.Loc.addLine(builder, d.line || 0);
-    FB.Loc.addColumn(builder, d.column || 0);
-    const loc = FB.Loc.endLoc(builder);
+    let locOffset = 0;
+    if (detail.line != null || detail.column != null) {
+      FB.Loc.startLoc(builder);
+      FB.Loc.addLine(builder, detail.line || 0);
+      FB.Loc.addColumn(builder, detail.column || 0);
+      locOffset = FB.Loc.endLoc(builder);
+    }
 
     FB.GraphNodeDetail.startGraphNodeDetail(builder);
-    FB.GraphNodeDetail.addId(builder, id);
-    FB.GraphNodeDetail.addFileName(builder, fileName);
-    FB.GraphNodeDetail.addProjectPath(builder, projectPath);
-    FB.GraphNodeDetail.addLoc(builder, loc);
-    FB.GraphNodeDetail.addDataJson(builder, dataJson);
-    return FB.GraphNodeDetail.endGraphNodeDetail(builder);
-  });
+    FB.GraphNodeDetail.addId(builder, idOffset);
+    if (fileNameOffset) FB.GraphNodeDetail.addFileName(builder, fileNameOffset);
+    if (projectPathOffset)
+      FB.GraphNodeDetail.addProjectPath(builder, projectPathOffset);
+    if (locOffset) FB.GraphNodeDetail.addLoc(builder, locOffset);
+    if (dataJsonOffset) FB.GraphNodeDetail.addDataJson(builder, dataJsonOffset);
+    detailOffsets.push(FB.GraphNodeDetail.endGraphNodeDetail(builder));
+  }
 
   const nodesVec = FB.GraphView.createNodesVector(builder, nodeOffsets);
   const edgesVec = FB.GraphView.createEdgesVector(builder, edgeOffsets);
@@ -390,8 +559,8 @@ function convertSqliteToFlatBuffers(db: Database.Database): {
   FB.GraphView.addEdges(builder, edgesVec);
   FB.GraphView.addCombos(builder, combosVec);
   FB.GraphView.addDetails(builder, detailsVec);
-  const root = FB.GraphView.endGraphView(builder);
-  FB.GraphView.finishGraphViewBuffer(builder, root);
+  const graphOffset = FB.GraphView.endGraphView(builder);
+  builder.finish(graphOffset, "NXGV");
 
   const flatBufferData = builder.asUint8Array();
   const nodeDataBuffer = new SharedArrayBuffer(flatBufferData.length);
@@ -399,9 +568,51 @@ function convertSqliteToFlatBuffers(db: Database.Database): {
 
   return {
     nodeDataBuffer,
-    detailBuffer: new SharedArrayBuffer(0), // Details are included in GraphView now
+    detailBuffer: new SharedArrayBuffer(0),
     bytesWritten: flatBufferData.length,
   };
+}
+
+function mapToFBItemType(type: string | undefined): FB.ItemType {
+  if (!type) return FB.ItemType.Scope;
+  const t = type
+    .toLowerCase()
+    .replace(/-/g, "")
+    .replace(/group$/, "group");
+  switch (t) {
+    case "package":
+      return FB.ItemType.Package;
+    case "scope":
+      return FB.ItemType.Scope;
+    case "component":
+      return FB.ItemType.Component;
+    case "hook":
+      return FB.ItemType.Hook;
+    case "state":
+      return FB.ItemType.State;
+    case "memo":
+      return FB.ItemType.Memo;
+    case "callback":
+      return FB.ItemType.Callback;
+    case "ref":
+      return FB.ItemType.Ref;
+    case "effect":
+      return FB.ItemType.Effect;
+    case "prop":
+      return FB.ItemType.Prop;
+    case "render":
+      return FB.ItemType.Render;
+    case "rendergroup":
+      return FB.ItemType.RenderGroup;
+    case "sourcegroup":
+      return FB.ItemType.SourceGroup;
+    case "pathgroup":
+      return FB.ItemType.PathGroup;
+    case "variable":
+      return FB.ItemType.Variable;
+    default:
+      return FB.ItemType.Scope;
+  }
 }
 
 export async function generateGraphView(
@@ -445,8 +656,27 @@ export async function generateGraphView(
       "SELECT name FROM source.sqlite_master WHERE type IN ('table', 'view')",
     )
     .all() as { name: string }[];
+
+  const workspacePackagesExist = schemaTables.some(
+    (t) => t.name === "workspace_packages",
+  );
+  const aggregatedTables = [
+    "packages",
+    "files",
+    "entities",
+    "scopes",
+    "symbols",
+    "renders",
+    "exports",
+    "relations",
+  ];
+
   for (const row of schemaTables) {
     if (!row.name.startsWith("sqlite_") && !row.name.startsWith("out_")) {
+      // In a monorepo, we skip aliasing tables that we are about to aggregate into 'main'
+      if (workspacePackagesExist && aggregatedTables.includes(row.name)) {
+        continue;
+      }
       // Must quote names in case they have reserved words
       db.exec(
         `CREATE TEMP VIEW "${row.name}" AS SELECT * FROM source."${row.name}"`,
@@ -454,9 +684,29 @@ export async function generateGraphView(
     }
   }
 
+  let aggregatedDbPath: string | undefined;
+
   try {
     // Initialise the output tables once — all tasks write into this shared db.
     initOutputTables(db);
+
+    // Aggregation for Monorepo
+    if (workspacePackagesExist) {
+      await aggregateMonorepoData(db, projectRoot, analysisPaths);
+
+      // Prepare for native Rust tasks: serialize aggregated in-memory DB to a temp file.
+      // Native tasks attach cacheDbPath directly, so they need a file on disk.
+      try {
+        const tmpFile = tmp.fileSync({ postfix: ".sqlite" });
+        aggregatedDbPath = tmpFile.name;
+        const buffer = db.serialize();
+        fs.writeFileSync(aggregatedDbPath, buffer);
+      } catch (err) {
+        console.error("Failed to create temporary aggregated database:", err);
+      }
+    }
+
+    const effectiveCacheDbPath = aggregatedDbPath || absolutePath;
 
     let cursorMs = extensionLoad.endMs;
 
@@ -472,14 +722,67 @@ export async function generateGraphView(
             projectRoot,
             analysisPaths,
             viewType,
-            absolutePath,
+            effectiveCacheDbPath,
           );
         } else if (task.run) {
           // Legacy run() path — pass the live db via context.
-          task.run(
+          const legacyResult = task.run(
             { nodes: [], edges: [], combos: [], typeData: {} },
             { db, projectRoot, analysisPaths, viewType },
           );
+          // Persist legacy task results into shared output tables so they are
+          // picked up by convertSqliteToFlatBuffers (same as the runSqlite path).
+          const insNode = db.prepare(
+            "INSERT OR REPLACE INTO out_nodes (id, name, type, combo_id, color, radius, display_name, git_status, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          );
+          for (const node of legacyResult.nodes) {
+            insNode.run(
+              node.id,
+              typeof node.name === "string"
+                ? node.name
+                : JSON.stringify(node.name),
+              node.type ?? null,
+              node.combo ?? null,
+              node.color ?? null,
+              node.radius ?? null,
+              node.displayName ?? null,
+              node.gitStatus ?? null,
+              null,
+            );
+          }
+          const insEdge = db.prepare(
+            "INSERT OR REPLACE INTO out_edges (id, source, target, name, kind, category, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          );
+          for (const edge of legacyResult.edges) {
+            insEdge.run(
+              edge.id,
+              edge.source,
+              edge.target,
+              edge.name ?? null,
+              edge.edgeKind ?? null,
+              edge.category ?? null,
+              null,
+            );
+          }
+          const insCombo = db.prepare(
+            "INSERT OR REPLACE INTO out_combos (id, name, type, parent_id, color, radius, collapsed, display_name, git_status, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          );
+          for (const combo of legacyResult.combos) {
+            insCombo.run(
+              combo.id,
+              typeof combo.name === "string"
+                ? combo.name
+                : JSON.stringify(combo.name),
+              combo.type ?? null,
+              combo.combo ?? null,
+              combo.color ?? null,
+              combo.radius ?? null,
+              combo.collapsed ? 1 : 0,
+              combo.displayName ?? null,
+              combo.gitStatus ?? null,
+              null,
+            );
+          }
         }
 
         const durationMs = performance.now() - taskStartedAt;
@@ -519,6 +822,13 @@ export async function generateGraphView(
     };
   } finally {
     if (db) db.close();
+    if (aggregatedDbPath && fs.existsSync(aggregatedDbPath)) {
+      try {
+        fs.unlinkSync(aggregatedDbPath);
+      } catch (err) {
+        console.error("Failed to clean up temporary aggregated database:", err);
+      }
+    }
   }
 }
 
