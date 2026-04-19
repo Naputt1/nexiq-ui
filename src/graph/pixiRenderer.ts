@@ -15,9 +15,14 @@ export class PixiRenderer {
   graph: GraphData;
   onSelect?: (id: string, center?: boolean, highlight?: boolean) => void;
   onSelectEdge?: (id: string, center?: boolean) => void;
+  onRightClick?: (id: string | null, x: number, y: number) => void;
   onZoomChange?: (zoom: number) => void;
   onZoomRangeChange?: (range: { min: number; max: number }) => void;
-  onViewportSettled?: (viewport: { x: number; y: number; zoom: number }) => void;
+  onViewportSettled?: (viewport: {
+    x: number;
+    y: number;
+    zoom: number;
+  }) => void;
   onRenderComplete?: (durationMs: number) => void;
   theme: "dark" | "light" = "dark";
   customColors?: CustomColors;
@@ -57,6 +62,7 @@ export class PixiRenderer {
     height: number,
     onSelect?: (id: string, center?: boolean, highlight?: boolean) => void,
     onSelectEdge?: (id: string, center?: boolean) => void,
+    onRightClick?: (id: string | null, x: number, y: number) => void,
     onZoomChange?: (zoom: number) => void,
     onZoomRangeChange?: (range: { min: number; max: number }) => void,
     onViewportSettled?: (viewport: {
@@ -76,6 +82,7 @@ export class PixiRenderer {
     this.graph = graph;
     this.onSelect = onSelect;
     this.onSelectEdge = onSelectEdge;
+    this.onRightClick = onRightClick;
     this.onZoomChange = onZoomChange;
     this.onZoomRangeChange = onZoomRangeChange;
     this.onViewportSettled = onViewportSettled;
@@ -132,6 +139,10 @@ export class PixiRenderer {
       this.publishZoomState();
       this.scheduleViewportSettled();
       this.requestMinimapRender();
+    });
+
+    this.viewport.on("rightclick", (e) => {
+      this.onRightClick?.(null, e.client.x, e.client.y);
     });
 
     this.isReady = true;
@@ -217,6 +228,35 @@ export class PixiRenderer {
         },
       });
     }
+  }
+
+  getItemAt(clientX: number, clientY: number): string | null {
+    if (!this.isReady) return null;
+
+    // Map DOM coordinates to Pixi world space
+    const worldPoint = new PIXI.Point();
+    this.app.renderer.events.mapPositionToPoint(worldPoint, clientX, clientY);
+
+    // PixiJS v8 hit testing via rootBoundary
+    const hit = this.app.renderer.events.rootBoundary.hitTest(
+      worldPoint.x,
+      worldPoint.y,
+    );
+
+    if (hit) {
+      let current: PIXI.Container | null = hit as PIXI.Container;
+      while (current) {
+        if (
+          current.label &&
+          (this.combos.has(current.label) || this.nodes.has(current.label))
+        ) {
+          return current.label;
+        }
+        current = current.parent;
+      }
+    }
+
+    return null;
   }
 
   setViewport(x: number, y: number, zoom: number) {
@@ -474,7 +514,9 @@ export class PixiRenderer {
     for (const combo of combos) {
       const pos = this.graph.getAbsolutePosition(combo.id);
       if (!pos) continue;
-      const radius = combo.collapsed ? combo.collapsedRadius : combo.expandedRadius;
+      const radius = combo.collapsed
+        ? combo.collapsedRadius
+        : combo.expandedRadius;
       minX = Math.min(minX, pos.x - radius);
       minY = Math.min(minY, pos.y - radius);
       maxX = Math.max(maxX, pos.x + radius);
@@ -530,7 +572,8 @@ export class PixiRenderer {
 
     if (worldWidth * zoom <= this.viewport.screenWidth) {
       nextX =
-        this.viewport.screenWidth / 2 - ((bounds.minX + bounds.maxX) / 2) * zoom;
+        this.viewport.screenWidth / 2 -
+        ((bounds.minX + bounds.maxX) / 2) * zoom;
     } else {
       nextX = Math.min(maxX, Math.max(minX, nextX));
     }
@@ -600,8 +643,10 @@ export class PixiRenderer {
       case "child-moved":
         this.updateAllItems();
         break;
-    }
-  }
+      case "focus-changed":
+        this.requestRender();
+        break;
+      }  }
 
   public requestRender() {
     if (this.renderQueued || !this.isReady) return;
@@ -658,6 +703,7 @@ export class PixiRenderer {
       viewport: this.viewport,
       onSelect: this.onSelect,
       onSelectEdge: this.onSelectEdge,
+      onRightClick: this.onRightClick,
       registerItem: (id, item) => {
         this.items.set(id, item as PIXI.Container);
         if (item instanceof PIXI.Container) {

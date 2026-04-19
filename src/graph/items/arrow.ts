@@ -83,6 +83,7 @@ export class GraphArrow implements Renderable {
 
     // If either end is explicitly hidden or deleted, hide the edge
     const isVisible =
+      this.visible !== false &&
       srcNode?.visible !== false &&
       targetNode?.visible !== false &&
       srcNode?.gitStatus !== "deleted" &&

@@ -52,6 +52,7 @@ export interface RenderContext {
   graph: GraphData;
   onSelect?: (id: string, center?: boolean, highlight?: boolean) => void;
   onSelectEdge?: (id: string, center?: boolean) => void;
+  onRightClick?: (id: string | null, x: number, y: number) => void;
   registerItem?: (
     id: string,
     item: PIXI.Container | PIXI.Graphics | PIXI.Text,

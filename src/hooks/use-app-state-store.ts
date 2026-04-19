@@ -39,10 +39,12 @@ interface AppState {
   isLoaded: boolean;
   viewport: { x: number; y: number; zoom: number } | null;
   view: GraphViewType;
+  isProjectModalOpen: boolean;
   sidebar: {
     right: {
       width: number;
       height: number;
+      isOpen: boolean;
     };
     bottom: {
       isOpen: boolean;
@@ -58,6 +60,8 @@ interface AppState {
   setSelectedEdgeId: (id: string | null) => void;
   setSelectedItemType: (type: "node" | "edge" | null) => void;
   setIsSidebarOpen: (open: boolean) => void;
+  setProjectModalOpen: (open: boolean) => void;
+  setRightSidebarOpen: (open: boolean) => void;
   setActiveTab: (tab: "projects" | "git") => void;
   setSelectedCommit: (commit: string | null) => void;
   setViewport: (
@@ -93,10 +97,12 @@ export const useAppStateStore = create<AppState>()(
     isLoaded: false,
     viewport: null,
     view: "component" as GraphViewType,
+    isProjectModalOpen: false,
     sidebar: {
       right: {
         width: DEFAULT.SIDEBAR.RIGHT.WIDTH,
         height: DEFAULT.SIDEBAR.RIGHT.HEIGHT,
+        isOpen: true,
       },
       bottom: {
         isOpen: DEFAULT.SIDEBAR.BOTTOM.IS_OPEN,
@@ -137,6 +143,17 @@ export const useAppStateStore = create<AppState>()(
               : null,
       })),
     setIsSidebarOpen: (open) => set({ isSidebarOpen: open }),
+    setProjectModalOpen: (open) => set({ isProjectModalOpen: open }),
+    setRightSidebarOpen: (open) =>
+      set((state) => ({
+        sidebar: {
+          ...state.sidebar,
+          right: {
+            ...state.sidebar.right,
+            isOpen: open,
+          },
+        },
+      })),
     setActiveTab: (tab) => set({ activeTab: tab }),
     setSelectedCommit: (commit) => set({ selectedCommit: commit }),
     setViewport: (viewport) => set({ viewport }),
@@ -205,10 +222,12 @@ export const useAppStateStore = create<AppState>()(
         viewport: null,
         isLoaded: false,
         view: "component",
+        isProjectModalOpen: false,
         sidebar: {
           right: {
             width: DEFAULT.SIDEBAR.RIGHT.WIDTH,
             height: DEFAULT.SIDEBAR.RIGHT.HEIGHT,
+            isOpen: true,
           },
           bottom: {
             isOpen: DEFAULT.SIDEBAR.BOTTOM.IS_OPEN,
@@ -232,7 +251,7 @@ export const useAppStateStore = create<AppState>()(
         if (state) {
           const persistedSidebar = state.sidebar as
             | {
-                right?: { width?: number; height?: number };
+                right?: { width?: number; height?: number; isOpen?: boolean };
                 bottom?: {
                   isOpen?: boolean;
                   height?: number;
@@ -267,6 +286,7 @@ export const useAppStateStore = create<AppState>()(
             selectedCommit: state.selectedCommit || null,
             viewport: state.viewport || null,
             view: (state.view as GraphViewType) || "component",
+            isProjectModalOpen: false,
             isLoaded: true,
             sidebar: {
               right: {
@@ -275,6 +295,7 @@ export const useAppStateStore = create<AppState>()(
                 height:
                   persistedSidebar?.right?.height ||
                   DEFAULT.SIDEBAR.RIGHT.HEIGHT,
+                isOpen: persistedSidebar?.right?.isOpen ?? true,
               },
               bottom: {
                 isOpen:
@@ -326,24 +347,22 @@ export const useAppStateStore = create<AppState>()(
       } = get();
       if (!isLoaded) return; // Don't save until we've loaded
 
-      await (window.ipcRenderer.invoke as (...args: unknown[]) => Promise<void>)(
-        "save-state",
-        projectRoot,
-        {
-          selectedSubProjects,
-          centeredItemId,
-          selectedId,
-          selectedEdgeId,
-          selectedItemType,
-          selected,
-          isSidebarOpen,
-          activeTab,
-          selectedCommit,
-          viewport,
-          view,
-          sidebar,
-        },
-      );
+      await (
+        window.ipcRenderer.invoke as (...args: unknown[]) => Promise<void>
+      )("save-state", projectRoot, {
+        selectedSubProjects,
+        centeredItemId,
+        selectedId,
+        selectedEdgeId,
+        selectedItemType,
+        selected,
+        isSidebarOpen,
+        activeTab,
+        selectedCommit,
+        viewport,
+        view,
+        sidebar,
+      });
     },
   })),
 );

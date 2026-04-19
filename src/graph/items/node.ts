@@ -17,6 +17,15 @@ export class GraphNode extends BaseNode {
     container.interactive = true;
     container.cursor = "pointer";
     container.alpha = context.hasGitChanges && !this.gitStatus ? 0.2 : 1;
+    container.visible = this.visible !== false;
+
+    if (this.visible === false) {
+      if (context.registerItem) {
+        context.registerItem(this.id, container);
+      }
+      parent.addChild(container);
+      return container;
+    }
 
     let dragData: PIXI.FederatedPointerEvent | null = null;
 
@@ -95,6 +104,11 @@ export class GraphNode extends BaseNode {
       }
     });
 
+    container.on("rightclick", (e) => {
+      e.stopPropagation();
+      context.onRightClick?.(this.id, e.client.x, e.client.y);
+    });
+
     const highlightColor =
       context.customColors?.nodeHighlight ||
       (context.theme === "dark" ? "#3b82f6" : "#2563eb");
@@ -128,11 +142,7 @@ export class GraphNode extends BaseNode {
 
     container.addChild(graphics);
 
-    this.renderLabel(
-      container,
-      (this.radius || 0) + 10 * this.scale,
-      context,
-    );
+    this.renderLabel(container, (this.radius || 0) + 10 * this.scale, context);
 
     this.renderGitStatus(container, this.radius, 4, context);
 
@@ -145,6 +155,7 @@ export class GraphNode extends BaseNode {
   }
 
   update(context: RenderContext, container: PIXI.Container) {
+    if (!container) return;
     container.x = this.x;
     container.y = this.y;
     container.alpha = context.hasGitChanges && !this.gitStatus ? 0.2 : 1;
