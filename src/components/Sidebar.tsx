@@ -108,7 +108,9 @@ export function ProjectSidebar({
     );
   }, [subProjects, currentConfig]);
 
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const isModalOpen = useAppStateStore((s) => s.isProjectModalOpen);
+  const setIsModalOpen = useAppStateStore((s) => s.setProjectModalOpen);
+
   const hasProjectSelector = filteredSubProjects.length > 1;
 
   const collapsedActionClass = cn(

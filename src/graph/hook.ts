@@ -58,11 +58,15 @@ export type GraphDataCallbackParams =
       child?: boolean;
     }
   | { type: "layout-change" }
-  | { type: "child-moved" };
+  | { type: "child-moved" }
+  | { type: "focus-changed"; focusedId: string | null };
 
 export type GraphDataCallback = (params: GraphDataCallbackParams) => void;
 
-type InnerCallBackParams = { type: "child-moved" } | { type: "layout-change" };
+type InnerCallBackParams =
+  | { type: "child-moved" }
+  | { type: "layout-change" }
+  | { type: "focus-changed" };
 
 type InnerCallBack = (params: InnerCallBackParams) => void;
 
@@ -142,6 +146,7 @@ export class GraphData {
 
   private layoutInProgress: Set<string> = new Set();
   private draggingId: string | null = null;
+  private focusedId: string | null = null;
 
   public lastModified: number = Date.now();
   private cachedAbsolutePositions: Map<string, { x: number; y: number }> =
@@ -444,6 +449,87 @@ export class GraphData {
     this.profileRunId = runId;
   }
 
+  public getFocusedId() {
+    return this.focusedId;
+  }
+
+  public isAncestorOfFocused(id: string): boolean {
+    if (!this.focusedId || this.focusedId === id) return false;
+    const target = this.getPointByID(this.focusedId);
+    if (!target) return false;
+
+    let p = target.parent;
+    while (p) {
+      if (p.id === id) return true;
+      p = p.parent;
+    }
+    return false;
+  }
+
+  public focusItem(id: string | null) {
+    this.focusedId = id;
+    this.batch(() => {
+      if (id === null) {
+        // Reset: show everything
+        this.getAllNodes().forEach((n) => (n.visible = true));
+        this.getAllCombos().forEach((c) => (c.visible = true));
+        this.getAllEdges().forEach((e) => (e.visible = true));
+      } else {
+        // Hide everything first
+        this.getAllNodes().forEach((n) => (n.visible = false));
+        this.getAllCombos().forEach((c) => (c.visible = false));
+        this.getAllEdges().forEach((e) => (e.visible = false));
+
+        const target = this.getPointByID(id);
+        if (target) {
+          // Show target, descendants, and ancestors
+          this.showAncestors(target);
+          if (target instanceof GraphCombo) {
+            this.showDescendants(target);
+          } else {
+            target.visible = true;
+          }
+
+          // Show relevant edges
+          const visibleIds = new Set([
+            ...this.getAllNodes()
+              .filter((n) => n.visible)
+              .map((n) => n.id),
+            ...this.getAllCombos()
+              .filter((c) => c.visible)
+              .map((c) => c.id),
+          ]);
+
+          this.getAllEdges().forEach((e) => {
+            if (visibleIds.has(e.source) && visibleIds.has(e.target)) {
+              e.visible = true;
+            } else {
+              e.visible = false;
+            }
+          });
+        }
+      }
+      this.trigger({ type: "focus-changed", focusedId: id });
+    });
+  }
+
+  private showAncestors(item: GraphNode | GraphCombo) {
+    item.visible = true;
+    if (item.parent) {
+      this.showAncestors(item.parent);
+    }
+  }
+
+  private showDescendants(combo: GraphCombo) {
+    combo.visible = true;
+    if (combo.child) {
+      Object.values(combo.child.nodes).forEach((n) => (n.visible = true));
+      Object.values(combo.child.combos).forEach((c) => {
+        this.showDescendants(c);
+      });
+    }
+  }
+
   private getComboHook(id: string): GraphComboHookBase | undefined {
     const combo = this.getComboByID(id);
     if (combo == null) return;
@@ -618,14 +704,14 @@ export class GraphData {
       sources,
       targets,
       options: {
-        repulsionStrength: 250 * combo.scale,
-        linkDistance: 22 * combo.scale,
+        repulsionStrength: 180 * combo.scale,
+        linkDistance: 18 * combo.scale,
         attractionStrength: 0.18,
         damping: 0.8,
         gravity: 0.04,
         timeStep: 0.02,
-        minNodeDistance: 25 * combo.scale,
-        collisionStrength: 2,
+        minNodeDistance: 15 * combo.scale,
+        collisionStrength: 2.5,
         alpha: 1.0,
         alphaDecay: 0.005,
       },
@@ -1748,7 +1834,15 @@ export class GraphData {
     return this.getComboByID(id);
   }
 
-  public layout(force = false, fixedId?: string) {
+  public layout(force = false, targetId?: string) {
+    if (targetId) {
+      const combo = this.getComboByID(targetId);
+      if (combo) {
+        this.calculateComboChildrenLayout(targetId, true);
+        return;
+      }
+    }
+
     // Trigger layout for all expanded combos
     for (const c of Array.from(this.getAllCombos())) {
       if (!c.collapsed) {
@@ -1789,7 +1883,7 @@ export class GraphData {
         "collapsedRadius" in point ? point.expandedRadius : point.radius,
       );
       fixed[index] =
-        point.id === this.draggingId || point.id === fixedId ? 1 : 0;
+        point.id === this.draggingId || point.id === targetId ? 1 : 0;
     }
 
     for (let index = 0; index < edgePairs.length; index += 1) {
@@ -1824,9 +1918,6 @@ export class GraphData {
         alphaDecay: 0.002,
       },
     } satisfies LayoutRequest);
-
-    // Populate curRender immediately with current positions (even if not laid out yet)
-    // or we might wait? But render() initializes curRender.
   }
 
   private curRender: CurRender = {

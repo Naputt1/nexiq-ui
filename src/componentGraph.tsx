@@ -16,7 +16,16 @@ import { PixiRenderer } from "./graph/pixiRenderer";
 import { ProjectSidebar } from "./components/Sidebar";
 import { RightSidebar } from "./components/RightSidebar";
 import { ZoomSlider } from "./components/ZoomSlider";
-import { AlertTriangle, Loader2, RefreshCw, Search } from "lucide-react";
+import {
+  AlertTriangle,
+  FolderOpen,
+  PanelBottomOpen,
+  Loader2,
+  PanelLeft,
+  PanelRight,
+  RefreshCw,
+  Search,
+} from "lucide-react";
 import { cn, debounce } from "@/lib/utils";
 import {
   SidebarProvider,
@@ -45,6 +54,7 @@ import { extractUIState } from "./graph/utils/ui-state";
 import type { GenerateViewRequest } from "./views/types";
 import {
   getGraphSnapshotKey,
+  getLargeDataHandle,
   openDiffAnalysisSnapshot,
   openViewResultSnapshot,
   readLargeData,
@@ -59,6 +69,25 @@ import type { FileAnalysisErrorRow, ResolveErrorRow } from "../electron/types";
 import { Card } from "./components/ui/card";
 import { ViewSwitcher } from "./components/ViewSwitcher";
 import type { GraphViewBufferView } from "./view-snapshot/codec";
+
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuTrigger,
+} from "./components/ui/context-menu";
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandShortcut,
+} from "./components/ui/command";
+import { Kbd } from "./components/ui/kbd";
 
 interface ComponentGraphProps {
   projectPath: string;
@@ -76,6 +105,8 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   const setCenteredItemId = useAppStateStore((s) => s.setCenteredItemId);
   const isSidebarOpen = useAppStateStore((s) => s.isSidebarOpen);
   const setIsSidebarOpen = useAppStateStore((s) => s.setIsSidebarOpen);
+  const isRightSidebarOpen = useAppStateStore((s) => s.sidebar.right.isOpen);
+  const setRightSidebarOpen = useAppStateStore((s) => s.setRightSidebarOpen);
   const selectedCommit = useAppStateStore((s) => s.selectedCommit);
   const activeTab = useAppStateStore((s) => s.activeTab);
   const loadState = useAppStateStore((s) => s.loadState);
@@ -90,6 +121,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   const setBottomPanelHeight = useAppStateStore((s) => s.setBottomPanelHeight);
   const setBottomPanelOpen = useAppStateStore((s) => s.setBottomPanelOpen);
   const setBottomPanelTab = useAppStateStore((s) => s.setBottomPanelTab);
+  const setProjectModalOpen = useAppStateStore((s) => s.setProjectModalOpen);
   const sidebarWidth = useAppStateStore((s) => s.sidebar.right.width);
   const setViewport = useAppStateStore((s) => s.setViewport);
 
@@ -153,6 +185,12 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   const [matches, setMatches] = useState<string[]>([]);
   const [currentMatchIndex, setCurrentMatchIndex] = useState(-1);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    targetId: string | null;
+  } | null>(null);
 
   const [typeData, settypeData] = useState<{ [key: string]: TypeDataDeclare }>(
     {},
@@ -906,6 +944,9 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
         size.height,
         onSelect,
         onSelectEdge,
+        (id, x, y) => {
+          setContextMenu({ x, y, targetId: id });
+        },
         (zoom) => {
           useViewportUiStore.getState().setZoom(zoom);
         },
@@ -1093,13 +1134,77 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   // handle global shortcuts
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
         e.preventDefault();
         if (isSearchOpen) {
           searchInputRef.current?.select();
         } else {
           setIsSearchOpen(true);
         }
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setIsCommandPaletteOpen(true);
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "l") {
+        e.preventDefault();
+        const focusedId = graph.getFocusedId();
+        if (focusedId) {
+          const item = graph.getPointByID(focusedId);
+          if (item instanceof GraphCombo) {
+            graph.layout(true, focusedId);
+          } else if (item?.parent) {
+            graph.layout(true, item.parent.id);
+          } else {
+            graph.layout(true);
+          }
+        } else if (selectedId) {
+          const item = graph.getPointByID(selectedId);
+          if (item instanceof GraphCombo) {
+            graph.layout(true, selectedId);
+          } else if (item?.parent) {
+            graph.layout(true, item.parent.id);
+          } else {
+            graph.layout(true);
+          }
+        } else {
+          graph.layout(true);
+        }
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") {
+        if (e.shiftKey) {
+          // Handled by Ctrl + \ now or keep as alternative but don't fall through
+          e.preventDefault();
+          setRightSidebarOpen(!isRightSidebarOpen);
+        } else {
+          e.preventDefault();
+          setIsSidebarOpen(!isSidebarOpen);
+        }
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        setBottomPanelOpen(!isBottomPanelOpen);
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "p") {
+        e.preventDefault();
+        setProjectModalOpen(true);
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        if (selectedId) {
+          e.preventDefault();
+          if (e.shiftKey) {
+            graph.focusItem(null);
+          } else {
+            graph.focusItem(selectedId);
+          }
+        } else if (e.shiftKey) {
+          e.preventDefault();
+          graph.focusItem(null);
+        }
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "\\") {
+        e.preventDefault();
+        setRightSidebarOpen(!isRightSidebarOpen);
       }
       if (e.key === "Escape") {
         setIsSearchOpen(false);
@@ -1118,7 +1223,18 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [isSearchOpen, matches, currentMatchIndex, goToNextMatch, goToPrevMatch]);
+  }, [
+    isSearchOpen,
+    matches,
+    currentMatchIndex,
+    goToNextMatch,
+    goToPrevMatch,
+    isSidebarOpen,
+    isRightSidebarOpen,
+    isBottomPanelOpen,
+    selectedId,
+    graph,
+  ]);
 
   // Focus and select search input when opened
   useEffect(() => {
@@ -1148,6 +1264,11 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     setSearch(value);
   };
 
+  const isMac =
+    typeof window !== "undefined" &&
+    navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+  const modLabel = isMac ? "⌘" : "Ctrl";
+
   const handleReloadProject = useCallback(async () => {
     const targetPath = selectedSubProjects[0] || projectPath;
     if (!targetPath) return;
@@ -1159,6 +1280,11 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
         targetPath,
         projectPath,
       );
+      // Ensure handle is open before refresh to avoid "No snapshot worker" error
+      await getLargeDataHandle("graph", {
+        projectRoot: projectPath,
+        analysisPath: targetPath === projectPath ? undefined : targetPath,
+      });
       await refreshGraphSnapshot(
         projectPath,
         targetPath === projectPath ? undefined : targetPath,
@@ -1466,10 +1592,272 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
                       ref={containerRef}
                       className="w-full h-full overflow-hidden relative min-w-0"
                     >
-                      <div
-                        className="absolute inset-0"
-                        ref={graphContainerRef}
-                      />
+                      <ContextMenu
+                        onOpenChange={(open) => {
+                          if (!open) setContextMenu(null);
+                        }}
+                      >
+                        <ContextMenuTrigger
+                          asChild
+                          onContextMenu={(e) => {
+                            const targetId =
+                              rendererRef.current?.getItemAt(
+                                e.clientX,
+                                e.clientY,
+                              ) || null;
+                            setContextMenu({
+                              x: e.clientX,
+                              y: e.clientY,
+                              targetId,
+                            });
+                          }}
+                        >
+                          <div
+                            className="absolute inset-0"
+                            ref={graphContainerRef}
+                          />
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-64">
+                          {contextMenu?.targetId ? (
+                            <>
+                              <ContextMenuItem
+                                onClick={() => {
+                                  graph.focusItem(contextMenu.targetId);
+                                }}
+                              >
+                                <Search className="mr-2 h-4 w-4" />
+                                Focus this Item
+                                <ContextMenuShortcut>
+                                  <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                    {modLabel}
+                                  </Kbd>
+                                  <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                    Enter
+                                  </Kbd>
+                                </ContextMenuShortcut>
+                              </ContextMenuItem>
+                              <ContextMenuSeparator />
+                            </>
+                          ) : null}
+                          {graph.getFocusedId() && (
+                            <ContextMenuItem
+                              onClick={() => {
+                                graph.focusItem(null);
+                              }}
+                            >
+                              <RefreshCw className="mr-2 h-4 w-4" />
+                              Reset Focus
+                              <ContextMenuShortcut>
+                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                  {modLabel}
+                                </Kbd>
+                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                  ⇧
+                                </Kbd>
+                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                  Enter
+                                </Kbd>
+                              </ContextMenuShortcut>
+                            </ContextMenuItem>
+                          )}
+                          <ContextMenuItem
+                            onClick={() => {
+                              graph.layout(true);
+                            }}
+                          >
+                            <RefreshCw className="mr-2 h-4 w-4" />
+                            Recalculate Layout
+                            <ContextMenuShortcut>
+                              <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                {modLabel}
+                              </Kbd>
+                              <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                L
+                              </Kbd>
+                            </ContextMenuShortcut>
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
+
+                      <CommandDialog
+                        open={isCommandPaletteOpen}
+                        onOpenChange={setIsCommandPaletteOpen}
+                      >
+                        <CommandInput placeholder="Type a command or search..." />
+                        <CommandList>
+                          <CommandEmpty>No results found.</CommandEmpty>
+                          <CommandGroup heading="Actions">
+                            <CommandItem
+                              onSelect={() => {
+                                const focusedId = graph.getFocusedId();
+                                let targetId: string | undefined = undefined;
+                                if (focusedId) {
+                                  targetId = focusedId;
+                                } else if (selectedId) {
+                                  targetId = selectedId;
+                                }
+
+                                if (targetId) {
+                                  const item = graph.getPointByID(targetId);
+                                  if (item instanceof GraphCombo) {
+                                    graph.layout(true, targetId);
+                                  } else if (item?.parent) {
+                                    graph.layout(true, item.parent.id);
+                                  } else {
+                                    graph.layout(true);
+                                  }
+                                } else {
+                                  graph.layout(true);
+                                }
+                                setIsCommandPaletteOpen(false);
+                              }}
+                            >
+                              <RefreshCw className="mr-2 h-4 w-4" />
+                              Recalculate Layout
+                              <CommandShortcut>
+                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                  {modLabel}
+                                </Kbd>
+                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                  L
+                                </Kbd>
+                              </CommandShortcut>
+                            </CommandItem>
+                            <CommandItem
+                              onSelect={() => {
+                                if (selectedId) {
+                                  graph.focusItem(selectedId);
+                                }
+                                setIsCommandPaletteOpen(false);
+                              }}
+                              disabled={!selectedId}
+                            >
+                              <Search className="mr-2 h-4 w-4" />
+                              Focus Selected Item
+                              <CommandShortcut>
+                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                  {modLabel}
+                                </Kbd>
+                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                  Enter
+                                </Kbd>
+                              </CommandShortcut>
+                            </CommandItem>
+                            {graph.getFocusedId() && (
+                              <CommandItem
+                                onSelect={() => {
+                                  graph.focusItem(null);
+                                  setIsCommandPaletteOpen(false);
+                                }}
+                              >
+                                <RefreshCw className="mr-2 h-4 w-4" />
+                                Reset Focus
+                                <CommandShortcut>
+                                  <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                    {modLabel}
+                                  </Kbd>
+                                  <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                    ⇧
+                                  </Kbd>
+                                  <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                    Enter
+                                  </Kbd>
+                                </CommandShortcut>
+                              </CommandItem>
+                            )}
+                          </CommandGroup>
+                          <CommandGroup heading="View">
+                            <CommandItem
+                              onSelect={() => {
+                                setIsSidebarOpen(!isSidebarOpen);
+                                setIsCommandPaletteOpen(false);
+                              }}
+                            >
+                              <PanelLeft className="mr-2 h-4 w-4" />
+                              Toggle Left Sidebar
+                              <CommandShortcut>
+                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                  {modLabel}
+                                </Kbd>
+                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                  B
+                                </Kbd>
+                              </CommandShortcut>
+                            </CommandItem>
+                            <CommandItem
+                              onSelect={() => {
+                                setRightSidebarOpen(!isRightSidebarOpen);
+                                setIsCommandPaletteOpen(false);
+                              }}
+                            >
+                              <PanelRight className="mr-2 h-4 w-4" />
+                              Toggle Right Sidebar
+                              <CommandShortcut>
+                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                  {modLabel}
+                                </Kbd>
+                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                  \
+                                </Kbd>
+                              </CommandShortcut>
+                            </CommandItem>
+                            <CommandItem
+                              onSelect={() => {
+                                setBottomPanelOpen(!isBottomPanelOpen);
+                                setIsCommandPaletteOpen(false);
+                              }}
+                            >
+                              <PanelBottomOpen className="mr-2 h-4 w-4" />
+                              Toggle Bottom Panel
+                              <CommandShortcut>
+                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                  {modLabel}
+                                </Kbd>
+                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                  J
+                                </Kbd>
+                              </CommandShortcut>
+                            </CommandItem>
+                            <CommandItem
+                              onSelect={() => {
+                                setProjectModalOpen(true);
+                                setIsCommandPaletteOpen(false);
+                              }}
+                            >
+                              <FolderOpen className="mr-2 h-4 w-4" />
+                              Select Project
+                              <CommandShortcut>
+                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                  {modLabel}
+                                </Kbd>
+                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                  P
+                                </Kbd>
+                              </CommandShortcut>
+                            </CommandItem>
+                          </CommandGroup>
+                          <CommandGroup heading="Navigation">
+                            <CommandItem
+                              onSelect={() => {
+                                setIsSearchOpen(true);
+                                setIsCommandPaletteOpen(false);
+                              }}
+                            >
+                              <Search className="mr-2 h-4 w-4" />
+                              Search...
+                              <CommandShortcut>
+                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                  {modLabel}
+                                </Kbd>
+                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                  F
+                                </Kbd>
+                              </CommandShortcut>
+                            </CommandItem>
+                          </CommandGroup>
+                        </CommandList>
+                      </CommandDialog>
+
                       {(isGeneratingView || isPending) && (
                         <div className="absolute inset-0 z-10 bg-background/50 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
                           <Loader2 className="h-10 w-10 animate-spin text-primary" />
@@ -1512,7 +1900,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
                 </ResizablePanel>
               </ResizablePanelGroup>
             </ResizablePanel>
-            {(selectedId || selectedEdgeId) && (
+            {(selectedId || selectedEdgeId) && isRightSidebarOpen && (
               <>
                 <ResizableHandle withHandle />
                 <ResizablePanel id="sidebar" minSize="15%" maxSize="50%">

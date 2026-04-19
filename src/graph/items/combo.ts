@@ -18,6 +18,8 @@ export class GraphCombo extends BaseNode {
   child?: CurRender;
   private lastClickTime: number = 0;
   private animationFrame: number | null = null;
+  private animating = false;
+  private previousRadius: number | null = null;
 
   constructor(data: GraphComboData) {
     super(data);
@@ -33,8 +35,6 @@ export class GraphCombo extends BaseNode {
   }
 
   render(context: RenderContext, parent: PIXI.Container): PIXI.Container {
-    if (this.visible === false) return new PIXI.Container();
-
     const container = new PIXI.Container();
     container.label = this.id;
     container.x = this.x;
@@ -42,6 +42,15 @@ export class GraphCombo extends BaseNode {
     container.interactive = true;
     container.cursor = "pointer";
     container.alpha = context.hasGitChanges && !this.gitStatus ? 0.2 : 1;
+    container.visible = this.visible !== false;
+
+    if (this.visible === false) {
+      if (context.registerItem) {
+        context.registerItem(this.id, container);
+      }
+      parent.addChild(container);
+      return container;
+    }
 
     let dragData: PIXI.FederatedPointerEvent | null = null;
 
@@ -76,10 +85,11 @@ export class GraphCombo extends BaseNode {
       e.stopPropagation();
 
       const now = Date.now();
-      const isDoubleClick = now - this.lastClickTime < 300;
+      const isDoubleClick = now - this.lastClickTime < 350;
       this.lastClickTime = now;
 
       if (isDoubleClick) {
+        this.lastClickTime = 0; // Avoid triple-click issues
         e.stopPropagation();
         context.graph.comboCollapsed(this.id);
         return;
@@ -112,6 +122,11 @@ export class GraphCombo extends BaseNode {
       }
     });
 
+    container.on("rightclick", (e) => {
+      e.stopPropagation();
+      context.onRightClick?.(this.id, e.client.x, e.client.y);
+    });
+
     // Background Circle
     const appearance = resolveNodeAppearance(
       context.customColors,
@@ -129,7 +144,12 @@ export class GraphCombo extends BaseNode {
     } else if (this.expandedRadius < baseRadius) {
       this.expandedRadius = baseRadius;
     }
-    const radius = this.collapsed ? this.collapsedRadius : this.expandedRadius;
+    const radius =
+      this.animating && this.previousRadius !== null
+        ? this.previousRadius
+        : this.collapsed
+          ? this.collapsedRadius
+          : this.expandedRadius;
     this.radius = radius;
     const highlightColor =
       context.customColors?.comboHighlight ||
@@ -137,8 +157,11 @@ export class GraphCombo extends BaseNode {
 
     const fillColor = this.getFillColor(context);
 
+    const isGhost = context.graph.isAncestorOfFocused(this.id);
+
     const graphics = new PIXI.Graphics();
     graphics.label = `bg-${this.id}`;
+    graphics.visible = !isGhost;
 
     graphics.circle(0, 0, radius);
     if (this.collapsed) {
@@ -177,10 +200,14 @@ export class GraphCombo extends BaseNode {
     }
 
     // Label
-    this.renderLabel(container, radius + 10 * this.scale, context);
+    if (!isGhost) {
+      this.renderLabel(container, radius + 10 * this.scale, context);
+    }
 
     // Git Status
-    this.renderGitStatus(container, radius, 6, context);
+    if (!isGhost) {
+      this.renderGitStatus(container, radius, 6, context);
+    }
 
     if (context.registerItem) {
       context.registerItem(this.id, container);
@@ -191,6 +218,7 @@ export class GraphCombo extends BaseNode {
   }
 
   update(context: RenderContext, container: PIXI.Container) {
+    if (!container) return;
     container.x = this.x;
     container.y = this.y;
     container.alpha = context.hasGitChanges && !this.gitStatus ? 0.2 : 1;
@@ -198,34 +226,39 @@ export class GraphCombo extends BaseNode {
 
     if (!container.visible) return;
 
+    const isGhost = context.graph.isAncestorOfFocused(this.id);
+
     const rootBg = container.children.find(
       (c) => c.label === `bg-${this.id}`,
     ) as PIXI.Graphics;
     if (rootBg) {
-      rootBg.clear();
-      const radius = this.radius;
-      rootBg.circle(0, 0, radius);
-      const fillColor = this.getFillColor(context);
+      rootBg.visible = !isGhost;
+      if (rootBg.visible) {
+        rootBg.clear();
+        const radius = this.radius;
+        rootBg.circle(0, 0, radius);
+        const fillColor = this.getFillColor(context);
 
-      if (this.collapsed) {
-        rootBg.fill(fillColor);
-      } else {
-        rootBg.fill({ color: 0x000000, alpha: 0.01 });
+        if (this.collapsed) {
+          rootBg.fill(fillColor);
+        } else {
+          rootBg.fill({ color: 0x000000, alpha: 0.01 });
+        }
+
+        const highlightColor =
+          context.customColors?.comboHighlight ||
+          (context.theme === "dark" ? "#3b82f6" : "#2563eb");
+        const strokeColor = this.highlighted ? highlightColor : fillColor;
+
+        rootBg.stroke({
+          color: strokeColor,
+          width: this.highlighted ? 4 * this.scale : 2 * this.scale,
+          alignment: 0,
+        });
+
+        // Update hitArea
+        rootBg.hitArea = new PIXI.Circle(0, 0, radius);
       }
-
-      const highlightColor =
-        context.customColors?.comboHighlight ||
-        (context.theme === "dark" ? "#3b82f6" : "#2563eb");
-      const strokeColor = this.highlighted ? highlightColor : fillColor;
-
-      rootBg.stroke({
-        color: strokeColor,
-        width: this.highlighted ? 4 * this.scale : 2 * this.scale,
-        alignment: 0,
-      });
-
-      // Update hitArea
-      rootBg.hitArea = new PIXI.Circle(0, 0, radius);
     }
 
     const contentContainer = container.children.find(
@@ -235,8 +268,18 @@ export class GraphCombo extends BaseNode {
       contentContainer.visible = !this.collapsed;
     }
 
-    this.updateLabel(container, this.radius + 10 * this.scale, context);
-    this.updateGitStatus(container, this.radius, 6, context);
+    if (!isGhost) {
+      this.updateLabel(container, this.radius + 10 * this.scale, context);
+      this.updateGitStatus(container, this.radius, 6, context);
+    } else {
+      // Remove label and git status if they exist
+      container.children
+        .find((child) => child.label === `label-${this.id}`)
+        ?.destroy();
+      container.children
+        .find((child) => child.label === `git-status-${this.id}`)
+        ?.destroy();
+    }
   }
 
   animateRadius(
@@ -262,17 +305,21 @@ export class GraphCombo extends BaseNode {
       const progress = Math.min((now - startedAt) / duration, 1);
       const eased = 1 - Math.pow(1 - progress, 3);
       this.radius = startRadius + diff * eased;
+      this.previousRadius = this.radius;
       this.update(context, container);
 
       if (progress < 1) {
         this.animationFrame = requestAnimationFrame(tick);
       } else {
         this.radius = targetRadius;
+        this.previousRadius = null;
+        this.animating = false;
         this.update(context, container);
         this.animationFrame = null;
       }
     };
 
+    this.animating = true;
     this.animationFrame = requestAnimationFrame(tick);
   }
 
