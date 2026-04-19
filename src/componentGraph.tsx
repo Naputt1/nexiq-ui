@@ -1234,6 +1234,10 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     isBottomPanelOpen,
     selectedId,
     graph,
+    setRightSidebarOpen,
+    setIsSidebarOpen,
+    setBottomPanelOpen,
+    setProjectModalOpen,
   ]);
 
   // Focus and select search input when opened
@@ -1415,7 +1419,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
       setSourceContent(cachedContent);
     } else {
       window.ipcRenderer
-        .invoke("read-source-file", filePath)
+        .invoke("read-source-file", projectPath, filePath)
         .then((result) => {
           if (cancelled) return;
           const nextPath = result.path.replace(/\\/g, "/");

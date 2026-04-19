@@ -1032,13 +1032,12 @@ ipcMain.handle(
     return new Promise((resolve, reject) => {
       let absolutePath = filePath;
       if (projectRoot) {
-        if (!path.isAbsolute(filePath)) {
-          absolutePath = path.join(projectRoot, filePath);
-        } else if (filePath.startsWith("/") && !fs.existsSync(filePath)) {
-          // Handle the case where it starts with / but is relative to project root
-          // On macOS, /src/views is "absolute" but might not exist at root of disk
-          absolutePath = path.join(projectRoot, filePath);
-        }
+        // If the path is already absolute and starts with the project root, use it as is.
+        // Otherwise, join it with the project root. This handles root-relative paths like /src/...
+        absolutePath =
+          path.isAbsolute(filePath) && filePath.startsWith(projectRoot)
+            ? filePath
+            : path.join(projectRoot, filePath);
       }
 
       let location = absolutePath;
@@ -1085,10 +1084,17 @@ ipcMain.handle("get-recent-projects", () => {
 
 ipcMain.handle(
   "read-source-file",
-  async (_: IpcMainInvokeEvent, filePath: string) => {
+  async (_: IpcMainInvokeEvent, projectRoot: string, filePath: string) => {
+    // If the path is already absolute and starts with the project root, use it as is.
+    // Otherwise, join it with the project root. This handles root-relative paths like /src/...
+    const absolutePath =
+      path.isAbsolute(filePath) && filePath.startsWith(projectRoot)
+        ? filePath
+        : path.join(projectRoot, filePath);
+
     return {
       path: filePath,
-      content: fs.readFileSync(filePath, "utf8"),
+      content: fs.readFileSync(absolutePath, "utf8"),
     };
   },
 );

@@ -188,6 +188,7 @@ declare global {
       ): Promise<boolean>;
       invoke(
         channel: "read-source-file",
+        projectRoot: string,
         filePath: string,
       ): Promise<SourceFilePayload>;
       invoke(
