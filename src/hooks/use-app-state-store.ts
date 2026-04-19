@@ -40,6 +40,7 @@ interface AppState {
   viewport: { x: number; y: number; zoom: number } | null;
   view: GraphViewType;
   isProjectModalOpen: boolean;
+  isSettingsModalOpen: boolean;
   sidebar: {
     right: {
       width: number;
@@ -61,6 +62,7 @@ interface AppState {
   setSelectedItemType: (type: "node" | "edge" | null) => void;
   setIsSidebarOpen: (open: boolean) => void;
   setProjectModalOpen: (open: boolean) => void;
+  setSettingsModalOpen: (open: boolean) => void;
   setRightSidebarOpen: (open: boolean) => void;
   setActiveTab: (tab: "projects" | "git") => void;
   setSelectedCommit: (commit: string | null) => void;
@@ -98,6 +100,7 @@ export const useAppStateStore = create<AppState>()(
     viewport: null,
     view: "component" as GraphViewType,
     isProjectModalOpen: false,
+    isSettingsModalOpen: false,
     sidebar: {
       right: {
         width: DEFAULT.SIDEBAR.RIGHT.WIDTH,
@@ -144,6 +147,7 @@ export const useAppStateStore = create<AppState>()(
       })),
     setIsSidebarOpen: (open) => set({ isSidebarOpen: open }),
     setProjectModalOpen: (open) => set({ isProjectModalOpen: open }),
+    setSettingsModalOpen: (open) => set({ isSettingsModalOpen: open }),
     setRightSidebarOpen: (open) =>
       set((state) => ({
         sidebar: {
@@ -223,6 +227,7 @@ export const useAppStateStore = create<AppState>()(
         isLoaded: false,
         view: "component",
         isProjectModalOpen: false,
+        isSettingsModalOpen: false,
         sidebar: {
           right: {
             width: DEFAULT.SIDEBAR.RIGHT.WIDTH,
@@ -287,6 +292,7 @@ export const useAppStateStore = create<AppState>()(
             viewport: state.viewport || null,
             view: (state.view as GraphViewType) || "component",
             isProjectModalOpen: false,
+            isSettingsModalOpen: false,
             isLoaded: true,
             sidebar: {
               right: {

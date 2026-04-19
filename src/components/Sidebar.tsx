@@ -15,7 +15,6 @@ import {
   Settings2,
   Box,
 } from "lucide-react";
-import { Link } from "react-router-dom";
 import { useAppStateStore } from "@/hooks/use-app-state-store";
 import { GitPanel } from "./GitPanel";
 import { cn } from "@/lib/utils";
@@ -53,6 +52,7 @@ export function ProjectSidebar({
   const [iconUrl, setIconUrl] = useState<string | null>(null);
   const activeTab = useAppStateStore((s) => s.activeTab);
   const setActiveTab = useAppStateStore((s) => s.setActiveTab);
+  const setSettingsModalOpen = useAppStateStore((s) => s.setSettingsModalOpen);
   const selectedSubProjects = useAppStateStore((s) => s.selectedSubProjects);
   const setSelectedSubProjects = useAppStateStore(
     (s) => s.setSelectedSubProjects,
@@ -296,41 +296,21 @@ export function ProjectSidebar({
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Link
-                to={`/project-settings?projectPath=${encodeURIComponent(projectRoot)}`}
+              <button
+                onClick={() => setSettingsModalOpen(true)}
                 className={cn(
-                  "flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors px-2",
+                  "flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors px-2 cursor-pointer w-full text-left",
                   isCollapsed && "p-2 justify-center",
                 )}
               >
                 <SettingsIcon className="h-4 w-4" />
                 <span className="group-data-[collapsible=icon]:hidden">
-                  Project Settings
+                  Settings
                 </span>
-              </Link>
+              </button>
             </TooltipTrigger>
             {isCollapsed && (
-              <TooltipContent side="right">Project Settings</TooltipContent>
-            )}
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Link
-                to={`/global-settings?projectPath=${encodeURIComponent(projectRoot)}`}
-                className={cn(
-                  "flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors px-2",
-                  isCollapsed && "p-2 justify-center",
-                )}
-              >
-                <Settings2 className="h-4 w-4" />
-                <span className="group-data-[collapsible=icon]:hidden">
-                  Global Settings
-                </span>
-              </Link>
-            </TooltipTrigger>
-            {isCollapsed && (
-              <TooltipContent side="right">Global Settings</TooltipContent>
+              <TooltipContent side="right">Settings</TooltipContent>
             )}
           </Tooltip>
         </TooltipProvider>

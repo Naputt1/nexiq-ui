@@ -25,6 +25,7 @@ import {
   PanelRight,
   RefreshCw,
   Search,
+  Settings,
 } from "lucide-react";
 import { cn, debounce } from "@/lib/utils";
 import {
@@ -122,6 +123,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   const setBottomPanelOpen = useAppStateStore((s) => s.setBottomPanelOpen);
   const setBottomPanelTab = useAppStateStore((s) => s.setBottomPanelTab);
   const setProjectModalOpen = useAppStateStore((s) => s.setProjectModalOpen);
+  const setSettingsModalOpen = useAppStateStore((s) => s.setSettingsModalOpen);
   const sidebarWidth = useAppStateStore((s) => s.sidebar.right.width);
   const setViewport = useAppStateStore((s) => s.setViewport);
 
@@ -1134,6 +1136,10 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   // handle global shortcuts
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+        e.preventDefault();
+        setSettingsModalOpen(true);
+      }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
         e.preventDefault();
         if (isSearchOpen) {
@@ -1238,6 +1244,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     setIsSidebarOpen,
     setBottomPanelOpen,
     setProjectModalOpen,
+    setSettingsModalOpen,
   ]);
 
   // Focus and select search input when opened
@@ -1499,14 +1506,6 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
                       >
                         Source
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleReloadProject}
-                      >
-                        <RefreshCw className="h-4 w-4" />
-                        Reload
-                      </Button>
                       {totalErrorCount > 0 && (
                         <Button
                           variant="outline"
@@ -1691,6 +1690,32 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
                         <CommandList>
                           <CommandEmpty>No results found.</CommandEmpty>
                           <CommandGroup heading="Actions">
+                            <CommandItem
+                              onSelect={() => {
+                                handleReloadProject();
+                                setIsCommandPaletteOpen(false);
+                              }}
+                            >
+                              <RefreshCw className="mr-2 h-4 w-4" />
+                              Reload Project
+                            </CommandItem>
+                            <CommandItem
+                              onSelect={() => {
+                                setSettingsModalOpen(true);
+                                setIsCommandPaletteOpen(false);
+                              }}
+                            >
+                              <Settings className="mr-2 h-4 w-4" />
+                              Settings
+                              <CommandShortcut>
+                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                  {modLabel}
+                                </Kbd>
+                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                  ,
+                                </Kbd>
+                              </CommandShortcut>
+                            </CommandItem>
                             <CommandItem
                               onSelect={() => {
                                 const focusedId = graph.getFocusedId();

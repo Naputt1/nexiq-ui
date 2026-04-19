@@ -5,10 +5,9 @@ import ComponentGraph from "./componentGraph";
 import { SetupFlow } from "./components/setup-flow/SetupFlow";
 import { useProjectStore } from "./hooks/use-project-store";
 
-import { ProjectSettings } from "./pages/ProjectSettings";
-import { GlobalSettings } from "./pages/GlobalSettings";
 import { useAppStateStore } from "./hooks/use-app-state-store";
 import { useGraphProfilerStore } from "./hooks/use-graph-profiler-store";
+import { SettingsModal } from "./components/SettingsModal";
 
 function App() {
   const { projectRoot: storedProjectRoot, setProjectRoot } = useProjectStore();
@@ -105,25 +104,20 @@ function App() {
   }
 
   return (
-    <Routes>
-      <Route
-        path="/"
-        element={
-          <ComponentGraph
-            projectPath={projectRoot}
-            subProject={urlSubProject || undefined}
-          />
-        }
-      />
-      <Route
-        path="/project-settings"
-        element={<ProjectSettings projectPath={projectRoot} />}
-      />
-      <Route
-        path="/global-settings"
-        element={<GlobalSettings projectPath={projectRoot} />}
-      />
-    </Routes>
+    <>
+      <Routes>
+        <Route
+          path="/"
+          element={
+            <ComponentGraph
+              projectPath={projectRoot}
+              subProject={urlSubProject || undefined}
+            />
+          }
+        />
+      </Routes>
+      <SettingsModal />
+    </>
   );
 }
 
