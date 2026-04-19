@@ -273,6 +273,7 @@ const SourcePanelHeader = React.memo(function SourcePanelHeader({
     </div>
   );
 });
+
 const SourceLineRow = React.memo(function SourceLineRow({
   line,
   lineNumber,
@@ -313,7 +314,7 @@ const SourceLineRow = React.memo(function SourceLineRow({
           onClick={() => onSelectNode(marker.id)}
           title="Focus linked node"
           className={cn(
-            "rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors",
+            "h-4 rounded-full border px-1.5 text-[9px] font-medium transition-colors leading-none",
             getMarkerTone(marker.id).badge,
           )}
         >
@@ -321,6 +322,16 @@ const SourceLineRow = React.memo(function SourceLineRow({
         </button>
       )),
     [markersForLine, onSelectNode],
+  );
+
+  const renderedParts = useMemo(
+    () =>
+      parts.map((part, idx) => (
+        <span key={idx} className={part.className}>
+          {part.text}
+        </span>
+      )),
+    [parts],
   );
 
   return (
@@ -333,20 +344,18 @@ const SourceLineRow = React.memo(function SourceLineRow({
       <div className="select-none pr-4 text-right text-muted-foreground">
         {lineNumber}
       </div>
-      <div className="min-w-0">
-        <div className="flex items-start gap-2">
+      <div className="min-w-0 relative">
+        <div className="flex items-center gap-2">
           <code className="min-w-0 flex-1 whitespace-pre text-left">
-            {parts.map((part, idx) => (
-              <span key={idx} className={part.className}>
-                {part.text}
-              </span>
-            ))}
+            {renderedParts}
             {line.length === 0 ? " " : ""}
           </code>
 
           {markersForLine.length > 0 && (
-            <div className="hidden shrink-0 items-center gap-1 group-hover:flex">
-              {markerButtons}
+            <div className="absolute inset-0 flex items-center justify-end pointer-events-none">
+              <div className="hidden shrink-0 items-center gap-1 group-hover:flex pointer-events-auto backdrop-blur-sm px-2 py-0.5 rounded-full shadow-sm border border-border/50">
+                {markerButtons}
+              </div>
             </div>
           )}
         </div>
@@ -354,18 +363,16 @@ const SourceLineRow = React.memo(function SourceLineRow({
     </div>
   );
 });
-const SourceViewport = React.memo(
-  ({
-    content,
-    markers,
-    selectedNodeId,
-    onSelectNode,
-  }: {
-    content: string;
-    markers: SourceNodeMarker[];
-    selectedNodeId: string | null;
-    onSelectNode: (id: string) => void;
-  }) => {
+
+type SourceViewportProps = {
+  content: string;
+  markers: SourceNodeMarker[];
+  selectedNodeId: string | null;
+  onSelectNode: (id: string) => void;
+};
+
+const SourceViewport: React.FC<SourceViewportProps> = React.memo(
+  ({ content, markers, selectedNodeId, onSelectNode }) => {
     const parentRef = useRef<HTMLDivElement>(null);
 
     // Split lines only when content changes
@@ -388,35 +395,47 @@ const SourceViewport = React.memo(
       overscan: 16,
     });
 
+    // Scroll to selected node line
+    useEffect(() => {
+      if (selectedNodeId) {
+        const marker = markers.find((m) => m.id === selectedNodeId);
+        if (marker) {
+          rowVirtualizer.scrollToIndex(marker.line - 1, { align: "center" });
+        }
+      }
+    }, [selectedNodeId, markers, rowVirtualizer]);
+
     const virtualItems = rowVirtualizer.getVirtualItems();
 
     return (
-      <CardContent ref={parentRef} className="min-h-0 flex-1 overflow-auto p-0">
-        <div
-          className="relative min-w-max px-0 py-3 font-mono text-[12.5px] leading-6"
-          style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
-        >
-          {virtualItems.map((virtualItem) => {
-            const lineIndex = virtualItem.index;
-            const lineNumber = lineIndex + 1;
-            const markersForLine = markerMap.get(lineNumber) ?? [];
+      <CardContent className="min-h-0 flex-1 flex overflow-hidden p-0">
+        <div ref={parentRef} className="flex-1 overflow-auto">
+          <div
+            className="relative min-w-max px-0 py-3 font-mono text-[12.5px] leading-6"
+            style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+          >
+            {virtualItems.map((virtualItem) => {
+              const lineIndex = virtualItem.index;
+              const lineNumber = lineIndex + 1;
+              const markersForLine = markerMap.get(lineNumber) ?? [];
 
-            return (
-              <div
-                key={lineNumber}
-                className="absolute left-0 top-0 w-full"
-                style={{ transform: `translateY(${virtualItem.start}px)` }}
-              >
-                <SourceLineRow
-                  line={lines[lineIndex]}
-                  lineNumber={lineNumber}
-                  selectedNodeId={selectedNodeId}
-                  markersForLine={markersForLine}
-                  onSelectNode={onSelectNode}
-                />
-              </div>
-            );
-          })}
+              return (
+                <div
+                  key={lineNumber}
+                  className="absolute left-0 top-0 w-full"
+                  style={{ transform: `translateY(${virtualItem.start}px)` }}
+                >
+                  <SourceLineRow
+                    line={lines[lineIndex]}
+                    lineNumber={lineNumber}
+                    selectedNodeId={selectedNodeId}
+                    markersForLine={markersForLine}
+                    onSelectNode={onSelectNode}
+                  />
+                </div>
+              );
+            })}
+          </div>
         </div>
       </CardContent>
     );
@@ -665,7 +684,7 @@ export const SourceEditorPanel = React.memo(function SourceEditorPanel({
         <TabsContent
           value="source"
           forceMount
-          className="flex-1 min-h-0 overflow-auto"
+          className="flex-1 min-h-0 flex flex-col"
         >
           <SourceViewport
             content={content}
