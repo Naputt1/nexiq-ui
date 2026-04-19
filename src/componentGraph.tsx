@@ -1263,7 +1263,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
       .map((node) => ({
         id: node.id,
         label: String(node.displayName || node.name || node.id),
-        line: node.loc?.line || 1,
+        line: details[node.id]?.loc?.line || node.loc?.line || 1,
       }))
       .sort((a, b) => a.line - b.line);
   }, [graph, sourceFilePath, details]);

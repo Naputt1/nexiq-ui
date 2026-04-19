@@ -383,7 +383,8 @@ export class PixiRenderer {
     const mmWidth = totalWidth * scale;
     const mmHeight = totalHeight * scale;
 
-    const xOffset = this.app.screen.width - mmWidth - this.minimapPadding;
+    const xOffset =
+      (this.app?.screen?.width ?? 0) - mmWidth - this.minimapPadding;
     const yOffset = this.minimapPadding;
 
     this.minimapContainer.position.set(xOffset, yOffset);
