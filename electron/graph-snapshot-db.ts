@@ -153,10 +153,10 @@ export function readGraphSnapshotFromSqlite(
         );
         const pkgDb = new Database(pkg.db_path, { readonly: true });
         try {
-          const pkgPath = pkg.path;
+          const pkgId = pkg.package_id;
           const fileIdOffset = (index + 1) * 1000000;
 
-          const pkgPrefix = `workspace:${pkgPath}:`;
+          const pkgPrefix = `workspace:${pkgId}:`;
 
           // 1. Packages & Dependencies
           if (options.includePackages) {

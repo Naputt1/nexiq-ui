@@ -32,9 +32,9 @@ export function getGraphSnapshotKey(
 export function getGitCommitAnalysisKey(
   projectRoot: string,
   commitHash: string,
-  subPath?: string,
+  subProject?: string,
 ) {
-  return `${projectRoot}::${commitHash}::${subPath || ""}`;
+  return `${projectRoot}::${commitHash}::${subProject || ""}`;
 }
 
 function createGraphSnapshotError(message: string) {
@@ -109,25 +109,25 @@ export function subscribeGraphSnapshot(
 export async function openGitCommitAnalysisSnapshot(
   projectRoot: string,
   commitHash: string,
-  subPath?: string,
+  subProject?: string,
 ) {
   return openLargeData("git-commit-analysis", {
     projectRoot,
     commitHash,
-    subPath,
+    subProject,
   });
 }
 
 export async function openDiffAnalysisSnapshot(
   projectRoot: string,
   selectedCommit: string | null,
-  subPath?: string,
+  subProject?: string,
   options?: Pick<LargeDataRequestArgs, "profilerRunId" | "profilerLogicalKey">,
 ) {
   return openLargeData("diff-analysis", {
     projectRoot,
     selectedCommit,
-    subPath,
+    subProject,
     ...options,
   });
 }
@@ -167,7 +167,7 @@ export function bridgeGraphSnapshotPort(port: MessagePort) {
             : getGitCommitAnalysisKey(
                 request.projectRoot,
                 request.commitHash || "",
-                request.subPath,
+                request.subProject || request.subPath,
               ),
         message:
           error instanceof Error

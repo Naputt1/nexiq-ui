@@ -27,6 +27,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { GraphViewBufferView } from "@/view-snapshot/codec";
 
 interface SidebarProps {
   currentPath: string;
@@ -34,6 +35,7 @@ interface SidebarProps {
   onLocateFile?: (filePath: string) => void;
   onSelectNode?: (id: string) => void;
   isLoading?: boolean;
+  graphViewBuffer?: GraphViewBufferView | null;
 }
 
 interface SubProject {
@@ -46,6 +48,7 @@ export function ProjectSidebar({
   projectRoot,
   onLocateFile,
   onSelectNode,
+  graphViewBuffer,
 }: SidebarProps) {
   const [subProjects, setSubProjects] = useState<SubProject[]>([]);
   const [status, setStatus] = useState<ProjectStatus | null>(null);
@@ -282,6 +285,7 @@ export function ProjectSidebar({
               projectRoot={projectRoot}
               onLocateFile={onLocateFile}
               onSelectNode={onSelectNode}
+              graphViewBuffer={graphViewBuffer}
             />
           </div>
         )}

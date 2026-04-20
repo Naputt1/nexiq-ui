@@ -6,12 +6,8 @@ import React, {
   useState,
   useTransition,
 } from "react";
-import { type AnalyzedDiff, type TypeDataDeclare } from "@nexiq/shared";
-import useGraph, {
-  GraphCombo,
-  GraphNode,
-  type GraphNodeData,
-} from "./graph/hook";
+import { type TypeDataDeclare } from "@nexiq/shared";
+import useGraph, { GraphCombo, type GraphNodeData } from "./graph/hook";
 import { PixiRenderer } from "./graph/pixiRenderer";
 import { ProjectSidebar } from "./components/Sidebar";
 import { RightSidebar } from "./components/RightSidebar";
@@ -56,9 +52,7 @@ import type { GenerateViewRequest } from "./views/types";
 import {
   getGraphSnapshotKey,
   getLargeDataHandle,
-  openDiffAnalysisSnapshot,
   openViewResultSnapshot,
-  readLargeData,
   readViewResultData,
   refreshGraphSnapshot,
   refreshLargeData,
@@ -109,7 +103,10 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   const isRightSidebarOpen = useAppStateStore((s) => s.sidebar.right.isOpen);
   const setRightSidebarOpen = useAppStateStore((s) => s.setRightSidebarOpen);
   const selectedCommit = useAppStateStore((s) => s.selectedCommit);
-  const activeTab = useAppStateStore((s) => s.activeTab);
+  const gitComparisonEnabled = useAppStateStore((s) => s.gitComparisonEnabled);
+  const setGitComparisonEnabled = useAppStateStore(
+    (s) => s.setGitComparisonEnabled,
+  );
   const loadState = useAppStateStore((s) => s.loadState);
   const resetState = useAppStateStore((s) => s.reset);
   const isLoaded = useAppStateStore((s) => s.isLoaded);
@@ -129,7 +126,6 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
 
   const details = useGraphStore((s) => s.details);
 
-  const status = useGitStore((s) => s.status);
   const clearAnalyzedDiffCache = useGitStore((s) => s.clearAnalyzedDiffCache);
 
   const setBackendAvailable = useWorkerStore((s) => s.setBackendAvailable);
@@ -264,7 +260,6 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     }
   }, [bottomPanelHeight, isBottomPanelOpen]);
 
-  const rawDiffRef = useRef<AnalyzedDiff | null>(null);
   const snapshotKeyRef = useRef<string | null>(null);
   const viewRequestIdRef = useRef(0);
   const activeProfileRunIdRef = useRef<string | null>(null);
@@ -298,7 +293,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
         projectRoot: projectPath,
         targetPath,
         selectedCommit: selectedCommit ?? null,
-        activeTab,
+        gitComparisonEnabled,
         subPath: subPath ?? null,
         view,
       });
@@ -318,81 +313,34 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
       const requestStartedAt = performance.now();
 
       try {
-        let request: GenerateViewRequest;
-        let resultHandle;
+        const resolvedAnalysisPath =
+          targetPath === projectPath ? undefined : targetPath;
+        const snapshotKey = getGraphSnapshotKey(
+          projectPath,
+          resolvedAnalysisPath,
+          selectedSubProjects,
+        );
+        snapshotKeyRef.current = snapshotKey;
 
-        if (selectedCommit || activeTab === "git") {
-          const diffArgs = {
-            projectRoot: projectPath,
-            selectedCommit: selectedCommit ?? null,
-            subPath,
-            refreshHandle: options?.refreshHandle,
-            profilerRunId,
-            profilerLogicalKey: logicalKey,
-          };
-          if (options?.refreshHandle) {
-            await refreshLargeData("diff-analysis", diffArgs);
-          }
-          const diffHandle = options?.refreshHandle
-            ? await window.largeData.getHandle("diff-analysis", diffArgs)
-            : await openDiffAnalysisSnapshot(
-                projectPath,
-                selectedCommit ?? null,
-                subPath,
-                {
-                  profilerRunId,
-                  profilerLogicalKey: logicalKey,
-                },
-              );
-          const diffData = readLargeData(diffHandle);
-          rawDiffRef.current = diffData.diff ?? null;
-          request = {
-            view,
-            projectRoot: projectPath,
-            selectedCommit: selectedCommit ?? null,
-            subPath,
-            refreshHandle: options?.refreshHandle,
-            profilerRunId,
-            profilerLogicalKey: logicalKey,
-          };
-          if (options?.refreshHandle) {
-            await refreshLargeData("view-result", request);
-            resultHandle = await window.largeData.getHandle(
-              "view-result",
-              request,
-            );
-          } else {
-            resultHandle = await openViewResultSnapshot(request);
-          }
-        } else {
-          const resolvedAnalysisPath =
-            targetPath === projectPath ? undefined : targetPath;
-          const snapshotKey = getGraphSnapshotKey(
-            projectPath,
-            resolvedAnalysisPath,
-            selectedSubProjects,
-          );
-          snapshotKeyRef.current = snapshotKey;
-          rawDiffRef.current = null;
-          request = {
-            view,
-            projectRoot: projectPath,
-            analysisPath: resolvedAnalysisPath,
-            analysisPaths: selectedSubProjects,
-            refreshHandle: options?.refreshHandle,
-            profilerRunId,
-            profilerLogicalKey: logicalKey,
-          };
-          if (options?.refreshHandle) {
-            await refreshLargeData("view-result", request);
-            resultHandle = await window.largeData.getHandle(
-              "view-result",
-              request,
-            );
-          } else {
-            resultHandle = await openViewResultSnapshot(request);
-          }
-        }
+        const request: GenerateViewRequest = {
+          view,
+          projectRoot: projectPath,
+          analysisPath: selectedCommit ? undefined : resolvedAnalysisPath,
+          analysisPaths: selectedCommit ? undefined : selectedSubProjects,
+          selectedCommit: selectedCommit ?? null,
+          subProject: subPath,
+          subPath,
+          refreshHandle: options?.refreshHandle,
+          profilerRunId,
+          profilerLogicalKey: logicalKey,
+          gitComparisonEnabled,
+        };
+        const resultHandle = options?.refreshHandle
+          ? await (async () => {
+              await refreshLargeData("view-result", request);
+              return window.largeData.getHandle("view-result", request);
+            })()
+          : await openViewResultSnapshot(request);
         const byteLength = new Int32Array(resultHandle.metaBuffer)[2] ?? 0;
         useGraphProfilerStore.getState().updateRun(profilerRunId, {
           key: resultHandle.key,
@@ -471,7 +419,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
       projectPath,
       selectedSubProjects,
       selectedCommit,
-      activeTab,
+      gitComparisonEnabled,
       subPath,
       view,
       graph,
@@ -491,53 +439,6 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
           console.log("layout (debounced)", performance.now() - time);
         }
       }, 100),
-    [graph],
-  );
-
-  const highlightGitChanges = useCallback(
-    async (isGitTab: boolean) => {
-      if (!graph) return;
-
-      try {
-        const combos = graph.getAllCombos();
-        const nodes = graph.getAllNodes();
-
-        const {
-          added = [],
-          modified = [],
-          deleted = [],
-        } = rawDiffRef.current || {};
-
-        graph.batch(() => {
-          const applyStatus = (item: GraphCombo | GraphNode) => {
-            if (isGitTab) {
-              if (added.includes(item.id)) {
-                item.gitStatus = "added";
-              } else if (modified.includes(item.id)) {
-                item.gitStatus = "modified";
-              } else if (deleted.includes(item.id)) {
-                item.gitStatus = "deleted";
-              } else {
-                item.gitStatus = undefined;
-              }
-            } else {
-              item.gitStatus = undefined;
-            }
-
-            // Everything in the current graph should be visible
-            item.visible = true;
-
-            if ("expandedRadius" in item) graph.updateCombo(item as GraphCombo);
-            else graph.updateNode(item as GraphNode);
-          };
-
-          combos.forEach(applyStatus);
-          nodes.forEach(applyStatus);
-        });
-      } catch (e) {
-        console.error("Failed to highlight git changes", e);
-      }
-    },
     [graph],
   );
 
@@ -824,10 +725,6 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   );
 
   useEffect(() => {
-    highlightGitChanges(activeTab === "git");
-  }, [highlightGitChanges, status, selectedCommit, activeTab]);
-
-  useEffect(() => {
     window.nexiqGraph = graph;
     window.nexiqSearch = performSearch;
   }, [graph, performSearch]);
@@ -1088,7 +985,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
 
   useEffect(() => {
     const unsubscribe = subscribeGraphSnapshot((payload) => {
-      if (selectedCommit || activeTab === "git") return;
+      if (selectedCommit) return;
 
       const expectedKey = snapshotKeyRef.current;
       if (!expectedKey || payload.key !== expectedKey) return;
@@ -1107,7 +1004,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
       void rerenderFromHandle();
     });
     return () => unsubscribe();
-  }, [activeTab, loadData, projectPath, selectedCommit, selectedSubProjects]);
+  }, [loadData, projectPath, selectedCommit, selectedSubProjects]);
 
   // Resize observer for container
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1195,6 +1092,10 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
         e.preventDefault();
         setProjectModalOpen(true);
       }
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "g") {
+        e.preventDefault();
+        setGitComparisonEnabled(!gitComparisonEnabled);
+      }
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
         if (selectedId) {
           e.preventDefault();
@@ -1239,11 +1140,13 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     isRightSidebarOpen,
     isBottomPanelOpen,
     selectedId,
+    gitComparisonEnabled,
     graph,
     setRightSidebarOpen,
     setIsSidebarOpen,
     setBottomPanelOpen,
     setProjectModalOpen,
+    setGitComparisonEnabled,
     setSettingsModalOpen,
   ]);
 
@@ -1458,6 +1361,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
           onLocateFile={handleLocateFile}
           onSelectNode={handleSelectNode}
           isLoading={isAnalyzing}
+          graphViewBuffer={graphViewBuffer}
         />
         <SidebarInset className="min-w-0">
           <ResizablePanelGroup
@@ -1844,6 +1748,28 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
                                 </Kbd>
                                 <Kbd className="bg-transparent border-0 p-0 text-inherit">
                                   J
+                                </Kbd>
+                              </CommandShortcut>
+                            </CommandItem>
+                            <CommandItem
+                              onSelect={() => {
+                                setGitComparisonEnabled(!gitComparisonEnabled);
+                                setIsCommandPaletteOpen(false);
+                              }}
+                            >
+                              <RefreshCw className="mr-2 h-4 w-4" />
+                              {gitComparisonEnabled
+                                ? "Turn Off Git Compare"
+                                : "Turn On Git Compare"}
+                              <CommandShortcut>
+                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                  {modLabel}
+                                </Kbd>
+                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                  ⇧
+                                </Kbd>
+                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                                  G
                                 </Kbd>
                               </CommandShortcut>
                             </CommandItem>

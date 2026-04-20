@@ -24,12 +24,15 @@ export interface LargeDataRequestArgs {
   analysisPath?: string;
   analysisPaths?: string[];
   commitHash?: string;
+  subProject?: string;
   subPath?: string;
   selectedCommit?: string | null;
   view?: GraphViewType;
   refreshHandle?: boolean;
   profilerRunId?: string;
   profilerLogicalKey?: string;
+  gitComparisonEnabled?: boolean;
+  compareSqlitePath?: string;
 }
 
 export interface GraphSnapshotData extends Pick<
@@ -83,6 +86,7 @@ export interface GraphSnapshotPortOpenRequest extends GraphSnapshotPortBaseMessa
   analysisPath?: string;
   analysisPaths?: string[];
   commitHash?: string;
+  subProject?: string;
   subPath?: string;
 }
 
@@ -92,6 +96,7 @@ export interface GraphSnapshotPortGetHandleRequest extends GraphSnapshotPortBase
   analysisPath?: string;
   analysisPaths?: string[];
   commitHash?: string;
+  subProject?: string;
   subPath?: string;
 }
 

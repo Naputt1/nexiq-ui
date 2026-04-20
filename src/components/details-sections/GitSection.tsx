@@ -8,23 +8,32 @@ import { type GraphNodeData } from "@/graph/hook";
 export const GitSection: React.FC<DetailSectionProps> = ({
   item: baseItem,
   projectPath,
+  detail,
 }) => {
   const item = baseItem as GraphNodeData;
   const diffs = useGitStore((s) => s.diffs);
   const loadDiff = useGitStore((s) => s.loadDiff);
   const selectedCommit = useAppStateStore((s) => s.selectedCommit);
 
+  const fileName = detail?.fileName || item.pureFileName;
+  const scope =
+    detail?.raw && typeof detail.raw === "object" && "scope" in detail.raw
+      ? detail.raw.scope
+      : typeof item.scope === "object"
+        ? item.scope
+        : undefined;
+
   useEffect(() => {
-    if (item.gitStatus && item.pureFileName) {
+    if (item.gitStatus && fileName) {
       loadDiff(projectPath, {
-        file: item.pureFileName,
+        file: fileName,
         commit: selectedCommit || undefined,
       });
     }
   }, [
     item.id,
     item.gitStatus,
-    item.pureFileName,
+    fileName,
     projectPath,
     selectedCommit,
     loadDiff,
@@ -32,14 +41,10 @@ export const GitSection: React.FC<DetailSectionProps> = ({
 
   if (!item.gitStatus) return null;
 
-  const diffKey = `${selectedCommit || "current"}-${"working"}-${item.pureFileName || "all"}`;
+  const diffKey = `${selectedCommit || "current"}-${"working"}-${fileName || "all"}`;
   const itemDiffs = diffs[diffKey] || [];
 
   return (
-    <GitDiffView
-      diffs={itemDiffs}
-      fileName={item.pureFileName || ""}
-      scope={typeof item.scope === "object" ? item.scope : undefined}
-    />
+    <GitDiffView diffs={itemDiffs} fileName={fileName || ""} scope={scope} />
   );
 };

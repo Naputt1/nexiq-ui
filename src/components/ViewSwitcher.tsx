@@ -7,8 +7,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Layout } from "lucide-react";
+import { GitCompare, Layout } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 export function ViewSwitcher({
   className,
@@ -21,6 +22,12 @@ export function ViewSwitcher({
 }) {
   const view = useAppStateStore((s) => s.view);
   const setView = useAppStateStore((s) => s.setView);
+  const gitComparisonEnabled = useAppStateStore(
+    (s) => s.gitComparisonEnabled,
+  );
+  const setGitComparisonEnabled = useAppStateStore(
+    (s) => s.setGitComparisonEnabled,
+  );
 
   if (isCollapsed) {
     return (
@@ -56,6 +63,15 @@ export function ViewSwitcher({
           <SelectItem value="package">Package View</SelectItem>
         </SelectContent>
       </Select>
+      <Button
+        variant={gitComparisonEnabled ? "default" : "outline"}
+        size="sm"
+        className={cn("h-8 text-xs gap-2", compact ? "px-3" : "w-full")}
+        onClick={() => setGitComparisonEnabled(!gitComparisonEnabled)}
+      >
+        <GitCompare className="h-3.5 w-3.5" />
+        Git Compare
+      </Button>
     </div>
   );
 }

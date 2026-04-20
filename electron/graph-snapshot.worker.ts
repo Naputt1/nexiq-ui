@@ -43,10 +43,13 @@ interface GenerateViewMessage {
   projectRoot: string;
   analysisPath?: string;
   selectedCommit?: string | null;
+  subProject?: string;
   subPath?: string;
   view: GraphViewType;
   sqlitePath?: string;
+  compareSqlitePath?: string;
   analysisPaths?: string[];
+  gitComparisonEnabled?: boolean;
 }
 
 interface ProfileStage {
@@ -65,6 +68,7 @@ interface DiffAnalysisMessage {
   kind: "diff-analysis";
   projectRoot: string;
   selectedCommit: string | null;
+  subProject?: string;
   subPath?: string;
   sqlitePath?: string;
   headSqlitePath?: string;
@@ -137,8 +141,10 @@ async function handleGenerateView(message: GenerateViewMessage) {
       analysisPath: message.analysisPath,
       analysisPaths: message.analysisPaths,
       selectedCommit: message.selectedCommit,
-      subPath: message.subPath,
+      subProject: message.subProject || message.subPath,
       sqlitePath: message.sqlitePath,
+      compareSqlitePath: message.compareSqlitePath,
+      gitComparisonEnabled: message.gitComparisonEnabled,
     });
     const computeDurationMs = performance.now() - generationStartedAt;
 
