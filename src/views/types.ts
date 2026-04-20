@@ -13,10 +13,13 @@ export type GenerateViewRequest = {
   analysisPath?: string;
   analysisPaths?: string[];
   selectedCommit?: string | null;
+  subProject?: string;
   subPath?: string;
   refreshHandle?: boolean;
   profilerRunId?: string;
   profilerLogicalKey?: string;
+  gitComparisonEnabled?: boolean;
+  compareSqlitePath?: string;
 };
 
 export interface ViewGenerationStage {

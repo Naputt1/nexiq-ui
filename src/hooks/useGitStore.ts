@@ -38,7 +38,7 @@ interface GitState {
   loadAnalyzedDiff: (
     projectRoot: string,
     commitHash: string | null,
-    subPath?: string,
+    subProject?: string,
   ) => Promise<DatabaseData | undefined>;
   clearAnalyzedDiffCache: () => void;
 }
@@ -131,10 +131,10 @@ export const useGitStore = create<GitState>((set, get) => ({
   loadAnalyzedDiff: async (
     projectRoot: string,
     commitHash: string | null,
-    subPath?: string,
+    subProject?: string,
   ) => {
-    const key = subPath
-      ? `${commitHash || "current"}-${subPath}`
+    const key = subProject
+      ? `${commitHash || "current"}-${subProject}`
       : commitHash || "current";
     const cached = get().analyzedDiffs[key];
     if (cached) return cached;
@@ -146,7 +146,11 @@ export const useGitStore = create<GitState>((set, get) => ({
 
       if (commitHash) {
         dataB = readLargeData(
-          await openGitCommitAnalysisSnapshot(projectRoot, commitHash, subPath),
+          await openGitCommitAnalysisSnapshot(
+            projectRoot,
+            commitHash,
+            subProject,
+          ),
         );
 
         try {
@@ -155,7 +159,7 @@ export const useGitStore = create<GitState>((set, get) => ({
             await openGitCommitAnalysisSnapshot(
               projectRoot,
               parentHash,
-              subPath,
+              subProject,
             ),
           );
         } catch {
@@ -165,12 +169,12 @@ export const useGitStore = create<GitState>((set, get) => ({
         dataB = readLargeData(
           await openGraphSnapshot(
             projectRoot,
-            subPath ? `${projectRoot}/${subPath}` : undefined,
+            subProject ? `${projectRoot}/${subProject}` : undefined,
           ),
         );
 
         dataA = readLargeData(
-          await openGitCommitAnalysisSnapshot(projectRoot, "HEAD", subPath),
+          await openGitCommitAnalysisSnapshot(projectRoot, "HEAD", subProject),
         );
       }
 

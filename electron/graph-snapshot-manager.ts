@@ -359,7 +359,7 @@ export class GraphSnapshotManager {
       const key =
         request.kind === "graph"
           ? request.analysisPath || request.projectRoot
-          : `${request.projectRoot}::${request.commitHash || ""}::${request.subPath || ""}`;
+          : `${request.projectRoot}::${request.commitHash || ""}::${request.subProject || request.subPath || ""}`;
       this.postPortMessage(session, {
         type: "error",
         kind: request.kind,

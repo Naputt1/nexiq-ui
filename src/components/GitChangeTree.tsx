@@ -13,11 +13,14 @@ import {
   type SymbolRow,
   type RenderRow,
 } from "@nexiq/shared";
+import type { GraphViewResult } from "@/views/types";
+import type { GraphNodeDetail } from "@nexiq/extension-sdk";
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 interface GitChangeTreeProps {
-  data: DatabaseData;
+  data?: DatabaseData;
+  graphResult?: GraphViewResult;
   onLocate?: (id: string) => void;
 }
 
@@ -47,11 +50,37 @@ type FlatItem =
 
 export const GitChangeTree = memo(function GitChangeTree({
   data,
+  graphResult,
   onLocate,
 }: GitChangeTreeProps) {
-  const diff = data.diff;
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const parentRef = useRef<HTMLDivElement>(null);
+
+  const graphItems = useMemo(() => {
+    if (!graphResult) return [];
+
+    const changed = [...graphResult.combos, ...graphResult.nodes].filter(
+      (item) => !!item.gitStatus,
+    );
+
+    return changed
+      .map((item) => {
+        const detail: GraphNodeDetail | undefined = graphResult.details?.[item.id];
+        const filePath = detail?.fileName || "View changes";
+        return {
+          id: item.id,
+          path: filePath,
+          displayName:
+            (typeof item.displayName === "string" && item.displayName) ||
+            (typeof item.name === "string" ? item.name : String(item.name)),
+          gitStatus: item.gitStatus!,
+          kind: item.type || "item",
+        };
+      })
+      .sort((a, b) => a.path.localeCompare(b.path) || a.displayName.localeCompare(b.displayName));
+  }, [graphResult]);
+
+  const diff = data?.diff;
 
   // Optimize diff lookups with Sets
   const diffSets = useMemo(() => {
@@ -65,12 +94,19 @@ export const GitChangeTree = memo(function GitChangeTree({
 
   // Initialize expanded files
   useEffect(() => {
-    if (diff) {
+    if (graphResult) {
+      const initialExpanded = new Set<string>();
+      graphItems.forEach((item) => initialExpanded.add(item.path));
+      setExpandedIds(initialExpanded);
+      return;
+    }
+
+    if (diff && data) {
       const initialExpanded = new Set<string>();
       data.files.forEach((f) => initialExpanded.add(f.path));
       setExpandedIds(initialExpanded);
     }
-  }, [data, diff]);
+  }, [data, diff, graphItems, graphResult]);
 
   const toggleExpand = (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -83,7 +119,54 @@ export const GitChangeTree = memo(function GitChangeTree({
   };
 
   const flattenedItems = useMemo(() => {
-    if (!diff || !diffSets) return [];
+    if (graphResult) {
+      const result: FlatItem[] = [];
+      const grouped = new Map<string, typeof graphItems>();
+
+      for (const item of graphItems) {
+        const existing = grouped.get(item.path) || [];
+        existing.push(item);
+        grouped.set(item.path, existing);
+      }
+
+      for (const [filePath, items] of Array.from(grouped.entries()).sort(([a], [b]) =>
+        a.localeCompare(b),
+      )) {
+        const isExpanded = expandedIds.has(filePath);
+        result.push({
+          type: "file",
+          id: filePath,
+          key: `file:${filePath}`,
+          path: filePath,
+          depth: 0,
+          hasChildren: items.length > 0,
+          fileName: filePath.split("/").pop() || filePath,
+        });
+
+        if (isExpanded) {
+          for (const item of items) {
+            result.push({
+              type: "var",
+              id: item.id,
+              key: `var:${filePath}:${item.id}`,
+              item: {
+                id: item.id,
+                name: item.displayName,
+              } as ChangeItemType,
+              depth: 1,
+              hasChildren: false,
+              isDeleted: item.gitStatus === "deleted",
+              isAdded: item.gitStatus === "added",
+              isModified: item.gitStatus === "modified",
+            });
+          }
+        }
+      }
+
+      return result;
+    }
+
+    if (!data || !diff || !diffSets) return [];
 
     const result: FlatItem[] = [];
 
@@ -169,7 +252,7 @@ export const GitChangeTree = memo(function GitChangeTree({
     }
 
     return result;
-  }, [data, diff, diffSets, expandedIds]);
+  }, [data, diff, diffSets, expandedIds, graphItems, graphResult]);
 
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
@@ -179,7 +262,7 @@ export const GitChangeTree = memo(function GitChangeTree({
     overscan: 10,
   });
 
-  if (!diff || flattenedItems.length === 0) {
+  if ((!graphResult && !diff) || flattenedItems.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-8 text-center space-y-4">
         <div className="p-4 bg-muted/30 rounded-full">
@@ -188,7 +271,9 @@ export const GitChangeTree = memo(function GitChangeTree({
         <div className="space-y-1">
           <p className="text-sm font-medium">No changes detected</p>
           <p className="text-xs opacity-70">
-            Select a commit to see the differences
+            {graphResult
+              ? "Turn on Git Compare or select a commit to see differences"
+              : "Select a commit to see the differences"}
           </p>
         </div>
       </div>

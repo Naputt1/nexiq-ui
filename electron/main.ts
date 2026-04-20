@@ -463,9 +463,9 @@ function applyTheme(theme: "dark" | "light") {
 function getDiffAnalysisKey(
   projectRoot: string,
   selectedCommit: string | null | undefined,
-  subPath?: string,
+  subProject?: string,
 ) {
-  return `${projectRoot}::${selectedCommit ?? "current"}::${subPath || ""}`;
+  return `${projectRoot}::${selectedCommit ?? "current"}::${subProject || ""}`;
 }
 
 function getViewResultKey(args: GenerateViewRequest) {
@@ -474,7 +474,9 @@ function getViewResultKey(args: GenerateViewRequest) {
     analysisPath: args.analysisPath ?? null,
     analysisPaths: args.analysisPaths ? [...args.analysisPaths].sort() : null,
     selectedCommit: args.selectedCommit ?? null,
-    subPath: args.subPath ?? null,
+    gitComparisonEnabled: args.gitComparisonEnabled ?? false,
+    subProject: args.subProject ?? args.subPath ?? null,
+    subPath: args.subProject ?? args.subPath ?? null,
     view: args.view,
   });
 }
@@ -494,7 +496,7 @@ async function openInlineLargeData(
     const key = getDiffAnalysisKey(
       args.projectRoot,
       args.selectedCommit,
-      args.subPath,
+      args.subProject || args.subPath,
     );
     const cached = inlineLargeDataHandles.get(
       getInlineHandleId(args.kind, key),
@@ -506,7 +508,9 @@ async function openInlineLargeData(
     const resolveStartedAt = performance.now();
     const { targetPath } = await resolveSqlitePath(
       args.projectRoot,
-      args.subPath ? path.join(args.projectRoot, args.subPath) : undefined,
+      args.subProject || args.subPath
+        ? path.join(args.projectRoot, (args.subProject || args.subPath)!)
+        : undefined,
       args.analysisPaths,
     );
 
@@ -518,14 +522,14 @@ async function openInlineLargeData(
       const res = await resolveGitCommitSnapshotPath(
         args.projectRoot,
         args.selectedCommit,
-        args.subPath,
+        args.subProject || args.subPath,
       );
       commitSqlitePath = res.sqlitePath;
       try {
         const parentRes = await resolveGitCommitSnapshotPath(
           args.projectRoot,
           `${args.selectedCommit}^`,
-          args.subPath,
+          args.subProject || args.subPath,
         );
         parentSqlitePath = parentRes.sqlitePath;
       } catch {
@@ -534,19 +538,23 @@ async function openInlineLargeData(
     } else {
       await resolveSqlitePath(
         args.projectRoot,
-        args.subPath ? path.join(args.projectRoot, args.subPath) : undefined,
+        args.subProject || args.subPath
+          ? path.join(args.projectRoot, (args.subProject || args.subPath)!)
+          : undefined,
       );
       const headRes = await resolveGitCommitSnapshotPath(
         args.projectRoot,
         "HEAD",
-        args.subPath,
+        args.subProject || args.subPath,
       );
       headSqlitePath = headRes.sqlitePath;
     }
 
     const { sqlitePath } = await resolveSqlitePath(
       args.projectRoot,
-      args.subPath ? path.join(args.projectRoot, args.subPath) : undefined,
+      args.subProject || args.subPath
+        ? path.join(args.projectRoot, (args.subProject || args.subPath)!)
+        : undefined,
       args.analysisPaths,
     );
     timings.push({
@@ -567,7 +575,8 @@ async function openInlineLargeData(
         kind: args.kind,
         projectRoot: args.projectRoot,
         selectedCommit: args.selectedCommit,
-        subPath: args.subPath,
+        subProject: args.subProject || args.subPath,
+        subPath: args.subProject || args.subPath,
         sqlitePath,
         commitSqlitePath,
         parentSqlitePath,
@@ -626,8 +635,10 @@ async function openInlineLargeData(
       analysisPath: args.analysisPath,
       analysisPaths: args.analysisPaths,
       selectedCommit: args.selectedCommit,
-      subPath: args.subPath,
+      subProject: args.subProject || args.subPath,
+      subPath: args.subProject || args.subPath,
       refreshHandle: args.refreshHandle,
+      gitComparisonEnabled: args.gitComparisonEnabled,
     };
     const key = getViewResultKey(request);
     const cached = inlineLargeDataHandles.get(
@@ -647,11 +658,46 @@ async function openInlineLargeData(
     }[] = [];
 
     const resolveStartedAt = performance.now();
-    const { sqlitePath } = await resolveSqlitePath(
-      args.projectRoot,
-      args.analysisPath,
-      args.analysisPaths,
-    );
+    let compareSqlitePath: string | undefined;
+    let sqlitePath: string;
+
+    if (args.selectedCommit) {
+      const commitSnapshot = await resolveGitCommitSnapshotPath(
+        args.projectRoot,
+        args.selectedCommit,
+        args.subProject || args.subPath,
+      );
+      sqlitePath = commitSnapshot.sqlitePath;
+
+      if (args.gitComparisonEnabled) {
+        try {
+          const parentSnapshot = await resolveGitCommitSnapshotPath(
+            args.projectRoot,
+            `${args.selectedCommit}^`,
+            args.subProject || args.subPath,
+          );
+          compareSqlitePath = parentSnapshot.sqlitePath;
+        } catch {
+          compareSqlitePath = undefined;
+        }
+      }
+    } else {
+      const resolved = await resolveSqlitePath(
+        args.projectRoot,
+        args.analysisPath,
+        args.analysisPaths,
+      );
+      sqlitePath = resolved.sqlitePath;
+
+      if (args.gitComparisonEnabled) {
+        const headSnapshot = await resolveGitCommitSnapshotPath(
+          args.projectRoot,
+          "HEAD",
+          args.subProject || args.subPath,
+        );
+        compareSqlitePath = headSnapshot.sqlitePath;
+      }
+    }
     timings.push({
       id: "main:resolve-sqlite-path",
       name: "Resolve sqlite path",
@@ -672,9 +718,12 @@ async function openInlineLargeData(
         analysisPath: args.analysisPath,
         analysisPaths: args.analysisPaths,
         selectedCommit: args.selectedCommit,
-        subPath: args.subPath,
+        subProject: args.subProject || args.subPath,
+        subPath: args.subProject || args.subPath,
         view: args.view,
         sqlitePath,
+        compareSqlitePath,
+        gitComparisonEnabled: args.gitComparisonEnabled,
       },
     );
     const encoded = payload.encoded;
@@ -1332,24 +1381,24 @@ async function resolveSqlitePath(
 function getGitCommitSnapshotKey(
   projectRoot: string,
   commitHash: string,
-  subPath?: string,
+  subProject?: string,
 ) {
-  return `${projectRoot}::${commitHash}::${subPath || ""}`;
+  return `${projectRoot}::${commitHash}::${subProject || ""}`;
 }
 
 async function resolveGitCommitSnapshotPath(
   projectRoot: string,
   commitHash: string,
-  subPath?: string,
+  subProject?: string,
 ) {
-  const key = getGitCommitSnapshotKey(projectRoot, commitHash, subPath);
+  const key = getGitCommitSnapshotKey(projectRoot, commitHash, subProject);
   let sqlitePath = gitCommitSnapshotPaths.get(key);
 
   if (!sqlitePath || !fs.existsSync(sqlitePath)) {
     const response = (await requestBackend("git_analyze_commit", {
       projectPath: projectRoot,
       commitHash,
-      subPath,
+      subProject,
     })) as unknown as { sqlitePath: string };
     if (response?.sqlitePath) {
       const sp = response.sqlitePath;
@@ -1386,7 +1435,7 @@ async function resolveLargeDataSnapshotPath(request: GraphSnapshotPortRequest) {
   const { key, sqlitePath } = await resolveGitCommitSnapshotPath(
     request.projectRoot,
     request.commitHash,
-    request.subPath,
+    request.subProject || request.subPath,
   );
   return {
     kind: request.kind,

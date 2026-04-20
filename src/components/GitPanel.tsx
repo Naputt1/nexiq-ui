@@ -8,17 +8,10 @@ import {
   ChevronRight,
   ChevronDown,
   RefreshCw,
-  Layers,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "./ui/select";
 import type { DatabaseData } from "@nexiq/shared";
+import type { GraphViewBufferView } from "@/view-snapshot/codec";
 
 import { GitChangeTree } from "./GitChangeTree";
 import { GitHistoryList } from "./GitHistoryList";
@@ -27,17 +20,14 @@ interface GitPanelProps {
   projectRoot: string;
   onLocateFile?: (filePath: string) => void;
   onSelectNode?: (id: string) => void;
-}
-
-interface SubProject {
-  name: string;
-  path: string;
+  graphViewBuffer?: GraphViewBufferView | null;
 }
 
 export function GitPanel({
   projectRoot,
   onLocateFile: _onLocateFile,
   onSelectNode,
+  graphViewBuffer,
 }: GitPanelProps) {
   const history = useGitStore((s) => s.history);
   const isLoading = useGitStore((s) => s.isLoading);
@@ -49,10 +39,10 @@ export function GitPanel({
   const selectedCommit = useAppStateStore((s) => s.selectedCommit);
   const setSelectedCommit = useAppStateStore((s) => s.setSelectedCommit);
   const selectedSubProjects = useAppStateStore((s) => s.selectedSubProjects);
-  const setSelectedSubProjects = useAppStateStore(
-    (s) => s.setSelectedSubProjects,
+  const gitComparisonEnabled = useAppStateStore(
+    (s) => s.gitComparisonEnabled,
   );
-  const [subProjects, setSubProjects] = useState<SubProject[]>([]);
+
   const [analyzedData, setAnalyzedData] = useState<DatabaseData | null>(null);
 
   const [historyLimit, setHistoryLimit] = useState(50);
@@ -60,23 +50,6 @@ export function GitPanel({
     changes: true,
     history: true,
   });
-
-  useEffect(() => {
-    const fetchSubProjects = async () => {
-      try {
-        const status = await window.ipcRenderer.invoke(
-          "check-project-status",
-          projectRoot,
-        );
-        if (status.subProjects) {
-          setSubProjects(status.subProjects);
-        }
-      } catch (e) {
-        console.error("Failed to fetch subprojects", e);
-      }
-    };
-    fetchSubProjects();
-  }, [projectRoot]);
 
   const relativeFilterPath = useMemo(() => {
     const selectedSubProject = selectedSubProjects[0];
@@ -105,6 +78,7 @@ export function GitPanel({
   }, [projectRoot, loadHistory, historyLimit, relativeFilterPath]);
 
   useEffect(() => {
+    if (gitComparisonEnabled) return;
     const load = async () => {
       const data = await loadAnalyzedDiff(
         projectRoot,
@@ -117,12 +91,18 @@ export function GitPanel({
     };
     load();
   }, [
+    gitComparisonEnabled,
     projectRoot,
     selectedCommit,
     relativeFilterPath,
     loadAnalyzedDiff,
     status,
   ]);
+
+  const graphChangeData = useMemo(() => {
+    if (!gitComparisonEnabled || !graphViewBuffer) return null;
+    return graphViewBuffer.materialize();
+  }, [gitComparisonEnabled, graphViewBuffer]);
 
   const toggleSection = useCallback(
     (section: keyof typeof expandedSections) => {
@@ -149,14 +129,6 @@ export function GitPanel({
     setHistoryLimit((prev) => prev + 50);
   }, []);
 
-  const subProjectItems = useMemo(() => {
-    return subProjects.map((p) => (
-      <SelectItem key={p.path} value={p.path}>
-        {p.name}
-      </SelectItem>
-    ));
-  }, [subProjects]);
-
   return (
     <div className="flex flex-col h-full bg-background border-r border-border text-start">
       <div className="p-4 flex items-center justify-between border-b border-border shrink-0">
@@ -172,29 +144,6 @@ export function GitPanel({
         >
           <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
         </Button>
-      </div>
-
-      <div className="px-4 py-2 border-b border-border bg-accent/20 shrink-0">
-        <div className="flex items-center gap-2 mb-1">
-          <Layers className="h-3 w-3 text-muted-foreground" />
-          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-            Scope
-          </span>
-        </div>
-        <Select
-          value={selectedSubProjects[0] || projectRoot}
-          onValueChange={(val) =>
-            setSelectedSubProjects(val === projectRoot ? [] : [val])
-          }
-        >
-          <SelectTrigger className="h-8 text-xs">
-            <SelectValue placeholder="All Changes" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={projectRoot}>Entire Project</SelectItem>
-            {subProjectItems}
-          </SelectContent>
-        </Select>
       </div>
 
       {/* Structural Changes (Dynamic based on selection) */}
@@ -217,7 +166,18 @@ export function GitPanel({
 
         {expandedSections.changes && (
           <div className="flex-1 overflow-auto p-2 pt-0 min-h-0 relative">
-            {!analyzedData && isLoading ? (
+            {gitComparisonEnabled ? (
+              graphChangeData ? (
+                <GitChangeTree
+                  graphResult={graphChangeData}
+                  onLocate={onSelectNode}
+                />
+              ) : (
+                <div className="p-4 text-xs text-muted-foreground text-center animate-pulse">
+                  Loading view changes...
+                </div>
+              )
+            ) : !analyzedData && isLoading ? (
               <div className="p-4 text-xs text-muted-foreground text-center animate-pulse">
                 Analyzing structural changes...
               </div>

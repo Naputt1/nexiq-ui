@@ -219,6 +219,12 @@ interface GenerateGraphViewOptions extends GenerateViewRequest {
   snapshotData?: GraphSnapshotData;
 }
 
+interface PreparedViewDatabase {
+  db: Database.Database;
+  effectiveCacheDbPath: string;
+  cleanup: () => void;
+}
+
 async function loadProjectExtensions(projectRoot: string) {
   const startedAt = performance.now();
   // Try to dynamically load extensions
@@ -423,6 +429,172 @@ async function runTaskInProcess(
   }
 }
 
+async function prepareViewDatabase(
+  sqlitePath: string,
+  projectRoot: string,
+  analysisPaths?: string[],
+): Promise<PreparedViewDatabase> {
+  const db = new Database(":memory:");
+  let aggregatedDbPath: string | undefined;
+
+  try {
+    const nodePath = await import("node:path");
+    const absolutePath = nodePath.isAbsolute(sqlitePath)
+      ? sqlitePath
+      : nodePath.resolve(process.cwd(), sqlitePath);
+
+    db.prepare(`ATTACH DATABASE ? AS source`).run(absolutePath);
+
+    const schemaTables = db
+      .prepare(
+        "SELECT name FROM source.sqlite_master WHERE type IN ('table', 'view')",
+      )
+      .all() as { name: string }[];
+
+    const workspacePackagesExist = schemaTables.some(
+      (t) => t.name === "workspace_packages",
+    );
+    const aggregatedTables = [
+      "packages",
+      "files",
+      "entities",
+      "scopes",
+      "symbols",
+      "renders",
+      "exports",
+      "relations",
+    ];
+
+    for (const row of schemaTables) {
+      if (!row.name.startsWith("sqlite_") && !row.name.startsWith("out_")) {
+        if (workspacePackagesExist && aggregatedTables.includes(row.name)) {
+          continue;
+        }
+        db.exec(
+          `CREATE TEMP VIEW "${row.name}" AS SELECT * FROM source."${row.name}"`,
+        );
+      }
+    }
+
+    initOutputTables(db);
+
+    if (workspacePackagesExist) {
+      await aggregateMonorepoData(db, projectRoot, analysisPaths);
+
+      try {
+        const tmpFile = tmp.fileSync({ postfix: ".sqlite" });
+        aggregatedDbPath = tmpFile.name;
+        const buffer = db.serialize();
+        fs.writeFileSync(aggregatedDbPath, buffer);
+      } catch (err) {
+        console.error("Failed to create temporary aggregated database:", err);
+      }
+    }
+
+    const cleanup = () => {
+      db.close();
+      if (aggregatedDbPath && fs.existsSync(aggregatedDbPath)) {
+        try {
+          fs.unlinkSync(aggregatedDbPath);
+        } catch (err) {
+          console.error(
+            "Failed to clean up temporary aggregated database:",
+            err,
+          );
+        }
+      }
+    };
+
+    return {
+      db,
+      effectiveCacheDbPath: aggregatedDbPath || absolutePath,
+      cleanup,
+    };
+  } catch (err) {
+    db.close();
+    if (aggregatedDbPath && fs.existsSync(aggregatedDbPath)) {
+      fs.unlinkSync(aggregatedDbPath);
+    }
+    throw err;
+  }
+}
+
+function fingerprintRow(row: Record<string, unknown>, ignoredKeys: string[]) {
+  const normalized = Object.fromEntries(
+    Object.entries(row)
+      .filter(([key]) => !ignoredKeys.includes(key))
+      .sort(([a], [b]) => a.localeCompare(b)),
+  );
+  return JSON.stringify(normalized);
+}
+
+function applyGitComparisonFromViewResults(
+  primaryDb: Database.Database,
+  baselineDb: Database.Database,
+) {
+  const primaryNodes = primaryDb
+    .prepare<[], OutNode>("SELECT * FROM out_nodes")
+    .all();
+  const baselineNodes = new Map(
+    baselineDb
+      .prepare<[], OutNode>("SELECT * FROM out_nodes")
+      .all()
+      .map((row) => [row.id, row]),
+  );
+  const primaryCombos = primaryDb
+    .prepare<[], OutCombo>("SELECT * FROM out_combos")
+    .all();
+  const baselineCombos = new Map(
+    baselineDb
+      .prepare<[], OutCombo>("SELECT * FROM out_combos")
+      .all()
+      .map((row) => [row.id, row]),
+  );
+
+  const updateNode = primaryDb.prepare(
+    "UPDATE out_nodes SET git_status = ? WHERE id = ?",
+  );
+  const updateCombo = primaryDb.prepare(
+    "UPDATE out_combos SET git_status = ? WHERE id = ?",
+  );
+
+  for (const row of primaryNodes) {
+    const baseline = baselineNodes.get(row.id);
+    if (!baseline) {
+      updateNode.run("added", row.id);
+      continue;
+    }
+
+    if (
+      fingerprintRow(row as unknown as Record<string, unknown>, ["git_status"]) !==
+      fingerprintRow(
+        baseline as unknown as Record<string, unknown>,
+        ["git_status"],
+      )
+    ) {
+      updateNode.run("modified", row.id);
+    }
+  }
+
+  for (const row of primaryCombos) {
+    const baseline = baselineCombos.get(row.id);
+    if (!baseline) {
+      updateCombo.run("added", row.id);
+      continue;
+    }
+
+    if (
+      fingerprintRow(row as unknown as Record<string, unknown>, ["git_status"]) !==
+      fingerprintRow(
+        baseline as unknown as Record<string, unknown>,
+        ["git_status"],
+      )
+    ) {
+      updateCombo.run("modified", row.id);
+    }
+  }
+}
+
 /**
  * Convert output tables from SQLite to a packed FlatBuffer structure.
  */
@@ -618,7 +790,14 @@ function mapToFBItemType(type: string | undefined): FB.ItemType {
 export async function generateGraphView(
   options: GenerateGraphViewOptions,
 ): Promise<GenerateGraphViewResult> {
-  const { sqlitePath, view: viewType, projectRoot, analysisPaths } = options;
+  const {
+    sqlitePath,
+    view: viewType,
+    projectRoot,
+    analysisPaths,
+    compareSqlitePath,
+    gitComparisonEnabled,
+  } = options;
 
   const stages: ViewGenerationStage[] = [];
   const extensionLoad = await loadProjectExtensions(projectRoot);
@@ -636,78 +815,10 @@ export async function generateGraphView(
   if (!sqlitePath) {
     throw new Error("SQLite database is required for graph view generation");
   }
-
-  // 1. Create a pristine in-memory destination database for output.
-  const db = new Database(":memory:");
-
-  // 2. Attach the source database read-only to avoid memory buffering.
-  // Using runtime import to ensure we have the node module even if bundled
-  const nodePath = await import("node:path");
-  const absolutePath = nodePath.isAbsolute(sqlitePath)
-    ? sqlitePath
-    : nodePath.resolve(process.cwd(), sqlitePath);
-
-  db.prepare(`ATTACH DATABASE ? AS source`).run(absolutePath);
-
-  // 3. Create TEMP views for all usable tables in `source` to alias them into the default namespace!
-  // This allows legacy extensions which SELECT directly from a table name to work seamlessly.
-  const schemaTables = db
-    .prepare(
-      "SELECT name FROM source.sqlite_master WHERE type IN ('table', 'view')",
-    )
-    .all() as { name: string }[];
-
-  const workspacePackagesExist = schemaTables.some(
-    (t) => t.name === "workspace_packages",
-  );
-  const aggregatedTables = [
-    "packages",
-    "files",
-    "entities",
-    "scopes",
-    "symbols",
-    "renders",
-    "exports",
-    "relations",
-  ];
-
-  for (const row of schemaTables) {
-    if (!row.name.startsWith("sqlite_") && !row.name.startsWith("out_")) {
-      // In a monorepo, we skip aliasing tables that we are about to aggregate into 'main'
-      if (workspacePackagesExist && aggregatedTables.includes(row.name)) {
-        continue;
-      }
-      // Must quote names in case they have reserved words
-      db.exec(
-        `CREATE TEMP VIEW "${row.name}" AS SELECT * FROM source."${row.name}"`,
-      );
-    }
-  }
-
-  let aggregatedDbPath: string | undefined;
+  const primary = await prepareViewDatabase(sqlitePath, projectRoot, analysisPaths);
+  let baseline: PreparedViewDatabase | undefined;
 
   try {
-    // Initialise the output tables once — all tasks write into this shared db.
-    initOutputTables(db);
-
-    // Aggregation for Monorepo
-    if (workspacePackagesExist) {
-      await aggregateMonorepoData(db, projectRoot, analysisPaths);
-
-      // Prepare for native Rust tasks: serialize aggregated in-memory DB to a temp file.
-      // Native tasks attach cacheDbPath directly, so they need a file on disk.
-      try {
-        const tmpFile = tmp.fileSync({ postfix: ".sqlite" });
-        aggregatedDbPath = tmpFile.name;
-        const buffer = db.serialize();
-        fs.writeFileSync(aggregatedDbPath, buffer);
-      } catch (err) {
-        console.error("Failed to create temporary aggregated database:", err);
-      }
-    }
-
-    const effectiveCacheDbPath = aggregatedDbPath || absolutePath;
-
     let cursorMs = extensionLoad.endMs;
 
     for (const task of tasks) {
@@ -718,21 +829,21 @@ export async function generateGraphView(
           // No worker round-trip or buffer serialisation between tasks.
           await runTaskInProcess(
             task,
-            db,
+            primary.db,
             projectRoot,
             analysisPaths,
             viewType,
-            effectiveCacheDbPath,
+            primary.effectiveCacheDbPath,
           );
         } else if (task.run) {
           // Legacy run() path — pass the live db via context.
           const legacyResult = task.run(
             { nodes: [], edges: [], combos: [], typeData: {} },
-            { db, projectRoot, analysisPaths, viewType },
+            { db: primary.db, projectRoot, analysisPaths, viewType },
           );
           // Persist legacy task results into shared output tables so they are
           // picked up by convertSqliteToFlatBuffers (same as the runSqlite path).
-          const insNode = db.prepare(
+          const insNode = primary.db.prepare(
             "INSERT OR REPLACE INTO out_nodes (id, name, type, combo_id, color, radius, display_name, git_status, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
           );
           for (const node of legacyResult.nodes) {
@@ -750,7 +861,7 @@ export async function generateGraphView(
               null,
             );
           }
-          const insEdge = db.prepare(
+          const insEdge = primary.db.prepare(
             "INSERT OR REPLACE INTO out_edges (id, source, target, name, kind, category, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
           );
           for (const edge of legacyResult.edges) {
@@ -764,7 +875,7 @@ export async function generateGraphView(
               null,
             );
           }
-          const insCombo = db.prepare(
+          const insCombo = primary.db.prepare(
             "INSERT OR REPLACE INTO out_combos (id, name, type, parent_id, color, radius, collapsed, display_name, git_status, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
           );
           for (const combo of legacyResult.combos) {
@@ -799,10 +910,102 @@ export async function generateGraphView(
       }
     }
 
+    if (gitComparisonEnabled && compareSqlitePath) {
+      const compareStartedAt = performance.now();
+      baseline = await prepareViewDatabase(
+        compareSqlitePath,
+        projectRoot,
+        analysisPaths,
+      );
+
+      for (const task of tasks) {
+        if (task.runSqlite) {
+          await runTaskInProcess(
+            task,
+            baseline.db,
+            projectRoot,
+            analysisPaths,
+            viewType,
+            baseline.effectiveCacheDbPath,
+          );
+          continue;
+        }
+
+        if (task.run) {
+          const legacyResult = task.run(
+            { nodes: [], edges: [], combos: [], typeData: {} },
+            { db: baseline.db, projectRoot, analysisPaths, viewType },
+          );
+          const insNode = baseline.db.prepare(
+            "INSERT OR REPLACE INTO out_nodes (id, name, type, combo_id, color, radius, display_name, git_status, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          );
+          for (const node of legacyResult.nodes) {
+            insNode.run(
+              node.id,
+              typeof node.name === "string"
+                ? node.name
+                : JSON.stringify(node.name),
+              node.type ?? null,
+              node.combo ?? null,
+              node.color ?? null,
+              node.radius ?? null,
+              node.displayName ?? null,
+              node.gitStatus ?? null,
+              null,
+            );
+          }
+          const insEdge = baseline.db.prepare(
+            "INSERT OR REPLACE INTO out_edges (id, source, target, name, kind, category, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          );
+          for (const edge of legacyResult.edges) {
+            insEdge.run(
+              edge.id,
+              edge.source,
+              edge.target,
+              edge.name ?? null,
+              edge.edgeKind ?? null,
+              edge.category ?? null,
+              null,
+            );
+          }
+          const insCombo = baseline.db.prepare(
+            "INSERT OR REPLACE INTO out_combos (id, name, type, parent_id, color, radius, collapsed, display_name, git_status, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          );
+          for (const combo of legacyResult.combos) {
+            insCombo.run(
+              combo.id,
+              typeof combo.name === "string"
+                ? combo.name
+                : JSON.stringify(combo.name),
+              combo.type ?? null,
+              combo.combo ?? null,
+              combo.color ?? null,
+              combo.radius ?? null,
+              combo.collapsed ? 1 : 0,
+              combo.displayName ?? null,
+              combo.gitStatus ?? null,
+              null,
+            );
+          }
+        }
+      }
+
+      applyGitComparisonFromViewResults(primary.db, baseline.db);
+      const durationMs = performance.now() - compareStartedAt;
+      stages.push({
+        id: "view:compare-results",
+        name: "Compare view results",
+        startMs: cursorMs,
+        endMs: cursorMs + durationMs,
+        parentId: "worker:view-compute",
+      });
+      cursorMs += durationMs;
+    }
+
     const convStartedAt = performance.now();
     // The shared in-memory db already has all task output — convert it directly.
     const { nodeDataBuffer, detailBuffer, bytesWritten } =
-      convertSqliteToFlatBuffers(db);
+      convertSqliteToFlatBuffers(primary.db);
     const convDurationMs = performance.now() - convStartedAt;
 
     stages.push({
@@ -821,14 +1024,8 @@ export async function generateGraphView(
       bufferBytesWritten: bytesWritten,
     };
   } finally {
-    if (db) db.close();
-    if (aggregatedDbPath && fs.existsSync(aggregatedDbPath)) {
-      try {
-        fs.unlinkSync(aggregatedDbPath);
-      } catch (err) {
-        console.error("Failed to clean up temporary aggregated database:", err);
-      }
-    }
+    baseline?.cleanup();
+    primary.cleanup();
   }
 }
 

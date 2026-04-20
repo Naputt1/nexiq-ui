@@ -4,7 +4,9 @@ import debounce from "lodash.debounce";
 import { subscribeWithSelector } from "zustand/middleware";
 import type { AppStateData } from "@nexiq/shared";
 
-type PersistedAppStateData = AppStateData;
+type PersistedAppStateData = AppStateData & {
+  gitComparisonEnabled?: boolean;
+};
 
 const DEFAULT = {
   SIDEBAR: {
@@ -36,6 +38,7 @@ interface AppState {
   isSidebarOpen: boolean;
   activeTab: "projects" | "git";
   selectedCommit: string | null;
+  gitComparisonEnabled: boolean;
   isLoaded: boolean;
   viewport: { x: number; y: number; zoom: number } | null;
   view: GraphViewType;
@@ -66,6 +69,7 @@ interface AppState {
   setRightSidebarOpen: (open: boolean) => void;
   setActiveTab: (tab: "projects" | "git") => void;
   setSelectedCommit: (commit: string | null) => void;
+  setGitComparisonEnabled: (enabled: boolean) => void;
   setViewport: (
     viewport: { x: number; y: number; zoom: number } | null,
   ) => void;
@@ -96,6 +100,7 @@ export const useAppStateStore = create<AppState>()(
     isSidebarOpen: false,
     activeTab: "projects",
     selectedCommit: null,
+    gitComparisonEnabled: false,
     isLoaded: false,
     viewport: null,
     view: "component" as GraphViewType,
@@ -160,6 +165,7 @@ export const useAppStateStore = create<AppState>()(
       })),
     setActiveTab: (tab) => set({ activeTab: tab }),
     setSelectedCommit: (commit) => set({ selectedCommit: commit }),
+    setGitComparisonEnabled: (enabled) => set({ gitComparisonEnabled: enabled }),
     setViewport: (viewport) => set({ viewport }),
     setView: (view) => set({ view }),
     setRightSidebarWidth: (width) =>
@@ -223,6 +229,7 @@ export const useAppStateStore = create<AppState>()(
         selected: null,
         activeTab: "projects",
         selectedCommit: null,
+        gitComparisonEnabled: false,
         viewport: null,
         isLoaded: false,
         view: "component",
@@ -289,6 +296,7 @@ export const useAppStateStore = create<AppState>()(
             isSidebarOpen: state.isSidebarOpen ?? false,
             activeTab: state.activeTab || "projects",
             selectedCommit: state.selectedCommit || null,
+            gitComparisonEnabled: state.gitComparisonEnabled ?? false,
             viewport: state.viewport || null,
             view: (state.view as GraphViewType) || "component",
             isProjectModalOpen: false,
@@ -346,6 +354,7 @@ export const useAppStateStore = create<AppState>()(
         isSidebarOpen,
         activeTab,
         selectedCommit,
+        gitComparisonEnabled,
         viewport,
         view,
         isLoaded,
@@ -365,6 +374,7 @@ export const useAppStateStore = create<AppState>()(
         isSidebarOpen,
         activeTab,
         selectedCommit,
+        gitComparisonEnabled,
         viewport,
         view,
         sidebar,
@@ -388,6 +398,7 @@ export const setupAutoSave = (projectRoot: string) => {
       isSidebarOpen: state.isSidebarOpen,
       activeTab: state.activeTab,
       selectedCommit: state.selectedCommit,
+      gitComparisonEnabled: state.gitComparisonEnabled,
       viewport: state.viewport,
       view: state.view,
       sidebar: state.sidebar,

@@ -3,13 +3,12 @@ import { type GraphViewTask } from "./types";
 import { fileTask, packageTask } from "@nexiq/file-extension";
 import { allExtensions } from "./tasks/all-tasks";
 import { componentRustTask } from "@nexiq/component-extension";
-import { gitTask } from "@nexiq/git-extension";
 
 const registry: Record<string, GraphViewTask[]> = {
-  component: [componentRustTask, gitTask],
-  file: [componentRustTask, fileTask, gitTask],
-  router: [gitTask], // Default to gitTask for router too
-  package: [packageTask, gitTask],
+  component: [componentRustTask],
+  file: [componentRustTask, fileTask],
+  router: [],
+  package: [packageTask],
 };
 
 // Automatically register tasks from all extensions
