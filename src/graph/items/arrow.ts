@@ -222,7 +222,12 @@ export class GraphArrow implements Renderable {
       (child) => child.label === `label-${this.id}`,
     ) as PIXI.BitmapText | undefined;
 
-    if (!this.name || this.points.length < 4) {
+    const isIncidentToFocused =
+      !context.focusedId ||
+      this.source === context.focusedId ||
+      this.target === context.focusedId;
+
+    if (!this.name || this.points.length < 4 || !isIncidentToFocused) {
       existing?.destroy();
       return;
     }

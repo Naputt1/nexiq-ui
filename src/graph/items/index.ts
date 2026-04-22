@@ -62,6 +62,7 @@ export interface RenderContext {
   viewport: Viewport;
   theme: "dark" | "light";
   customColors?: CustomColors;
+  focusedId?: string | null;
 }
 
 export interface Renderable {

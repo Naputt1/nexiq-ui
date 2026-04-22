@@ -1092,7 +1092,11 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
         e.preventDefault();
         setProjectModalOpen(true);
       }
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "g") {
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        e.shiftKey &&
+        e.key.toLowerCase() === "g"
+      ) {
         e.preventDefault();
         setGitComparisonEnabled(!gitComparisonEnabled);
       }
@@ -1290,7 +1294,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     if (!sourceFilePath) return [];
     const normalizedPath = sourceFilePath.replace(/\\/g, "/");
 
-    return graph
+    const markers = graph
       .getAllNodes()
       .filter((node) => {
         const fileName = (
@@ -1304,8 +1308,47 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
         id: node.id,
         label: String(node.displayName || node.name || node.id),
         line: details[node.id]?.loc?.line || node.loc?.line || 1,
-      }))
-      .sort((a, b) => a.line - b.line);
+      }));
+
+    // Add props and effects from components in this file
+    for (const node of graph.getAllNodes()) {
+      const detail = details[node.id];
+      const fileName = (detail?.fileName || node.fileName || "").replace(
+        /\\/g,
+        "/",
+      );
+      if (fileName !== normalizedPath) continue;
+
+      if (detail?.raw && typeof detail.raw === "object") {
+        const raw = detail.raw as any;
+
+        // Add Props
+        if (Array.isArray(raw.props)) {
+          for (const prop of raw.props) {
+            const loc = (prop as any).loc;
+            markers.push({
+              id: prop.id,
+              label: prop.name,
+              line: loc?.line || 1,
+            });
+          }
+        }
+
+        // Add Effects
+        if (raw.effects && typeof raw.effects === "object") {
+          for (const effect of Object.values(raw.effects) as any[]) {
+            const loc = (effect as any).loc;
+            markers.push({
+              id: effect.id,
+              label: effect.name || "useEffect",
+              line: loc?.line || 1,
+            });
+          }
+        }
+      }
+    }
+
+    return markers.sort((a, b) => a.line - b.line);
   }, [graph, sourceFilePath, details]);
 
   const totalErrorCount = fileErrors.length + resolveErrors.length;
