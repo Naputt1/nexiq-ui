@@ -66,13 +66,9 @@ import { ViewSwitcher } from "./components/ViewSwitcher";
 import type { GraphViewBufferView } from "./view-snapshot/codec";
 
 import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuShortcut,
-  ContextMenuTrigger,
-} from "./components/ui/context-menu";
+  GraphContextMenu,
+  type GraphContextMenuHandle,
+} from "./components/GraphContextMenu";
 import {
   CommandDialog,
   CommandEmpty,
@@ -176,6 +172,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     useState<GraphViewBufferView | null>(null);
 
   const rendererRef = useRef<PixiRenderer | null>(null);
+  const graphContextMenuRef = useRef<GraphContextMenuHandle>(null);
 
   const [search, setSearch] = useState<string>("");
   const [debouncedSearch, setDebouncedSearch] = useState<string>("");
@@ -184,11 +181,6 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   const [currentMatchIndex, setCurrentMatchIndex] = useState(-1);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{
-    x: number;
-    y: number;
-    targetId: string | null;
-  } | null>(null);
 
   const [typeData, settypeData] = useState<{ [key: string]: TypeDataDeclare }>(
     {},
@@ -844,7 +836,7 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
         onSelect,
         onSelectEdge,
         (id, x, y) => {
-          setContextMenu({ x, y, targetId: id });
+          graphContextMenuRef.current?.open(id, x, y);
         },
         (zoom) => {
           useViewportUiStore.getState().setZoom(zoom);
@@ -1542,92 +1534,17 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
                       ref={containerRef}
                       className="w-full h-full overflow-hidden relative min-w-0"
                     >
-                      <ContextMenu
-                        onOpenChange={(open) => {
-                          if (!open) setContextMenu(null);
-                        }}
+                      <GraphContextMenu
+                        ref={graphContextMenuRef}
+                        graph={graph}
+                        rendererRef={rendererRef}
+                        modLabel={modLabel}
                       >
-                        <ContextMenuTrigger
-                          asChild
-                          onContextMenu={(e) => {
-                            const targetId =
-                              rendererRef.current?.getItemAt(
-                                e.clientX,
-                                e.clientY,
-                              ) || null;
-                            setContextMenu({
-                              x: e.clientX,
-                              y: e.clientY,
-                              targetId,
-                            });
-                          }}
-                        >
-                          <div
-                            className="absolute inset-0"
-                            ref={graphContainerRef}
-                          />
-                        </ContextMenuTrigger>
-                        <ContextMenuContent className="w-64">
-                          {contextMenu?.targetId ? (
-                            <>
-                              <ContextMenuItem
-                                onClick={() => {
-                                  graph.focusItem(contextMenu.targetId);
-                                }}
-                              >
-                                <Search className="mr-2 h-4 w-4" />
-                                Focus this Item
-                                <ContextMenuShortcut>
-                                  <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                    {modLabel}
-                                  </Kbd>
-                                  <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                    Enter
-                                  </Kbd>
-                                </ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator />
-                            </>
-                          ) : null}
-                          {graph.getFocusedId() && (
-                            <ContextMenuItem
-                              onClick={() => {
-                                graph.focusItem(null);
-                              }}
-                            >
-                              <RefreshCw className="mr-2 h-4 w-4" />
-                              Reset Focus
-                              <ContextMenuShortcut>
-                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                  {modLabel}
-                                </Kbd>
-                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                  ⇧
-                                </Kbd>
-                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                  Enter
-                                </Kbd>
-                              </ContextMenuShortcut>
-                            </ContextMenuItem>
-                          )}
-                          <ContextMenuItem
-                            onClick={() => {
-                              graph.layout(true);
-                            }}
-                          >
-                            <RefreshCw className="mr-2 h-4 w-4" />
-                            Recalculate Layout
-                            <ContextMenuShortcut>
-                              <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                {modLabel}
-                              </Kbd>
-                              <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                L
-                              </Kbd>
-                            </ContextMenuShortcut>
-                          </ContextMenuItem>
-                        </ContextMenuContent>
-                      </ContextMenu>
+                        <div
+                          className="absolute inset-0"
+                          ref={graphContainerRef}
+                        />
+                      </GraphContextMenu>
 
                       <CommandDialog
                         open={isCommandPaletteOpen}

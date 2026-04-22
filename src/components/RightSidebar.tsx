@@ -104,7 +104,18 @@ export const RightSidebar = React.memo(function RightSidebar({
 
   // Subscribe to graph changes to ensure we re-render when nodes move or are added
   useEffect(() => {
-    const unbind = graph.bind(() => {
+    const unbind = graph.bind((params) => {
+      // Ignore purely visual updates that don't affect hierarchy or details
+      if (
+        params.type === "layout-change" ||
+        params.type === "node-drag-move" ||
+        params.type === "combo-drag-move" ||
+        params.type === "combo-radius-change" ||
+        params.type === "node-drag-end" ||
+        params.type === "combo-drag-end"
+      ) {
+        return;
+      }
       setForceUpdate((v) => v + 1);
     });
     return () => graph.unbind(unbind);
