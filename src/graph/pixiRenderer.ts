@@ -722,6 +722,7 @@ export class PixiRenderer {
       ),
       theme: this.theme,
       customColors: this.customColors,
+      focusedId: this.graph.getFocusedId(),
     };
   }
 
