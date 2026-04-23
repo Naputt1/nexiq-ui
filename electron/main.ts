@@ -14,11 +14,10 @@ import { store } from "./store";
 
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { exec } from "node:child_process";
+import { exec, execSync, spawn, type ChildProcess } from "node:child_process";
 import os from "node:os";
 
 import { WebSocket } from "ws";
-import { spawn, ChildProcess } from "node:child_process";
 import Database from "better-sqlite3";
 import { UISqliteDB } from "./ui-sqlite-db";
 import { GraphSnapshotManager } from "./graph-snapshot-manager";
@@ -40,6 +39,9 @@ import type {
 const BACKEND_PORT = 3030;
 let backendProcess: ChildProcess | null = null;
 let backendWs: WebSocket | null = null;
+let backendRestartCount = 0;
+const MAX_BACKEND_RESTARTS = 3;
+let backendRestartTimeout: NodeJS.Timeout | null = null;
 const projectSqlitePaths = new Map<string, string>();
 const gitCommitSnapshotPaths = new Map<string, string>();
 const inlineLargeDataHandles = new Map<
@@ -79,28 +81,79 @@ async function isBackendAlive(): Promise<boolean> {
 async function startBackend() {
   if (backendProcess) return;
 
-  // if (process.env.VITE_EXTERNAL_BACKEND === "true") {
-  //   console.log("Using external backend as requested by VITE_EXTERNAL_BACKEND");
-  //   connectToBackend();
-  //   return;
-  // }
+  if (backendRestartTimeout) {
+    clearTimeout(backendRestartTimeout);
+    backendRestartTimeout = null;
+  }
 
   // Try to connect to an existing backend first
   if (await isBackendAlive()) {
     console.log(
       `Using existing backend already running on port ${BACKEND_PORT}`,
     );
+    backendRestartCount = 0;
     connectToBackend();
     return;
   }
 
-  // Get server path from environment variable or default location
-  let serverDist = process.env.REACT_MAP_SERVER_PATH;
+  // Resolve binary path
+  let serverPath = process.env.REACT_MAP_SERVER_PATH;
+  let useCli = false;
+  let spawnExe = "node";
 
-  if (!serverDist) {
-    // If we are in the monorepo, it's still at ../../server/dist/index.js
-    // but in a separate repo it should be provided.
-    serverDist = path.join(
+  if (!serverPath) {
+    // 1. Check if 'nexiq' is available in the system PATH (global install)
+    try {
+      const isWindows = process.platform === "win32";
+      const checkCmd = isWindows ? "where nexiq" : "which nexiq";
+      const globalPath = execSync(checkCmd, { encoding: "utf8" }).trim();
+      if (globalPath && fs.existsSync(globalPath)) {
+        serverPath = globalPath;
+        useCli = true;
+        // If it's a binary/shim, we might not need 'node' to run it
+        spawnExe = serverPath;
+      }
+    } catch {
+      // not in PATH
+    }
+  }
+
+  if (!serverPath) {
+    // 2. Check for bundled CLI in app resources (for packaged builds)
+    const bundledPath = path.join(
+      process.resourcesPath || "",
+      "bin",
+      process.platform === "win32" ? "nexiq.exe" : "nexiq",
+    );
+    if (fs.existsSync(bundledPath)) {
+      serverPath = bundledPath;
+      useCli = true;
+      spawnExe = serverPath;
+    }
+  }
+
+  if (!serverPath) {
+    // 3. Try to find the CLI in the monorepo (development)
+    const cliPath = path.join(
+      process.env.APP_ROOT!,
+      "..",
+      "nexiq",
+      "packages",
+      "nexiq-cli",
+      "dist",
+      "cli.js",
+    );
+
+    if (fs.existsSync(cliPath)) {
+      serverPath = cliPath;
+      useCli = true;
+      spawnExe = "node";
+    }
+  }
+
+  if (!serverPath) {
+    // 4. Fallback to direct server dist (legacy development)
+    const directPath = path.join(
       process.env.APP_ROOT!,
       "..",
       "nexiq",
@@ -109,17 +162,31 @@ async function startBackend() {
       "dist",
       "index.js",
     );
+    if (fs.existsSync(directPath)) {
+      serverPath = directPath;
+      useCli = false;
+      spawnExe = "node";
+    }
   }
 
-  if (!fs.existsSync(serverDist)) {
-    console.warn(`Backend server not found at: ${serverDist}. 
-Please set REACT_MAP_SERVER_PATH or use VITE_EXTERNAL_BACKEND=true.`);
+  if (!serverPath) {
+    console.warn(
+      "Backend server/cli not found. Please ensure nexiq is installed or built.",
+    );
     return;
   }
 
-  console.log(`Starting backend from: ${serverDist}`);
+  console.log(
+    `Starting backend from: ${serverPath} (useCli: ${useCli}, exe: ${spawnExe})`,
+  );
 
-  backendProcess = spawn("node", [serverDist], {
+  const spawnArgs = useCli
+    ? spawnExe === "node"
+      ? [serverPath, "start", "--foreground", "--port", BACKEND_PORT.toString()]
+      : ["start", "--foreground", "--port", BACKEND_PORT.toString()]
+    : [serverPath];
+
+  backendProcess = spawn(spawnExe, spawnArgs, {
     stdio: ["inherit", "inherit", "inherit", "ipc"],
     env: {
       ...process.env,
@@ -132,9 +199,27 @@ Please set REACT_MAP_SERVER_PATH or use VITE_EXTERNAL_BACKEND=true.`);
     console.error("Failed to start backend process:", err);
   });
 
-  backendProcess.on("exit", (code) => {
-    console.log(`Backend process exited with code ${code}`);
+  backendProcess.on("exit", (code, signal) => {
+    console.log(
+      `Backend process exited with code ${code} and signal ${signal}`,
+    );
     backendProcess = null;
+
+    if (!isQuitting && code !== 0 && signal === null) {
+      if (backendRestartCount < MAX_BACKEND_RESTARTS) {
+        backendRestartCount++;
+        console.warn(
+          `Backend crashed. Restarting (${backendRestartCount}/${MAX_BACKEND_RESTARTS}) in 1s...`,
+        );
+        backendRestartTimeout = setTimeout(() => {
+          startBackend();
+        }, 1000);
+      } else {
+        console.error(
+          `Backend failed to start after ${MAX_BACKEND_RESTARTS} retries.`,
+        );
+      }
+    }
   });
 
   // Wait a bit for the server to start
@@ -149,6 +234,7 @@ function connectToBackend() {
 
   backendWs.on("open", () => {
     console.log("Connected to shared backend");
+    backendRestartCount = 0; // Reset restart count on successful connection
   });
 
   backendWs.on("message", (data) => {
