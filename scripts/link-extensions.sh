@@ -25,7 +25,7 @@ echo "Linking local packages..."
 pnpm link "$MONOREPO_PATH/packages/shared"
 pnpm link "$MONOREPO_PATH/packages/extension-sdk"
 pnpm link "$MONOREPO_PATH/packages/component-extension"
-pnpm link "$MONOREPO_PATH/packages/git-extension"
+pnpm link "$MONOREPO_PATH/packages/file-extension"
 
 echo ""
 echo "=== Linking Complete! ==="
