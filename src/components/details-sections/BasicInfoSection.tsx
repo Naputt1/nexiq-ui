@@ -1,5 +1,6 @@
 import React from "react";
 import type { DetailSectionProps } from "@nexiq/extension-sdk";
+import type { ComponentFileVarComponent } from "@nexiq/shared";
 
 export const BasicInfoSection: React.FC<DetailSectionProps> = ({
   item,
@@ -65,6 +66,24 @@ export const BasicInfoSection: React.FC<DetailSectionProps> = ({
           <span className="text-muted-foreground capitalize">
             {componentType}
           </span>
+        </div>
+      )}
+
+      {(detail?.raw as ComponentFileVarComponent)?.memo && (
+        <div className="flex gap-2 text-xs">
+          <span className="font-semibold text-muted-foreground/80 min-w-12 text-start">
+            Memo:
+          </span>
+          <span className="text-muted-foreground">True</span>
+        </div>
+      )}
+
+      {(detail?.raw as ComponentFileVarComponent)?.forwardRef && (
+        <div className="flex gap-2 text-xs">
+          <span className="font-semibold text-muted-foreground/80 min-w-12 text-start">
+            ForwardRef:
+          </span>
+          <span className="text-muted-foreground">True</span>
         </div>
       )}
     </div>
