@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "vite",
     "build": "./scripts/build-electron.sh",
-    "build:wasm": "cd layout-wasm && pnpm exec wasm-pack build --target web",
+    "build:wasm": "cd layout-wasm && pnpm exec wasm-pack build --target web && rm -f pkg/.gitignore",
     "build:vite": "tsc || true && vite build",
     "build:coverage": "VITE_COVERAGE=true pnpm build:vite",
     "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
