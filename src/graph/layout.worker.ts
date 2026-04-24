@@ -24,7 +24,16 @@ let wasmPromise: Promise<InitOutput> | null = null;
 
 async function ensureWasm() {
   if (!wasmPromise) {
-    wasmPromise = init();
+    console.log("Initializing LayoutWorker WASM...");
+    wasmPromise = init()
+      .then((output) => {
+        console.log("LayoutWorker WASM initialized successfully");
+        return output;
+      })
+      .catch((err) => {
+        console.error("Failed to initialize LayoutWorker WASM:", err);
+        throw err;
+      });
   }
   return wasmPromise;
 }

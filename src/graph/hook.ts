@@ -409,6 +409,9 @@ export class GraphData {
     this.batch(() => {
       this.clear();
       const result = viewBuffer.materialize();
+      console.log(
+        `Setting graph data from view buffer: ${result.nodes.length} nodes, ${result.edges.length} edges, ${result.combos.length} combos`,
+      );
       this.addCombos(result.combos);
       this.addNodes(result.nodes);
       this.addEdges(result.edges);

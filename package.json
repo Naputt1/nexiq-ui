@@ -93,8 +93,10 @@
     "@tanstack/react-devtools": "^0.10.2",
     "@tanstack/react-virtual": "^3.13.24",
     "better-sqlite3": "12.9.0",
+    "bindings": "^1.5.0",
     "cmdk": "^1.1.1",
     "fast-glob": "^3.3.3",
+    "file-uri-to-path": "1.0.0",
     "flatbuffers": "^25.9.23",
     "js-yaml": "^4.1.1",
     "lodash.debounce": "^4.0.8",
@@ -108,6 +110,9 @@
     "zustand": "^5.0.12"
   },
   "bundledDependencies": [
-    "@node-rs/xxhash"
+    "@node-rs/xxhash",
+    "better-sqlite3",
+    "bindings",
+    "file-uri-to-path"
   ]
 }

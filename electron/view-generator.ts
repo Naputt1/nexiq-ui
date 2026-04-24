@@ -443,6 +443,10 @@ async function prepareViewDatabase(
       ? sqlitePath
       : nodePath.resolve(process.cwd(), sqlitePath);
 
+    console.log(`Attaching database: ${absolutePath}`);
+    if (!fs.existsSync(absolutePath)) {
+      console.error(`Database file does not exist: ${absolutePath}`);
+    }
     db.prepare(`ATTACH DATABASE ? AS source`).run(absolutePath);
 
     const schemaTables = db
@@ -812,6 +816,7 @@ export async function generateGraphView(
   });
 
   const tasks = getTasksForView(viewType);
+  console.log(`Generating view "${viewType}" for ${projectRoot}. Found ${tasks.length} tasks.`);
 
   let primary: PreparedViewDatabase;
   if (sqlitePath) {
@@ -931,6 +936,10 @@ export async function generateGraphView(
         }
 
         const durationMs = performance.now() - taskStartedAt;
+        const nodeCount = primary.db.prepare("SELECT COUNT(*) as count FROM out_nodes").get() as { count: number };
+        const edgeCount = primary.db.prepare("SELECT COUNT(*) as count FROM out_edges").get() as { count: number };
+        console.log(`Task "${task.id}" finished in ${durationMs.toFixed(2)}ms. Current totals: ${nodeCount.count} nodes, ${edgeCount.count} edges`);
+        
         stages.push({
           id: `view:task:${task.id}`,
           name: `Task: ${task.id}`,
