@@ -18,6 +18,9 @@ jobs:
         with:
           node-version: 20
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -26,8 +29,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Run Analyser Tests
-        run: pnpm test:analyze
+      - name: Build WASM
+        run: pnpm build:wasm
+
+      - name: Run Tests
+        run: pnpm test
 
   release:
     name: Build and Release (${{ matrix.os }})
@@ -86,6 +92,7 @@ jobs:
         run: |
           cd ui
           pnpm install
+          pnpm build:wasm
           pnpm link ../nexiq/packages/shared
           pnpm link ../nexiq/packages/extension-sdk
           pnpm link ../nexiq/packages/component-extension
