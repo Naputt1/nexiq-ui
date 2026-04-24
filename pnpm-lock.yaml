@@ -18,8 +18,8 @@ importers:
         specifier: ^0.1.0
         version: 0.1.0(@nexiq/extension-sdk@1.0.4(@nexiq/shared@1.0.3)(better-sqlite3@12.9.0)(react@19.2.5))(@nexiq/shared@1.0.3)(react@19.2.5)
       '@nexiq/layout-wasm':
-        specifier: file:layout-wasm/pkg
-        version: nexiq-layout-wasm@file:layout-wasm/pkg
+        specifier: workspace:*
+        version: link:layout-wasm
       '@nexiq/shared':
         specifier: ^1.0.3
         version: 1.0.3
@@ -249,6 +249,12 @@ importers:
       wasm-pack:
         specifier: ^0.14.0
         version: 0.14.0
+
+  layout-wasm:
+    devDependencies:
+      wasm-pack:
+        specifier: ^0.13.1
+        version: 0.13.1
 
 packages:
 
@@ -3586,9 +3592,6 @@ packages:
   natural-compare@1.4.0:
     resolution: {integrity: sha512-OWND8ei3VtNC9h7V60qff3SVobHr996CTwgxubgyQYEpg290h9J0buyECNNJexkFm5sOajh5G116RYA1c8ZMSw==}
 
-  nexiq-layout-wasm@file:layout-wasm/pkg:
-    resolution: {directory: layout-wasm/pkg, type: directory}
-
   node-abi@3.89.0:
     resolution: {integrity: sha512-6u9UwL0HlAl21+agMN3YAMXcKByMqwGx+pq+P76vii5f7hTPtKDp08/H9py6DY+cfDw7kQNTGEj/rly3IgbNQA==}
     engines: {node: '>=10'}
@@ -4443,6 +4446,10 @@ packages:
         optional: true
       jsdom:
         optional: true
+
+  wasm-pack@0.13.1:
+    resolution: {integrity: sha512-P9exD4YkjpDbw68xUhF3MDm/CC/3eTmmthyG5bHJ56kalxOTewOunxTke4SyF8MTXV6jUtNjXggPgrGmMtczGg==}
+    hasBin: true
 
   wasm-pack@0.14.0:
     resolution: {integrity: sha512-7uKj+483b6ETTnuWHK3zKNB3Ca3M159tPZ5shyXxI4j7i9Lk82rL2ck/L6E9O5VMWk9JgowdtTBOSfWmGBRFtw==}
@@ -7931,8 +7938,6 @@ snapshots:
 
   natural-compare@1.4.0: {}
 
-  nexiq-layout-wasm@file:layout-wasm/pkg: {}
-
   node-abi@3.89.0:
     dependencies:
       semver: 7.7.4
@@ -8851,6 +8856,12 @@ snapshots:
       '@types/node': 25.6.0
     transitivePeerDependencies:
       - msw
+
+  wasm-pack@0.13.1:
+    dependencies:
+      binary-install: 1.1.2
+    transitivePeerDependencies:
+      - debug
 
   wasm-pack@0.14.0:
     dependencies:
