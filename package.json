@@ -11,7 +11,7 @@
     "dev": "vite",
     "build": "tsx scripts/build-electron.ts",
     "build:wasm": "pnpm --filter @nexiq/layout-wasm build && tsx -e \"import fs from 'node:fs'; fs.rmSync('layout-wasm/pkg/.gitignore', { force: true })\"",
-    "build:vite": "tsc || echo Type checking failed... && vite build",
+    "build:vite": "tsx -e \"import { execSync } from 'node:child_process'; try { execSync('pnpm exec tsc', { stdio: 'inherit', shell: true }) } catch (e) {} ; execSync('pnpm exec vite build', { stdio: 'inherit', shell: true })\"",
     "build:coverage": "VITE_COVERAGE=true pnpm build:vite",
     "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
     "typecheck": "tsc --build",
