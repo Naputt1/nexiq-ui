@@ -792,6 +792,7 @@ export async function generateGraphView(
 ): Promise<GenerateGraphViewResult> {
   const {
     sqlitePath,
+    snapshotData,
     view: viewType,
     projectRoot,
     analysisPaths,
@@ -812,10 +813,22 @@ export async function generateGraphView(
 
   const tasks = getTasksForView(viewType);
 
-  if (!sqlitePath) {
-    throw new Error("SQLite database is required for graph view generation");
+  let primary: PreparedViewDatabase;
+  if (sqlitePath) {
+    primary = await prepareViewDatabase(sqlitePath, projectRoot, analysisPaths);
+  } else if (snapshotData) {
+    // For snapshot data, create an empty in-memory DB with output tables
+    const db = new Database(":memory:");
+    initOutputTables(db);
+    primary = {
+      db,
+      effectiveCacheDbPath: ":memory:",
+      cleanup: () => db.close(),
+    };
+  } else {
+    throw new Error("Either SQLite database or snapshot data is required for graph view generation");
   }
-  const primary = await prepareViewDatabase(sqlitePath, projectRoot, analysisPaths);
+
   let baseline: PreparedViewDatabase | undefined;
 
   try {
@@ -847,51 +860,72 @@ export async function generateGraphView(
             "INSERT OR REPLACE INTO out_nodes (id, name, type, combo_id, color, radius, display_name, git_status, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
           );
           for (const node of legacyResult.nodes) {
+            const {
+              id,
+              name,
+              type,
+              combo,
+              color,
+              radius,
+              displayName,
+              gitStatus,
+              ...rest
+            } = node;
             insNode.run(
-              node.id,
-              typeof node.name === "string"
-                ? node.name
-                : JSON.stringify(node.name),
-              node.type ?? null,
-              node.combo ?? null,
-              node.color ?? null,
-              node.radius ?? null,
-              node.displayName ?? null,
-              node.gitStatus ?? null,
-              null,
+              id,
+              typeof name === "string" ? name : JSON.stringify(name),
+              type ?? null,
+              combo ?? null,
+              color ?? null,
+              radius ?? null,
+              displayName ?? null,
+              gitStatus ?? null,
+              Object.keys(rest).length > 0 ? JSON.stringify(rest) : null,
             );
           }
           const insEdge = primary.db.prepare(
             "INSERT OR REPLACE INTO out_edges (id, source, target, name, kind, category, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
           );
           for (const edge of legacyResult.edges) {
+            const { id, source, target, name, edgeKind, category, ...rest } =
+              edge;
             insEdge.run(
-              edge.id,
-              edge.source,
-              edge.target,
-              edge.name ?? null,
-              edge.edgeKind ?? null,
-              edge.category ?? null,
-              null,
+              id,
+              source,
+              target,
+              name ?? null,
+              edgeKind ?? null,
+              category ?? null,
+              Object.keys(rest).length > 0 ? JSON.stringify(rest) : null,
             );
           }
           const insCombo = primary.db.prepare(
             "INSERT OR REPLACE INTO out_combos (id, name, type, parent_id, color, radius, collapsed, display_name, git_status, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
           );
           for (const combo of legacyResult.combos) {
+            const {
+              id,
+              name,
+              type,
+              combo: parent_id,
+              color,
+              radius,
+              collapsed,
+              displayName,
+              gitStatus,
+              ...rest
+            } = combo;
             insCombo.run(
-              combo.id,
-              typeof combo.name === "string"
-                ? combo.name
-                : JSON.stringify(combo.name),
-              combo.type ?? null,
-              combo.combo ?? null,
-              combo.color ?? null,
-              combo.radius ?? null,
-              combo.collapsed ? 1 : 0,
-              combo.displayName ?? null,
-              combo.gitStatus ?? null,
-              null,
+              id,
+              typeof name === "string" ? name : JSON.stringify(name),
+              type ?? null,
+              parent_id ?? null,
+              color ?? null,
+              radius ?? null,
+              collapsed ? 1 : 0,
+              displayName ?? null,
+              gitStatus ?? null,
+              Object.keys(rest).length > 0 ? JSON.stringify(rest) : null,
             );
           }
         }
@@ -1016,8 +1050,58 @@ export async function generateGraphView(
       parentId: "worker:view-compute",
     });
 
+    const nodes = primary.db.prepare<[], OutNode>("SELECT * FROM out_nodes").all();
+    const edges = primary.db.prepare<[], OutEdge>("SELECT * FROM out_edges").all();
+    const combos = primary.db.prepare<[], OutCombo>("SELECT * FROM out_combos").all();
+
     return {
-      result: { nodes: [], edges: [], combos: [], typeData: {} }, // Mock result object as data is in buffers
+      result: {
+        nodes: nodes.map((n) => {
+          const meta = n.meta_json ? JSON.parse(n.meta_json) : undefined;
+          return {
+            id: n.id,
+            name: n.name || "",
+            type: n.type || undefined,
+            combo: n.combo_id || undefined,
+            color: n.color || undefined,
+            radius: n.radius || undefined,
+            displayName: n.display_name || undefined,
+            gitStatus: n.git_status || undefined,
+            ...meta,
+            meta: meta,
+          };
+        }),
+        edges: edges.map((e) => {
+          const meta = e.meta_json ? JSON.parse(e.meta_json) : undefined;
+          return {
+            id: e.id,
+            source: e.source,
+            target: e.target,
+            name: e.name || undefined,
+            edgeKind: e.kind || undefined,
+            category: e.category || undefined,
+            ...meta,
+            meta: meta,
+          };
+        }),
+        combos: combos.map((c) => {
+          const meta = c.meta_json ? JSON.parse(c.meta_json) : undefined;
+          return {
+            id: c.id,
+            name: c.name || "",
+            type: c.type || undefined,
+            combo: c.parent_id || undefined,
+            color: c.color || undefined,
+            radius: c.radius || undefined,
+            collapsed: !!c.collapsed,
+            displayName: c.display_name || undefined,
+            gitStatus: c.git_status || undefined,
+            ...meta,
+            meta: meta,
+          };
+        }),
+        typeData: {},
+      },
       stages,
       nodeDataBuffer,
       detailBuffer,
