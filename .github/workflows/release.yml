@@ -45,18 +45,52 @@ jobs:
             args: --win
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout UI
+        uses: actions/checkout@v4
+        with:
+          path: ui
+
+      - name: Checkout Monorepo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/nexiq
+          path: nexiq
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
       - name: Install pnpm
         uses: pnpm/action-setup@v4
 
-      - name: Install dependencies
-        run: pnpm install
+      - name: Build Monorepo Extensions
+        run: |
+          cd nexiq
+          pnpm install
+          pnpm --filter @nexiq/shared build
+          pnpm --filter @nexiq/extension-sdk build
+          pnpm --filter @nexiq/component-extension build
+          pnpm --filter @nexiq/file-extension build
+
+      - name: Install UI dependencies and Link
+        run: |
+          cd ui
+          pnpm install
+          pnpm link ../nexiq/packages/shared
+          pnpm link ../nexiq/packages/extension-sdk
+          pnpm link ../nexiq/packages/component-extension
+          pnpm link ../nexiq/packages/file-extension
+
+      - name: Build UI
+        run: |
+          cd ui
+          pnpm build
 
       - name: Create Release
         uses: softprops/action-gh-release@v2

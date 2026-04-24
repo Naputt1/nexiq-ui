@@ -73,7 +73,7 @@
     "wasm-pack": "^0.14.0"
   },
   "dependencies": {
-    "@nexiq/component-extension": "^0.1.0",
+    "@nexiq/component-extension": "^0.1.2",
     "@nexiq/extension-sdk": "^1.0.4",
     "@nexiq/file-extension": "^0.1.0",
     "@nexiq/layout-wasm": "file:layout-wasm/pkg",
