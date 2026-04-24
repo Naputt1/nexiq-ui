@@ -5,11 +5,5 @@ allowBuilds:
   electron-winstaller: true
   esbuild: true
   wasm-pack: true
-overrides:
-  '@nexiq/component-extension': link:../nexiq/packages/component-extension
-  '@nexiq/extension-sdk': link:../nexiq/packages/extension-sdk
-  '@nexiq/file-extension': link:../nexiq/packages/file-extension
-  '@nexiq/git-extension': link:../nexiq/packages/git-extension
-  '@nexiq/shared': link:../nexiq/packages/shared
 
 strictPeerDependencies: false
