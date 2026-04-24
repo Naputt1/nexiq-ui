@@ -8,7 +8,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 describe("ForceLayout WASM", () => {
   beforeAll(async () => {
-    const wasmPath = join(__dirname, "../../node_modules/@nexiq/layout-wasm/nexiq_layout_wasm_bg.wasm");
+    const wasmPath = join(__dirname, "../../node_modules/@nexiq/layout-wasm/pkg/nexiq_layout_wasm_bg.wasm");
     const wasmBuffer = readFileSync(wasmPath);
     await init(wasmBuffer);
   });
