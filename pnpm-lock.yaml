@@ -4,35 +4,25 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  '@nexiq/component-extension': link:../nexiq/packages/component-extension
-  '@nexiq/extension-sdk': link:../nexiq/packages/extension-sdk
-  '@nexiq/file-extension': link:../nexiq/packages/file-extension
-  '@nexiq/git-extension': link:../nexiq/packages/git-extension
-  '@nexiq/shared': link:../nexiq/packages/shared
-
 importers:
 
   .:
     dependencies:
       '@nexiq/component-extension':
-        specifier: link:../nexiq/packages/component-extension
-        version: link:../nexiq/packages/component-extension
+        specifier: ^0.1.0
+        version: 0.1.0(react@19.2.5)
       '@nexiq/extension-sdk':
-        specifier: link:../nexiq/packages/extension-sdk
-        version: link:../nexiq/packages/extension-sdk
+        specifier: ^1.0.4
+        version: 1.0.4(@nexiq/shared@1.0.3)(better-sqlite3@12.8.0)(react@19.2.5)
       '@nexiq/file-extension':
-        specifier: link:../nexiq/packages/file-extension
-        version: link:../nexiq/packages/file-extension
-      '@nexiq/git-extension':
-        specifier: link:../nexiq/packages/git-extension
-        version: link:../nexiq/packages/git-extension
+        specifier: ^0.1.0
+        version: 0.1.0(@nexiq/extension-sdk@1.0.4(@nexiq/shared@1.0.3)(better-sqlite3@12.8.0)(react@19.2.5))(@nexiq/shared@1.0.3)(react@19.2.5)
       '@nexiq/layout-wasm':
         specifier: file:./layout-wasm/pkg
         version: nexiq-layout-wasm@file:layout-wasm/pkg
       '@nexiq/shared':
-        specifier: link:../nexiq/packages/shared
-        version: link:../nexiq/packages/shared
+        specifier: ^1.0.3
+        version: 1.0.3
       '@node-rs/xxhash':
         specifier: ^1.7.6
         version: 1.7.6
@@ -828,6 +818,32 @@ packages:
     peerDependencies:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
+
+  '@nexiq/component-extension@0.1.0':
+    resolution: {integrity: sha512-DSZwvpT5rmkk71S0bZBHUq0Q9bQy5KYT02FanPI3lXyy+aZaumnvXDgPcU5PjqiOy3+ZQ3KEAbNyJ3+tj4GsXA==}
+
+  '@nexiq/extension-sdk@1.0.3':
+    resolution: {integrity: sha512-IEIh7Upz0kdvzpzf743XB2iWNomI4pXG9Mv1+gwAZOd6J+j5+/Yo4y1SsD3W5D8zxF90ipHqjZBydxQzGtBNig==}
+    peerDependencies:
+      '@nexiq/shared': 1.0.2
+      react: ^18.0.0 || ^19.0.0
+
+  '@nexiq/extension-sdk@1.0.4':
+    resolution: {integrity: sha512-mZm4EePiOH1QsEM9apj/gCcmYglfBi1z1+Vw/6g9IWR19Cei8wxXPTCv4SRtpfUwSoJ9P4rf20rc30o4oJN9QA==}
+    peerDependencies:
+      '@nexiq/shared': 1.0.3
+      better-sqlite3: ^12.8.0
+      react: ^18.0.0 || ^19.0.0
+
+  '@nexiq/file-extension@0.1.0':
+    resolution: {integrity: sha512-fq66F0scCTRleST2F+Dd8Hj4HXj6a+KP2h/Jf+mBOBWbZ3iebwjF6MtwEM91xnUR1paJ1VxBoaX6koCSyJGf5Q==}
+    peerDependencies:
+      '@nexiq/extension-sdk': 1.0.4
+      '@nexiq/shared': 1.0.3
+      react: ^18.0.0 || ^19.0.0
+
+  '@nexiq/shared@1.0.3':
+    resolution: {integrity: sha512-mj8owOF8NHOknNS1/fuXKSWpVvkI/0No+NTPAMLibTxGc4ppQM7NFLTrgqBuMtb454Pq850I8OJlJWvO7VE+iw==}
 
   '@node-rs/xxhash-android-arm-eabi@1.7.6':
     resolution: {integrity: sha512-ptmfpFZ8SgTef58Us+0HsZ9BKhyX/gZYbhLkuzPt7qUoMqMSJK85NC7LEgzDgjUiG+S5GahEEQ9/tfh9BVvKhw==}
@@ -5250,6 +5266,34 @@ snapshots:
       '@emnapi/runtime': 1.9.2
       '@tybys/wasm-util': 0.10.1
     optional: true
+
+  '@nexiq/component-extension@0.1.0(react@19.2.5)':
+    dependencies:
+      '@nexiq/extension-sdk': 1.0.3(@nexiq/shared@1.0.3)(react@19.2.5)
+      '@nexiq/shared': 1.0.3
+    transitivePeerDependencies:
+      - react
+
+  '@nexiq/extension-sdk@1.0.3(@nexiq/shared@1.0.3)(react@19.2.5)':
+    dependencies:
+      '@nexiq/shared': 1.0.3
+      react: 19.2.5
+
+  '@nexiq/extension-sdk@1.0.4(@nexiq/shared@1.0.3)(better-sqlite3@12.8.0)(react@19.2.5)':
+    dependencies:
+      '@nexiq/shared': 1.0.3
+      better-sqlite3: 12.8.0
+      react: 19.2.5
+
+  '@nexiq/file-extension@0.1.0(@nexiq/extension-sdk@1.0.4(@nexiq/shared@1.0.3)(better-sqlite3@12.8.0)(react@19.2.5))(@nexiq/shared@1.0.3)(react@19.2.5)':
+    dependencies:
+      '@nexiq/extension-sdk': 1.0.4(@nexiq/shared@1.0.3)(better-sqlite3@12.8.0)(react@19.2.5)
+      '@nexiq/shared': 1.0.3
+      react: 19.2.5
+
+  '@nexiq/shared@1.0.3':
+    dependencies:
+      flatbuffers: 25.9.23
 
   '@node-rs/xxhash-android-arm-eabi@1.7.6':
     optional: true
