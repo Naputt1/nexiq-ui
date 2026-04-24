@@ -13,13 +13,8 @@ echo "Building UI renderer and main..."
 pnpm build:vite
 
 echo "Deploying production dependencies to out-build..."
-# If this is a standalone repo, we might just need pnpm install --prod in a copy
-# But if it's still using workspace:* during dev, deploy --legacy is better.
-# For a standalone repo, we can use:
-# cp -r . out-build/ && cd out-build && pnpm install --prod
-# However, pnpm deploy works for standalone packages too if there is a lockfile.
-
-pnpm deploy --legacy "$REPO_ROOT/out-build"
+# Use --filter @nexiq/ui to select the root project for deployment since it's now a workspace.
+pnpm deploy --filter @nexiq/ui --legacy "$REPO_ROOT/out-build"
 
 echo "Copying build artifacts and config..."
 cp -r "$REPO_ROOT/dist" "$REPO_ROOT/out-build/"
