@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@nexiq/component-extension':
-        specifier: ^0.1.0
-        version: 0.1.0(react@19.2.5)
+        specifier: ^0.1.2
+        version: 0.1.2(better-sqlite3@12.9.0)(react@19.2.5)
       '@nexiq/extension-sdk':
         specifier: ^1.0.4
         version: 1.0.4(@nexiq/shared@1.0.3)(better-sqlite3@12.9.0)(react@19.2.5)
@@ -819,14 +819,8 @@ packages:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
 
-  '@nexiq/component-extension@0.1.0':
-    resolution: {integrity: sha512-DSZwvpT5rmkk71S0bZBHUq0Q9bQy5KYT02FanPI3lXyy+aZaumnvXDgPcU5PjqiOy3+ZQ3KEAbNyJ3+tj4GsXA==}
-
-  '@nexiq/extension-sdk@1.0.3':
-    resolution: {integrity: sha512-IEIh7Upz0kdvzpzf743XB2iWNomI4pXG9Mv1+gwAZOd6J+j5+/Yo4y1SsD3W5D8zxF90ipHqjZBydxQzGtBNig==}
-    peerDependencies:
-      '@nexiq/shared': 1.0.2
-      react: ^18.0.0 || ^19.0.0
+  '@nexiq/component-extension@0.1.2':
+    resolution: {integrity: sha512-52eCysdpmPyGasp5zKdJG4f9AxDZbmTOE+YPcjglXO9KZKDpsZWfB/5LQQD4A5WDlcWl+R5FHiJ823dpRy3+Vw==}
 
   '@nexiq/extension-sdk@1.0.4':
     resolution: {integrity: sha512-mZm4EePiOH1QsEM9apj/gCcmYglfBi1z1+Vw/6g9IWR19Cei8wxXPTCv4SRtpfUwSoJ9P4rf20rc30o4oJN9QA==}
@@ -5103,17 +5097,13 @@ snapshots:
       '@tybys/wasm-util': 0.10.1
     optional: true
 
-  '@nexiq/component-extension@0.1.0(react@19.2.5)':
+  '@nexiq/component-extension@0.1.2(better-sqlite3@12.9.0)(react@19.2.5)':
     dependencies:
-      '@nexiq/extension-sdk': 1.0.3(@nexiq/shared@1.0.3)(react@19.2.5)
+      '@nexiq/extension-sdk': 1.0.4(@nexiq/shared@1.0.3)(better-sqlite3@12.9.0)(react@19.2.5)
       '@nexiq/shared': 1.0.3
     transitivePeerDependencies:
+      - better-sqlite3
       - react
-
-  '@nexiq/extension-sdk@1.0.3(@nexiq/shared@1.0.3)(react@19.2.5)':
-    dependencies:
-      '@nexiq/shared': 1.0.3
-      react: 19.2.5
 
   '@nexiq/extension-sdk@1.0.4(@nexiq/shared@1.0.3)(better-sqlite3@12.9.0)(react@19.2.5)':
     dependencies:
