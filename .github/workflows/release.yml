@@ -101,19 +101,20 @@ jobs:
       - name: Build UI
         run: |
           cd ui
-          pnpm build
+          pnpm build ${{ matrix.args }}
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            out/ui/release/**/*.dmg
-            out/ui/release/**/*.zip
-            out/ui/release/**/*.AppImage
-            out/ui/release/**/*.exe
-            out/ui/release/**/*.deb
-            out/ui/release/**/*.rpm
+            ui/out-build/release/**/*-Installer.dmg
+            ui/out-build/release/**/*-Installer.pkg
+            ui/out-build/release/**/*.AppImage
+            ui/out-build/release/**/*-Setup.exe
+            ui/out-build/release/**/*.deb
+            ui/out-build/release/**/*.rpm
+            ui/out-build/release/**/*.zip
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
