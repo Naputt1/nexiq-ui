@@ -9,9 +9,9 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
-    "build": "./scripts/build-electron.sh",
-    "build:wasm": "cd layout-wasm && pnpm exec wasm-pack build --target web && rm -f pkg/.gitignore",
-    "build:vite": "tsc || true && vite build",
+    "build": "tsx scripts/build-electron.ts",
+    "build:wasm": "pnpm --filter @nexiq/layout-wasm build && tsx -e \"import fs from 'node:fs'; fs.rmSync('layout-wasm/pkg/.gitignore', { force: true })\"",
+    "build:vite": "tsc || echo Type checking failed... && vite build",
     "build:coverage": "VITE_COVERAGE=true pnpm build:vite",
     "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
     "typecheck": "tsc --build",
