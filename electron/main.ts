@@ -58,7 +58,7 @@ const inlineLargeDataHandles = new Map<
 
 async function isBackendAlive(): Promise<boolean> {
   return new Promise((resolve) => {
-    const ws = new WebSocket(`ws://localhost:${BACKEND_PORT}`);
+    const ws = new WebSocket(`ws://127.0.0.1:${BACKEND_PORT}`);
     const timeout = setTimeout(() => {
       ws.terminate();
       resolve(false);
@@ -106,15 +106,38 @@ async function startBackend() {
     try {
       const isWindows = process.platform === "win32";
       const checkCmd = isWindows ? "where nexiq" : "which nexiq";
-      const globalPath = execSync(checkCmd, { encoding: "utf8" }).trim();
+      const globalPath = execSync(checkCmd, {
+        encoding: "utf8",
+        shell: isWindows ? "cmd.exe" : "/bin/sh",
+        env: {
+          ...process.env,
+          PATH:
+            process.env.PATH +
+            (isWindows ? ";" : ":") +
+            "/usr/local/bin:/opt/homebrew/bin",
+        },
+      }).trim();
       if (globalPath && fs.existsSync(globalPath)) {
         serverPath = globalPath;
         useCli = true;
         // If it's a binary/shim, we might not need 'node' to run it
         spawnExe = serverPath;
+        console.log(`Found nexiq in PATH: ${serverPath}`);
       }
     } catch {
       // not in PATH
+    }
+  }
+
+  if (!serverPath) {
+    // 1b. Check common pnpm global path on macOS/Linux
+    const home = os.homedir();
+    const pnpmPath = path.join(home, "Library/pnpm/nexiq");
+    if (fs.existsSync(pnpmPath)) {
+      serverPath = pnpmPath;
+      useCli = true;
+      spawnExe = serverPath;
+      console.log(`Found nexiq in pnpm global path: ${serverPath}`);
     }
   }
 
@@ -129,6 +152,7 @@ async function startBackend() {
       serverPath = bundledPath;
       useCli = true;
       spawnExe = serverPath;
+      console.log(`Found bundled nexiq: ${serverPath}`);
     }
   }
 
@@ -139,7 +163,7 @@ async function startBackend() {
       "..",
       "nexiq",
       "packages",
-      "nexiq-cli",
+      "cli",
       "dist",
       "cli.js",
     );
@@ -230,7 +254,7 @@ async function startBackend() {
 function connectToBackend() {
   if (backendWs) return;
 
-  backendWs = new WebSocket(`ws://localhost:${BACKEND_PORT}`);
+  backendWs = new WebSocket(`ws://127.0.0.1:${BACKEND_PORT}`);
 
   backendWs.on("open", () => {
     console.log("Connected to shared backend");
@@ -348,8 +372,24 @@ async function requestBackend<K extends BackendMessageType>(
   payload: BackendRequestMap[K]["payload"],
   timeoutMs: number = 30000,
 ): Promise<BackendRequestMap[K]["response"]> {
+  // If not connected, wait up to 10 seconds for it to connect
   if (!backendWs || backendWs.readyState !== WebSocket.OPEN) {
-    throw new Error("Backend not connected");
+    console.log(
+      `Backend not connected yet, waiting for connection... (currently ${backendWs ? backendWs.readyState : "null"})`,
+    );
+    const startWait = Date.now();
+    while (
+      (!backendWs || backendWs.readyState !== WebSocket.OPEN) &&
+      Date.now() - startWait < 10000
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+
+  if (!backendWs || backendWs.readyState !== WebSocket.OPEN) {
+    throw new Error(
+      `Backend not connected (state: ${backendWs ? backendWs.readyState : "null"})`,
+    );
   }
 
   return new Promise((resolve, reject) => {

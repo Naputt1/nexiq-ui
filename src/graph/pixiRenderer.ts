@@ -77,7 +77,9 @@ export class PixiRenderer {
     this.app = new PIXI.Application();
 
     // Initialize application asynchronously
-    this.readyPromise = this.initApp(container, width, height);
+    this.readyPromise = this.initApp(container, width, height).catch((err) => {
+      console.error("PixiRenderer readyPromise failed:", err);
+    });
 
     this.graph = graph;
     this.onSelect = onSelect;
@@ -98,14 +100,24 @@ export class PixiRenderer {
     width: number,
     height: number,
   ) {
-    await this.app.init({
-      width,
-      height,
-      antialias: true,
-      resolution: window.devicePixelRatio || 1,
-      autoDensity: true,
-      backgroundColor: this.theme === "dark" ? 0x1e1e1e : 0xffffff,
-    });
+    console.log(`Initializing PixiRenderer: ${width}x${height}`);
+    try {
+      await this.app.init({
+        width,
+        height,
+        antialias: true,
+        resolution: window.devicePixelRatio || 1,
+        autoDensity: true,
+        backgroundColor: this.theme === "dark" ? 0x1e1e1e : 0xffffff,
+        preference: "webgl", // Force WebGL to avoid GPU issues with Skia/WebGPU in some environments
+      });
+      console.log(
+        "PixiRenderer initialized successfully with preference: webgl",
+      );
+    } catch (err) {
+      console.error("Failed to initialize PixiRenderer:", err);
+      throw err;
+    }
     container.appendChild(this.app.canvas);
 
     this.viewport = new Viewport({
@@ -646,7 +658,8 @@ export class PixiRenderer {
       case "focus-changed":
         this.requestRender();
         break;
-      }  }
+    }
+  }
 
   public requestRender() {
     if (this.renderQueued || !this.isReady) return;
@@ -678,6 +691,9 @@ export class PixiRenderer {
 
     const cur = this.graph.getCurRender();
     const context = this.getRenderContext();
+    console.log(
+      `PixiRenderer.render: Rendering ${Object.keys(cur.nodes).length} root nodes, ${Object.keys(cur.edges).length} root edges, ${Object.keys(cur.combos).length} root combos`,
+    );
 
     for (const edge of Object.values(cur.edges) as GraphArrow[]) {
       edge.render(context, this.edgeLayer);

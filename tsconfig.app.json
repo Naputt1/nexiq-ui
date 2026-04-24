@@ -33,6 +33,7 @@
   },
   "include": [
     "src",
-    "src/electron-env.d.ts"
+    "src/electron-env.d.ts",
+    "scripts/build-electron.ts"
   ]
 }

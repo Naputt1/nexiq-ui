@@ -3,11 +3,23 @@
   $schema: "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   appId: "com.naputt.nexiq",
   asar: true,
+  asarUnpack: [
+    "**/node_modules/better-sqlite3/**/*",
+    "**/node_modules/bindings/**/*",
+    "**/node_modules/file-uri-to-path/**/*"
+  ],
   productName: "Nexiq",
   directories: {
     output: "release/${version}",
   },
   files: ["dist", "dist-electron", "node_modules", "package.json"],
+  extraResources: [
+    {
+      from: "bin",
+      to: "bin",
+      filter: ["**/*"]
+    }
+  ],
   mac: {
     target: ["dmg"],
     artifactName: "${productName}-Mac-${version}-Installer.${ext}",
