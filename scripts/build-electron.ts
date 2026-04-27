@@ -11,6 +11,7 @@ function run(cmd: string, args: string[] = [], cwd = REPO_ROOT) {
   execFileSync(cmd, args, {
     stdio: "inherit",
     cwd,
+    shell: true,
   });
 }
 
