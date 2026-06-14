@@ -11,3 +11,9 @@ allowBuilds:
   wasm-pack: true
 
 strictPeerDependencies: false
+shamefullyHoist: true
+nodeLinker: hoisted
+packageConfigs:
+  '@nexiq/ui':
+    shamefullyHoist: true
+    nodeLinker: hoisted
