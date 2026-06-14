@@ -21,9 +21,14 @@ const registry: DetailSection[] = [
     title: "Props",
     priority: 10,
     component: PropsSection,
-    shouldShow: (baseItem) => {
-      const item = baseItem as GraphNodeData;
-      return !!(item.hasProps || item.propType);
+    shouldShow: (baseItem, detail) => {
+      const hasDetailProps =
+        detail &&
+        typeof detail.raw === "object" &&
+        detail.raw !== null &&
+        (("props" in detail.raw && detail.raw.props.length > 0) ||
+          "propType" in detail.raw);
+      return !!(baseItem.hasProps || baseItem.propType || hasDetailProps);
     },
     defaultOpen: true,
   },

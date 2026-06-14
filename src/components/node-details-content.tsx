@@ -111,7 +111,7 @@ export function NodeDetailsContent({
   }
 
   const visibleSections = allSections.filter((section) =>
-    section.shouldShow(item),
+    section.shouldShow(item, detail),
   );
   const defaultExpanded = visibleSections
     .filter((s) => s.defaultOpen)
