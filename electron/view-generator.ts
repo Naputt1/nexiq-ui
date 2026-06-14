@@ -939,7 +939,19 @@ export async function generateGraphView(
         const nodeCount = primary.db.prepare("SELECT COUNT(*) as count FROM out_nodes").get() as { count: number };
         const edgeCount = primary.db.prepare("SELECT COUNT(*) as count FROM out_edges").get() as { count: number };
         console.log(`Task "${task.id}" finished in ${durationMs.toFixed(2)}ms. Current totals: ${nodeCount.count} nodes, ${edgeCount.count} edges`);
-        
+
+        if (process.env.DEBUG_EXTENSION_DB) {
+          try {
+            const debugDir = path.join(projectRoot, ".nexiq", "debug");
+            fs.mkdirSync(debugDir, { recursive: true });
+            const debugPath = path.join(debugDir, `${task.id}.sqlite`);
+            fs.writeFileSync(debugPath, primary.db.serialize());
+            console.log(`[DEBUG] Extension DB saved to ${debugPath}`);
+          } catch (err) {
+            console.error("[DEBUG] Failed to save extension DB:", err);
+          }
+        }
+
         stages.push({
           id: `view:task:${task.id}`,
           name: `Task: ${task.id}`,
