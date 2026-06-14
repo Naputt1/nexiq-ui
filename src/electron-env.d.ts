@@ -40,7 +40,7 @@ declare global {
   interface Window {
     nexiqGraph: GraphData;
     nexiqSearch: (value: string) => void;
-    registerNexiqExtension: (extension: Extension) => void;
+    registerNexiqExtension: (extension: Extension<GraphData>) => void;
     graphSnapshot: {
       open: (
         projectRoot: string,

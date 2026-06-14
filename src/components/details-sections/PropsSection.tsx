@@ -4,30 +4,20 @@ import { TypeRenderer } from "../type-renderer";
 import { TypeRefRenderer } from "../type-ref-renderer";
 import {
   type PropData,
-  type TypeData,
   type TypeDataParam,
 } from "@nexiq/shared";
 import { useConfigStore } from "@/hooks/use-config-store";
 import { cn } from "@/lib/utils";
-import { type GraphNodeData } from "@/graph/hook";
 
 export const PropsSection: React.FC<DetailSectionProps> = ({
-  item: baseItem,
   typeData,
   detail,
 }) => {
   const { customColors } = useConfigStore();
-  const item = baseItem as GraphNodeData;
-  const propType = (detail?.raw &&
-  typeof detail.raw === "object" &&
-  "propType" in detail.raw
-    ? (detail.raw as { propType: TypeData }).propType
-    : (item as { propType?: TypeData }).propType) as TypeData | undefined;
-  const props = (detail?.raw &&
-  typeof detail.raw === "object" &&
-  "props" in detail.raw
-    ? (detail.raw as { props: PropData[] }).props
-    : (item as { props?: PropData[] }).props) as PropData[] | undefined;
+
+  if (!detail) return null;
+
+  const { propType, props, typeParams, extends: extendsList } = detail;
 
   const renderGenerics = (params?: TypeDataParam[]) => {
     const genericsStyle = customColors?.genericsColor
@@ -89,8 +79,8 @@ export const PropsSection: React.FC<DetailSectionProps> = ({
 
   return (
     <div className="text-xs font-mono bg-muted/50 p-3 rounded-md border border-border max-w-full overflow-x-auto text-start leading-relaxed shadow-inner">
-      {renderGenerics(item.typeParams)}
-      {item.extends && (
+      {renderGenerics(typeParams)}
+      {extendsList && (
         <span
           style={
             customColors?.typeKeyword ? { color: customColors.typeKeyword } : {}
@@ -98,7 +88,7 @@ export const PropsSection: React.FC<DetailSectionProps> = ({
           className={cn(!customColors?.typeKeyword && "text-purple-400")}
         >
           {"extends "}
-          {item.extends.map((param: string, i: number) => {
+          {extendsList.map((param: string, i: number) => {
             return (
               <React.Fragment key={i}>
                 <TypeRefRenderer
@@ -110,7 +100,7 @@ export const PropsSection: React.FC<DetailSectionProps> = ({
                   }}
                   typeData={typeData}
                 />
-                {item.extends!.length - 1 > i && (
+                {extendsList.length - 1 > i && (
                   <span className="text-gray-400">,</span>
                 )}{" "}
               </React.Fragment>

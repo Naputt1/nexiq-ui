@@ -1,14 +1,6 @@
 import type * as PIXI from "pixi.js";
 import type { Viewport } from "pixi-viewport";
-import type {
-  ComponentInfoRender,
-  PropData,
-  TypeData,
-  TypeDataParam,
-  VariableLoc,
-  VariableName,
-  VariableScope,
-} from "@nexiq/shared";
+import type { VariableLoc, VariableName, VariableScope } from "@nexiq/shared";
 import { type UIItemState } from "../types";
 import type { GraphData } from "../hook";
 import type { GraphArrow } from "./arrow";
@@ -89,9 +81,6 @@ export interface DetailItemData {
   pureFileName?: string;
   scope?: VariableScope | string;
   loc?: VariableLoc;
-  props?: PropData[];
-  propData?: PropData;
-  propType?: TypeData;
   type?:
     | "component"
     | "hook"
@@ -107,11 +96,7 @@ export interface DetailItemData {
     | "normal"
     | "jsx"
     | (string & {});
-  typeParams?: TypeDataParam[];
-  extends?: string[];
   tag?: string;
-  children?: Record<string, ComponentInfoRender>;
-  hooks?: string[];
   gitStatus?: "added" | "modified" | "deleted";
   declarationKind?:
     | "const"

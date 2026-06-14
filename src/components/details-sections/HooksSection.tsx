@@ -1,21 +1,14 @@
 import React from "react";
 import type { DetailSectionProps } from "@nexiq/extension-sdk";
 import { getDisplayName } from "@nexiq/shared";
-import { type GraphNodeData, type GraphData } from "@/graph/hook";
+import { type GraphData } from "@/graph/hook";
 
-export const HooksSection: React.FC<DetailSectionProps> = ({
-  item: baseItem,
-  graph: baseGraph,
+export const HooksSection: React.FC<DetailSectionProps<GraphData>> = ({
+  graph,
   onSelect,
   detail,
 }) => {
-  const item = baseItem as GraphNodeData;
-  const graph = baseGraph as GraphData;
-  const hooks = (detail?.raw &&
-  typeof detail?.raw === "object" &&
-  "hooks" in detail.raw
-    ? (detail.raw as { hooks: string[] }).hooks
-    : (item as { hooks?: string[] }).hooks) as string[] | undefined;
+  const hooks = detail?.hooks;
   if (!hooks || hooks.length === 0) return null;
 
   return (

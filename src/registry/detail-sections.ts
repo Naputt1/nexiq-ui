@@ -5,9 +5,9 @@ import { ChildrenSection } from "@/components/details-sections/ChildrenSection";
 import { HooksSection } from "@/components/details-sections/HooksSection";
 import { GitSection } from "@/components/details-sections/GitSection";
 import { UsagesSection } from "@/components/details-sections/UsagesSection";
-import { type GraphNodeData } from "@/graph/hook";
+import type { GraphData } from "@/graph/hook";
 
-const registry: DetailSection[] = [
+const registry: DetailSection<GraphData>[] = [
   {
     id: "basic-info",
     title: "Basic Info",
@@ -21,14 +21,8 @@ const registry: DetailSection[] = [
     title: "Props",
     priority: 10,
     component: PropsSection,
-    shouldShow: (baseItem, detail) => {
-      const hasDetailProps =
-        detail &&
-        typeof detail.raw === "object" &&
-        detail.raw !== null &&
-        (("props" in detail.raw && detail.raw.props.length > 0) ||
-          "propType" in detail.raw);
-      return !!(baseItem.hasProps || baseItem.propType || hasDetailProps);
+    shouldShow: (_baseItem, detail) => {
+      return !!(detail?.props || detail?.propType);
     },
     defaultOpen: true,
   },
@@ -37,9 +31,8 @@ const registry: DetailSection[] = [
     title: "Children",
     priority: 20,
     component: ChildrenSection,
-    shouldShow: (baseItem) => {
-      const item = baseItem as GraphNodeData;
-      return !!item.hasChildren;
+    shouldShow: (_baseItem, detail) => {
+      return !!(detail?.children && Object.keys(detail.children).length > 0);
     },
   },
   {
@@ -47,9 +40,8 @@ const registry: DetailSection[] = [
     title: "Hooks",
     priority: 30,
     component: HooksSection,
-    shouldShow: (baseItem) => {
-      const item = baseItem as GraphNodeData;
-      return !!item.hasHooks;
+    shouldShow: (_baseItem, detail) => {
+      return !!(detail?.hooks && detail.hooks.length > 0);
     },
   },
   {
@@ -64,9 +56,8 @@ const registry: DetailSection[] = [
     title: "Git",
     priority: 40,
     component: GitSection,
-    shouldShow: (baseItem) => {
-      const item = baseItem as GraphNodeData;
-      return !!item.gitStatus;
+    shouldShow: (_baseItem, detail) => {
+      return !!detail?.gitStatus;
     },
   },
 ];
@@ -74,13 +65,13 @@ const registry: DetailSection[] = [
 /**
  * Returns a prioritized list of detail sections.
  */
-export function getDetailSections(): DetailSection[] {
+export function getDetailSections(): DetailSection<GraphData>[] {
   return [...registry].sort((a, b) => a.priority - b.priority);
 }
 
 /**
  * Registers a new detail section.
  */
-export function registerDetailSection(section: DetailSection) {
+export function registerDetailSection(section: DetailSection<GraphData>) {
   registry.push(section);
 }

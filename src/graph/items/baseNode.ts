@@ -1,12 +1,4 @@
-import type {
-  ComponentInfoRender,
-  PropData,
-  TypeData,
-  TypeDataParam,
-  VariableLoc,
-  VariableName,
-  VariableScope,
-} from "@nexiq/shared";
+import type { VariableLoc, VariableName, VariableScope } from "@nexiq/shared";
 import * as PIXI from "pixi.js";
 import type { GraphCombo } from "./combo";
 import type {
@@ -41,9 +33,6 @@ export abstract class BaseNode implements Renderable {
   // From DetailItemData
   scope?: VariableScope | string;
   loc?: VariableLoc;
-  props?: PropData[];
-  propData?: PropData;
-  propType?: TypeData;
   type?:
     | "component"
     | "hook"
@@ -59,9 +48,13 @@ export abstract class BaseNode implements Renderable {
     | "jsx"
     | "normal"
     | (string & {});
-  typeParams?: TypeDataParam[];
-  extends?: string[];
-  children?: Record<string, ComponentInfoRender>;
+  declarationKind?:
+    | "const"
+    | "let"
+    | "var"
+    | "using"
+    | "await using"
+    | undefined;
   ui?: BaseNodeData["ui"];
 
   constructor(data: BaseNodeData) {
@@ -85,13 +78,8 @@ export abstract class BaseNode implements Renderable {
 
     this.scope = data.scope;
     this.loc = data.loc;
-    this.props = data.props;
-    this.propData = data.propData;
-    this.propType = data.propType;
     this.type = data.type;
-    this.typeParams = data.typeParams;
-    this.extends = data.extends;
-    this.children = data.children;
+    this.declarationKind = data.declarationKind;
     this.ui = data.ui;
     this.appearanceOverride = data.appearanceOverride;
   }

@@ -3,7 +3,6 @@ import type { DetailSectionProps } from "@nexiq/extension-sdk";
 import {
   getDisplayName,
   type ComponentInfoRenderDependency,
-  type ComponentInfoRender,
 } from "@nexiq/shared";
 import { TypeRenderer } from "../type-renderer";
 import { useConfigStore } from "@/hooks/use-config-store";
@@ -11,28 +10,21 @@ import { cn } from "@/lib/utils";
 import { type GraphNodeData } from "@/graph/hook";
 
 export const ChildrenSection: React.FC<DetailSectionProps> = ({
-  item: baseItem,
   selectedId,
   typeData,
   detail,
   renderNodes = [],
 }) => {
   const { customColors } = useConfigStore();
-  const item = baseItem as GraphNodeData;
-  const children = (detail?.raw &&
-  typeof detail.raw === "object" &&
-  "children" in detail.raw
-    ? (detail.raw as { children: Record<string, ComponentInfoRender> }).children
-    : (item as { children?: Record<string, ComponentInfoRender> })
-        .children) as Record<string, ComponentInfoRender> | undefined;
 
-  if (!item.hasChildren || !children || Object.keys(children).length === 0) return null;
+  if (!detail?.children || Object.keys(detail?.children).length === 0)
+    return null;
 
   return (
     <div className="space-y-4">
       {renderNodes.map((v: GraphNodeData) => {
         const renderId = v.id.slice((selectedId! + "-render-").length);
-        const render = children?.[renderId];
+        const render = detail?.children?.[renderId];
 
         if (!render) return null;
 

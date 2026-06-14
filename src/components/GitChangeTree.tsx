@@ -65,7 +65,8 @@ export const GitChangeTree = memo(function GitChangeTree({
 
     return changed
       .map((item) => {
-        const detail: GraphNodeDetail | undefined = graphResult.details?.[item.id];
+        const detail: GraphNodeDetail | undefined =
+          graphResult.details?.[item.id];
         const filePath = detail?.fileName || "View changes";
         return {
           id: item.id,
@@ -77,7 +78,11 @@ export const GitChangeTree = memo(function GitChangeTree({
           kind: item.type || "item",
         };
       })
-      .sort((a, b) => a.path.localeCompare(b.path) || a.displayName.localeCompare(b.displayName));
+      .sort(
+        (a, b) =>
+          a.path.localeCompare(b.path) ||
+          a.displayName.localeCompare(b.displayName),
+      );
   }, [graphResult]);
 
   const diff = data?.diff;
@@ -129,8 +134,8 @@ export const GitChangeTree = memo(function GitChangeTree({
         grouped.set(item.path, existing);
       }
 
-      for (const [filePath, items] of Array.from(grouped.entries()).sort(([a], [b]) =>
-        a.localeCompare(b),
+      for (const [filePath, items] of Array.from(grouped.entries()).sort(
+        ([a], [b]) => a.localeCompare(b),
       )) {
         const isExpanded = expandedIds.has(filePath);
         result.push({
@@ -254,7 +259,6 @@ export const GitChangeTree = memo(function GitChangeTree({
     return result;
   }, [data, diff, diffSets, expandedIds, graphItems, graphResult]);
 
-  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: flattenedItems.length,
     getScrollElement: () => parentRef.current,

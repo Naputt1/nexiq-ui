@@ -1,3 +1,4 @@
+import type { GraphData } from "@/graph/hook";
 import type { Extension } from "@nexiq/extension-sdk";
 
 /**
@@ -5,4 +6,4 @@ import type { Extension } from "@nexiq/extension-sdk";
  * UI extensions are now intended to be loaded dynamically from the client project
  * instead of being bundled as direct dependencies.
  */
-export const allExtensions: Extension[] = [];
+export const allExtensions: Extension<GraphData>[] = [];

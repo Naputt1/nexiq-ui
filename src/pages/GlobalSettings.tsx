@@ -6,6 +6,79 @@ import { Input } from "@/components/ui/input";
 import { normalizeGraphAppearance } from "@nexiq/extension-sdk";
 import debounce from "lodash.debounce";
 
+const ColorInput = ({
+  label,
+  colorKey,
+  defaultValue,
+  appearance,
+  handleAppearanceChange,
+}: {
+  label: string;
+  colorKey: keyof GraphAppearance;
+  defaultValue: string;
+  appearance: GraphAppearance;
+  handleAppearanceChange: (newAppearance: GraphAppearance) => void;
+}) => (
+  <div className="flex items-center gap-4">
+    <Input
+      type="color"
+      value={(appearance[colorKey] as string | undefined) || defaultValue}
+      onChange={(e) =>
+        handleAppearanceChange({ ...appearance, [colorKey]: e.target.value })
+      }
+      className="w-10 h-8 p-1 cursor-pointer"
+    />
+    <label className="text-xs">{label}</label>
+  </div>
+);
+
+const NodeAppearanceInput = ({
+  label,
+  nodeKey,
+  defaultColor,
+  defaultRadius,
+  appearance,
+  updateNodeAppearance,
+}: {
+  label: string;
+  nodeKey: keyof NonNullable<GraphAppearance["nodes"]>;
+  defaultColor: string;
+  defaultRadius: number;
+  appearance: GraphAppearance;
+  updateNodeAppearance: (
+    key: keyof NonNullable<GraphAppearance["nodes"]>,
+    field: "color" | "radius",
+    value: string | number,
+  ) => void;
+}) => (
+  <div className="rounded-md border border-border/40 p-2 space-y-2">
+    <div className="text-[11px] font-medium opacity-70">{label}</div>
+    <div className="flex items-center gap-2">
+      <Input
+        type="color"
+        value={appearance.nodes?.[nodeKey]?.color || defaultColor}
+        onChange={(e) => updateNodeAppearance(nodeKey, "color", e.target.value)}
+        className="w-10 h-8 p-1 cursor-pointer"
+      />
+      <Input
+        type="number"
+        min={8}
+        max={80}
+        step={1}
+        value={appearance.nodes?.[nodeKey]?.radius || defaultRadius}
+        onChange={(e) =>
+          updateNodeAppearance(
+            nodeKey,
+            "radius",
+            Number.parseInt(e.target.value || `${defaultRadius}`, 10),
+          )
+        }
+        className="w-16 h-8 text-xs"
+      />
+    </div>
+  </div>
+);
+
 interface GlobalSettingsProps {
   projectPath?: string;
 }
@@ -112,69 +185,6 @@ export function GlobalSettings({
     handleAppearanceChange(nextAppearance);
   };
 
-  const ColorInput = ({
-    label,
-    colorKey,
-    defaultValue,
-  }: {
-    label: string;
-    colorKey: keyof GraphAppearance;
-    defaultValue: string;
-  }) => (
-    <div className="flex items-center gap-4">
-      <Input
-        type="color"
-        value={(appearance[colorKey] as string | undefined) || defaultValue}
-        onChange={(e) =>
-          handleAppearanceChange({ ...appearance, [colorKey]: e.target.value })
-        }
-        className="w-10 h-8 p-1 cursor-pointer"
-      />
-      <label className="text-xs">{label}</label>
-    </div>
-  );
-
-  const NodeAppearanceInput = ({
-    label,
-    nodeKey,
-    defaultColor,
-    defaultRadius,
-  }: {
-    label: string;
-    nodeKey: keyof NonNullable<GraphAppearance["nodes"]>;
-    defaultColor: string;
-    defaultRadius: number;
-  }) => (
-    <div className="rounded-md border border-border/40 p-2 space-y-2">
-      <div className="text-[11px] font-medium opacity-70">{label}</div>
-      <div className="flex items-center gap-2">
-        <Input
-          type="color"
-          value={appearance.nodes?.[nodeKey]?.color || defaultColor}
-          onChange={(e) =>
-            updateNodeAppearance(nodeKey, "color", e.target.value)
-          }
-          className="w-10 h-8 p-1 cursor-pointer"
-        />
-        <Input
-          type="number"
-          min={8}
-          max={80}
-          step={1}
-          value={appearance.nodes?.[nodeKey]?.radius || defaultRadius}
-          onChange={(e) =>
-            updateNodeAppearance(
-              nodeKey,
-              "radius",
-              Number.parseInt(e.target.value || `${defaultRadius}`, 10),
-            )
-          }
-          className="w-16 h-8 text-xs"
-        />
-      </div>
-    </div>
-  );
-
   if (isLoading) {
     return (
       <div className="flex items-center justify-center p-12">
@@ -251,31 +261,43 @@ export function GlobalSettings({
               label="Node Highlight"
               colorKey="nodeHighlight"
               defaultValue={isDark ? "#3b82f6" : "#2563eb"}
+              appearance={appearance}
+              handleAppearanceChange={handleAppearanceChange}
             />
             <ColorInput
               label="Combo Highlight"
               colorKey="comboHighlight"
               defaultValue={isDark ? "#3b82f6" : "#2563eb"}
+              appearance={appearance}
+              handleAppearanceChange={handleAppearanceChange}
             />
             <ColorInput
               label="Arrow Color"
               colorKey="arrowColor"
               defaultValue={isDark ? "#888888" : "#424242"}
+              appearance={appearance}
+              handleAppearanceChange={handleAppearanceChange}
             />
             <ColorInput
               label="Direct Flow"
               colorKey="directFlowColor"
               defaultValue={isDark ? "#60a5fa" : "#2563eb"}
+              appearance={appearance}
+              handleAppearanceChange={handleAppearanceChange}
             />
             <ColorInput
               label="Side Effect"
               colorKey="sideEffectFlowColor"
               defaultValue="#f59e0b"
+              appearance={appearance}
+              handleAppearanceChange={handleAppearanceChange}
             />
             <ColorInput
               label="Label Color"
               colorKey="labelColor"
               defaultValue={isDark ? "#ffffff" : "#000000"}
+              appearance={appearance}
+              handleAppearanceChange={handleAppearanceChange}
             />
           </div>
         </div>
@@ -290,48 +312,64 @@ export function GlobalSettings({
               nodeKey="package"
               defaultColor="#0f766e"
               defaultRadius={24}
+              appearance={appearance}
+              updateNodeAppearance={updateNodeAppearance}
             />
             <NodeAppearanceInput
               label="Component"
               nodeKey="component"
               defaultColor={isDark ? "#3b82f6" : "#2563eb"}
               defaultRadius={20}
+              appearance={appearance}
+              updateNodeAppearance={updateNodeAppearance}
             />
             <NodeAppearanceInput
               label="Hook"
               nodeKey="hook"
               defaultColor={isDark ? "#8b5cf6" : "#7c3aed"}
               defaultRadius={18}
+              appearance={appearance}
+              updateNodeAppearance={updateNodeAppearance}
             />
             <NodeAppearanceInput
               label="Callback"
               nodeKey="callback"
               defaultColor="#ef4444"
               defaultRadius={14}
+              appearance={appearance}
+              updateNodeAppearance={updateNodeAppearance}
             />
             <NodeAppearanceInput
               label="State"
               nodeKey="state"
               defaultColor="#ef4444"
               defaultRadius={16}
+              appearance={appearance}
+              updateNodeAppearance={updateNodeAppearance}
             />
             <NodeAppearanceInput
               label="Effect"
               nodeKey="effect"
               defaultColor="#eab308"
               defaultRadius={14}
+              appearance={appearance}
+              updateNodeAppearance={updateNodeAppearance}
             />
             <NodeAppearanceInput
               label="Prop"
               nodeKey="prop"
               defaultColor="#22c55e"
               defaultRadius={12}
+              appearance={appearance}
+              updateNodeAppearance={updateNodeAppearance}
             />
             <NodeAppearanceInput
               label="Render"
               nodeKey="render"
               defaultColor="#3b82f6"
               defaultRadius={14}
+              appearance={appearance}
+              updateNodeAppearance={updateNodeAppearance}
             />
           </div>
         </div>
@@ -343,16 +381,22 @@ export function GlobalSettings({
               label="Git Added"
               colorKey="gitAdded"
               defaultValue="#22c55e"
+              appearance={appearance}
+              handleAppearanceChange={handleAppearanceChange}
             />
             <ColorInput
               label="Git Modified"
               colorKey="gitModified"
               defaultValue="#f59e0b"
+              appearance={appearance}
+              handleAppearanceChange={handleAppearanceChange}
             />
             <ColorInput
               label="Git Deleted"
               colorKey="gitDeleted"
               defaultValue="#ef4444"
+              appearance={appearance}
+              handleAppearanceChange={handleAppearanceChange}
             />
           </div>
         </div>
@@ -366,36 +410,50 @@ export function GlobalSettings({
               label="Keyword"
               colorKey="typeKeyword"
               defaultValue="#c084fc"
+              appearance={appearance}
+              handleAppearanceChange={handleAppearanceChange}
             />
             <ColorInput
               label="Literal"
               colorKey="typeLiteral"
               defaultValue="#fdba74"
+              appearance={appearance}
+              handleAppearanceChange={handleAppearanceChange}
             />
             <ColorInput
               label="String"
               colorKey="typeString"
               defaultValue="#86efac"
+              appearance={appearance}
+              handleAppearanceChange={handleAppearanceChange}
             />
             <ColorInput
               label="Number"
               colorKey="typeNumber"
               defaultValue="#93c5fd"
+              appearance={appearance}
+              handleAppearanceChange={handleAppearanceChange}
             />
             <ColorInput
               label="Boolean"
               colorKey="typeBoolean"
               defaultValue="#fde047"
+              appearance={appearance}
+              handleAppearanceChange={handleAppearanceChange}
             />
             <ColorInput
               label="Reference"
               colorKey="typeReference"
               defaultValue="#60a5fa"
+              appearance={appearance}
+              handleAppearanceChange={handleAppearanceChange}
             />
             <ColorInput
               label="Component"
               colorKey="typeComponent"
               defaultValue="#67e8f9"
+              appearance={appearance}
+              handleAppearanceChange={handleAppearanceChange}
             />
           </div>
         </div>
