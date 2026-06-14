@@ -10,7 +10,5 @@
   "scripts": {
     "build": "wasm-pack build --target web"
   },
-  "devDependencies": {
-    "wasm-pack": "^0.13.1"
-  }
+  "devDependencies": {}
 }
