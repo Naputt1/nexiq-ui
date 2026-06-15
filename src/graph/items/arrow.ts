@@ -30,6 +30,9 @@ export class GraphArrow implements Renderable {
   combo?: string;
   visible: boolean = true;
   opacity: number = 1;
+  isBidirectional: boolean = false;
+  labelIndex: number = 0;
+  labelCount: number = 1;
 
   constructor(data: GraphArrowData) {
     this.id = data.id;
@@ -107,7 +110,7 @@ export class GraphArrow implements Renderable {
     graphics.alpha = this.dimmed ? 0.15 : context.hasGitChanges ? 0.1 : 1;
 
     if (graphics.visible) {
-      this.drawArrow(graphics, strokeColor);
+      this.drawArrow(graphics, strokeColor, this.isBidirectional);
     }
 
     // Hit Area
@@ -163,8 +166,8 @@ export class GraphArrow implements Renderable {
 
     container.addChild(graphics);
     container.addChild(hitArea);
-    this.renderLabel(container, context);
     parent.addChild(container);
+    this.renderLabel(parent, context);
 
     return container;
   }
@@ -181,7 +184,7 @@ export class GraphArrow implements Renderable {
     graphics.alpha = this.dimmed ? 0.2 : 1;
     const color = this.getArrowColor(context);
 
-    this.drawArrow(graphics, color);
+    this.drawArrow(graphics, color, this.isBidirectional);
 
     const hitArea = container.children.find(
       (c) => c.label === `hit-${this.id}`,
@@ -204,7 +207,8 @@ export class GraphArrow implements Renderable {
       }
     }
 
-    this.renderLabel(container, context);
+    const labelParent = container.parent ?? container;
+    this.renderLabel(labelParent, context);
   }
 
   getArrowColor(context: RenderContext): string | number {
@@ -217,8 +221,8 @@ export class GraphArrow implements Renderable {
           : getDefaultArrowColor(context.customColors, context.theme);
   }
 
-  private renderLabel(container: PIXI.Container, context: RenderContext) {
-    const existing = container.children.find(
+  private renderLabel(parent: PIXI.Container, context: RenderContext) {
+    const existing = parent.children.find(
       (child) => child.label === `label-${this.id}`,
     ) as PIXI.BitmapText | undefined;
 
@@ -251,16 +255,50 @@ export class GraphArrow implements Renderable {
     text.style.fill =
       context.customColors?.labelColor ||
       (context.theme === "dark" ? "white" : "black");
+
     text.anchor.set(0.5, 0.5);
-    text.position.set(midX, midY - 6 * this.scale);
+
+    const centerY = midY - 6 * this.scale;
+    const spacing = 14 * this.scale;
+    const stackY =
+      this.labelCount > 1
+        ? centerY + (this.labelIndex - (this.labelCount - 1) / 2) * spacing
+        : centerY;
+
+    text.position.set(midX, stackY);
     text.label = `label-${this.id}`;
 
     if (!existing) {
-      container.addChild(text);
+      parent.addChild(text);
     }
   }
 
-  private drawArrow(graphics: PIXI.Graphics, color: string | number) {
+  private drawArrowHead(
+    graphics: PIXI.Graphics,
+    x: number,
+    y: number,
+    angle: number,
+    headLength: number,
+    color: string | number,
+  ) {
+    graphics.moveTo(x, y);
+    graphics.lineTo(
+      x - headLength * Math.cos(angle - Math.PI / 6),
+      y - headLength * Math.sin(angle - Math.PI / 6),
+    );
+    graphics.lineTo(
+      x - headLength * Math.cos(angle + Math.PI / 6),
+      y - headLength * Math.sin(angle + Math.PI / 6),
+    );
+    graphics.closePath();
+    graphics.fill(color);
+  }
+
+  private drawArrow(
+    graphics: PIXI.Graphics,
+    color: string | number,
+    bidirectional?: boolean,
+  ) {
     const p = this.points;
     const strokeWidth =
       ((this.highlighted ? 2 : 0.5) + (this.flowRole ? 0.5 : 0)) * this.scale;
@@ -270,20 +308,13 @@ export class GraphArrow implements Renderable {
     graphics.lineTo(p[2], p[3]);
     graphics.stroke({ color, width: strokeWidth, cap: "round", join: "round" });
 
-    // Arrow head
     const headLength = 6 * this.scale;
     const angle = Math.atan2(p[3] - p[1], p[2] - p[0]);
 
-    graphics.moveTo(p[2], p[3]);
-    graphics.lineTo(
-      p[2] - headLength * Math.cos(angle - Math.PI / 6),
-      p[3] - headLength * Math.sin(angle - Math.PI / 6),
-    );
-    graphics.lineTo(
-      p[2] - headLength * Math.cos(angle + Math.PI / 6),
-      p[3] - headLength * Math.sin(angle + Math.PI / 6),
-    );
-    graphics.closePath();
-    graphics.fill(color);
+    this.drawArrowHead(graphics, p[2], p[3], angle, headLength, color);
+
+    if (bidirectional) {
+      this.drawArrowHead(graphics, p[0], p[1], angle, headLength, color);
+    }
   }
 }

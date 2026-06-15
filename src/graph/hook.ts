@@ -750,7 +750,6 @@ export class GraphData {
         scale: Math.min(srcNode.scale, targetNode.scale),
       });
       this.edgeParentMap.set(e.id, parentCombo.id);
-      this.updateEdgePos([e.id]);
       return true;
     }
 
@@ -940,6 +939,7 @@ export class GraphData {
 
   private createEdges() {
     const newEdgesToCreate: GraphArrowData[] = [];
+    const edgeIdsToUpdate: string[] = [];
     for (const e of this.edgeToCreate) {
       if (e.combo == null) {
         const srcNode = this.getPointId(e.source);
@@ -958,21 +958,27 @@ export class GraphData {
             scale: Math.min(srcNode.scale, targetNode.scale),
           }),
         );
-        this.updateEdgePos([e.id]);
+        edgeIdsToUpdate.push(e.id);
         continue;
       }
 
-      if (!this._addChildEdge(e)) {
+      if (this._addChildEdge(e)) {
+        edgeIdsToUpdate.push(e.id);
+      } else {
         newEdgesToCreate.push(e);
       }
     }
 
     this.edgeToCreate = newEdgesToCreate;
+    if (edgeIdsToUpdate.length > 0) {
+      this.updateEdgePos(edgeIdsToUpdate);
+    }
   }
 
   public addEdges(edges: GraphArrowData[]) {
     this.edges.clear();
     this.edgeParentMap.clear();
+    const edgeIdsToUpdate: string[] = [];
     for (const e of edges) {
       this.addEdgeId(e.source, e.id);
       this.addEdgeId(e.target, e.id);
@@ -994,15 +1000,20 @@ export class GraphData {
             scale: Math.min(srcNode.scale, targetNode.scale),
           }),
         );
-        this.updateEdgePos([e.id]);
+        edgeIdsToUpdate.push(e.id);
         this.edgeParentMap.delete(e.id);
       }
 
       if (this._addChildEdge(e)) {
+        edgeIdsToUpdate.push(e.id);
         continue;
       }
 
       this.edgeToCreate.push(e);
+    }
+
+    if (edgeIdsToUpdate.length > 0) {
+      this.updateEdgePos(edgeIdsToUpdate);
     }
 
     this.markModified();
@@ -1267,6 +1278,14 @@ export class GraphData {
   }
 
   private updateEdgePos(ids: string[]) {
+    type ResolvedEdge = {
+      edge: GraphArrow;
+      srcNode: GraphNode | GraphCombo;
+      targetNode: GraphNode | GraphCombo;
+      parentNode?: GraphCombo;
+    };
+
+    const resolved: ResolvedEdge[] = [];
     for (const id of ids) {
       const edge = this.getEdge(id);
       if (edge == null) continue;
@@ -1282,13 +1301,54 @@ export class GraphData {
         continue;
       }
 
-      const srcNode = srcVisible.item;
-      const targetNode = targetVisible.item;
-
-      edge.scale = Math.min(srcNode.scale, targetNode.scale);
-
       const parentNode = parentId ? this.getComboByID(parentId) : undefined;
-      edge.updatePoints(srcNode, targetNode, parentNode);
+      resolved.push({
+        edge,
+        srcNode: srcVisible.item,
+        targetNode: targetVisible.item,
+        parentNode,
+      });
+    }
+
+    const groups = new Map<string, ResolvedEdge[]>();
+    for (const info of resolved) {
+      const id1 = info.srcNode.id;
+      const id2 = info.targetNode.id;
+      const key = id1 < id2
+        ? `${id1}|${id2}|${info.parentNode?.id ?? ''}`
+        : `${id2}|${id1}|${info.parentNode?.id ?? ''}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(info);
+    }
+
+    for (const [, group] of groups) {
+      if (group.length === 0) continue;
+
+      const { srcNode, targetNode, parentNode } = group[0];
+      const firstEdge = group[0].edge;
+
+      firstEdge.updatePoints(srcNode, targetNode, parentNode);
+      const sharedPoints = [...firstEdge.points];
+      const sharedScale = firstEdge.scale;
+
+      group.sort((a, b) => a.edge.id.localeCompare(b.edge.id));
+
+      const hasForward = group.some(
+        (info) => info.srcNode.id === srcNode.id && info.targetNode.id === targetNode.id,
+      );
+      const hasReverse = group.some(
+        (info) => info.srcNode.id === targetNode.id && info.targetNode.id === srcNode.id,
+      );
+      const isBidirectional = hasForward && hasReverse;
+
+      for (let i = 0; i < group.length; i++) {
+        const info = group[i];
+        info.edge.points = [...sharedPoints];
+        info.edge.scale = sharedScale;
+        info.edge.isBidirectional = isBidirectional;
+        info.edge.labelIndex = i;
+        info.edge.labelCount = group.length;
+      }
     }
   }
 
