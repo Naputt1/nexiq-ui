@@ -44,6 +44,7 @@ const MAX_BACKEND_RESTARTS = 3;
 let backendRestartTimeout: NodeJS.Timeout | null = null;
 const projectSqlitePaths = new Map<string, string>();
 const gitCommitSnapshotPaths = new Map<string, string>();
+const pendingProjectOpens = new Map<string, Promise<{ sqlitePath: string }>>();
 const inlineLargeDataHandles = new Map<
   string,
   {
@@ -1509,18 +1510,30 @@ async function resolveSqlitePath(
   let sqlitePath = projectSqlitePaths.get(targetId);
 
   if (!sqlitePath || !fs.existsSync(sqlitePath)) {
-    const response = (await requestBackend("open_project", {
-      projectPath: projectRoot,
-      subProject:
-        paths.length === 1 && paths[0] !== projectRoot ? paths[0] : undefined,
-      subProjects:
-        paths.length > 1 || (paths.length === 1 && paths[0] !== projectRoot)
-          ? paths
-          : undefined,
-    })) as unknown as { sqlitePath: string };
-    if (response && response.sqlitePath) {
+    if (!pendingProjectOpens.has(targetId)) {
+      const promise = requestBackend("open_project", {
+        projectPath: projectRoot,
+        subProject:
+          paths.length === 1 && paths[0] !== projectRoot ? paths[0] : undefined,
+        subProjects:
+          paths.length > 1 || (paths.length === 1 && paths[0] !== projectRoot)
+            ? paths
+            : undefined,
+      }).then((response) => {
+        const result = response as { sqlitePath: string };
+        if (result?.sqlitePath) {
+          sqlitePath = result.sqlitePath;
+          projectSqlitePaths.set(targetId, sqlitePath);
+        }
+        return result;
+      }).finally(() => {
+        pendingProjectOpens.delete(targetId);
+      });
+      pendingProjectOpens.set(targetId, promise);
+    }
+    const response = await pendingProjectOpens.get(targetId)!;
+    if (response?.sqlitePath) {
       sqlitePath = response.sqlitePath;
-      projectSqlitePaths.set(targetId, sqlitePath);
     }
   }
 
