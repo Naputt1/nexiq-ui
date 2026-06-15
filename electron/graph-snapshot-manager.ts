@@ -26,6 +26,7 @@ interface SnapshotController {
   resolveReady: () => void;
   rejectReady: (reason?: unknown) => void;
   inlineOnly?: boolean;
+  pendingInlineCount: number;
 }
 
 interface SnapshotPortSession {
@@ -155,6 +156,7 @@ export class GraphSnapshotManager {
       resolveReady: readyDeferred.resolve,
       rejectReady: readyDeferred.reject,
       inlineOnly: options?.inlineOnly,
+      pendingInlineCount: 0,
     };
 
     worker.on("message", (message: IncomingWorkerMessage) => {
@@ -193,7 +195,14 @@ export class GraphSnapshotManager {
             details: message.details,
           });
         }
-        if (controller.inlineOnly) {
+        controller.pendingInlineCount = Math.max(
+          0,
+          controller.pendingInlineCount - 1,
+        );
+        if (
+          controller.inlineOnly &&
+          controller.pendingInlineCount <= 0
+        ) {
           controller.worker.terminate();
           this.controllers.delete(this.getControllerId(kind, key));
         }
@@ -207,7 +216,14 @@ export class GraphSnapshotManager {
           this.inlineRequests.delete(message.requestId);
           request.reject(new Error(message.error));
         }
-        if (controller.inlineOnly) {
+        controller.pendingInlineCount = Math.max(
+          0,
+          controller.pendingInlineCount - 1,
+        );
+        if (
+          controller.inlineOnly &&
+          controller.pendingInlineCount <= 0
+        ) {
           controller.worker.terminate();
           this.controllers.delete(this.getControllerId(kind, key));
         }
@@ -326,15 +342,23 @@ export class GraphSnapshotManager {
       existing.worker.terminate();
     }
 
+    controller.pendingInlineCount += 1;
+
     await controller.ready;
 
     return new Promise((resolve, reject) => {
       const requestId = `inline-${Math.random().toString(36).substring(7)}`;
       const timeout = setTimeout(() => {
         this.inlineRequests.delete(requestId);
-        const timedOutController = this.controllers.get(controllerId);
-        if (timedOutController?.inlineOnly) {
-          timedOutController.worker.terminate();
+        controller.pendingInlineCount = Math.max(
+          0,
+          controller.pendingInlineCount - 1,
+        );
+        if (
+          controller.inlineOnly &&
+          controller.pendingInlineCount <= 0
+        ) {
+          controller.worker.terminate();
           this.controllers.delete(controllerId);
         }
         reject(new Error(`Worker inline request timed out: ${message.type}`));

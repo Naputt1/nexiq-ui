@@ -970,10 +970,11 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
 
   // load data whenever sub-project selection or selected commit changes
   useEffect(() => {
+    if (!isLoaded) return;
     startTransition(() => {
       loadData();
     });
-  }, [selectedSubProjects, selectedCommit, loadData]);
+  }, [selectedSubProjects, selectedCommit, isLoaded, loadData]);
 
   useEffect(() => {
     const unsubscribe = subscribeGraphSnapshot((payload) => {
