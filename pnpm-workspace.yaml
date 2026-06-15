@@ -1,6 +1,6 @@
 packages:
-  - '.'
-  - 'layout-wasm'
+  - "."
+  - "layout-wasm"
 
 allowBuilds:
   "@swc/core": true
@@ -8,12 +8,7 @@ allowBuilds:
   electron: true
   electron-winstaller: true
   esbuild: true
-  wasm-pack: true
 
 strictPeerDependencies: false
 shamefullyHoist: true
 nodeLinker: hoisted
-packageConfigs:
-  '@nexiq/ui':
-    shamefullyHoist: true
-    nodeLinker: hoisted
