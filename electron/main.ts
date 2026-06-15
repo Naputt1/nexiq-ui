@@ -284,12 +284,22 @@ function connectToBackend() {
   backendWs.on("error", (err) => {
     console.warn("Backend connection error, retrying in 5s...", err.message);
     backendWs = null;
+    for (const [, request] of pendingRequests) {
+      clearTimeout(request.timeout);
+      request.reject(new Error("Backend connection error"));
+    }
+    pendingRequests.clear();
     setTimeout(connectToBackend, 5000);
   });
 
   backendWs.on("close", () => {
     console.log("Backend connection closed");
     backendWs = null;
+    for (const [, request] of pendingRequests) {
+      clearTimeout(request.timeout);
+      request.reject(new Error("Backend connection closed"));
+    }
+    pendingRequests.clear();
   });
 }
 
