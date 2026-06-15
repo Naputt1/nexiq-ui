@@ -306,6 +306,15 @@ export class GraphCombo extends BaseNode {
       const eased = 1 - Math.pow(1 - progress, 3);
       this.radius = startRadius + diff * eased;
       this.previousRadius = this.radius;
+
+      if (!container?.parent) {
+        this.radius = targetRadius;
+        this.previousRadius = null;
+        this.animating = false;
+        this.animationFrame = null;
+        return;
+      }
+
       this.update(context, container);
 
       if (progress < 1) {
