@@ -1345,6 +1345,8 @@ export class GraphData {
         const info = group[i];
         info.edge.points = [...sharedPoints];
         info.edge.scale = sharedScale;
+        info.edge.sourceScale = srcNode.scale;
+        info.edge.targetScale = targetNode.scale;
         info.edge.isBidirectional = isBidirectional;
         info.edge.labelIndex = i;
         info.edge.labelCount = group.length;

@@ -33,6 +33,8 @@ export class GraphArrow implements Renderable {
   isBidirectional: boolean = false;
   labelIndex: number = 0;
   labelCount: number = 1;
+  sourceScale: number = 1;
+  targetScale: number = 1;
 
   constructor(data: GraphArrowData) {
     this.id = data.id;
@@ -77,7 +79,9 @@ export class GraphArrow implements Renderable {
       toPos.x - to.radius * Math.cos(angle),
       toPos.y - to.radius * Math.sin(angle),
     ];
-    this.scale = Math.min(from.scale, to.scale);
+    this.sourceScale = from.scale;
+    this.targetScale = to.scale;
+    this.scale = (from.scale + to.scale) / 2;
   }
 
   render(context: RenderContext, parent: PIXI.Container): PIXI.Container {
@@ -300,21 +304,38 @@ export class GraphArrow implements Renderable {
     bidirectional?: boolean,
   ) {
     const p = this.points;
-    const strokeWidth =
-      ((this.highlighted ? 2 : 0.5) + (this.flowRole ? 0.5 : 0)) * this.scale;
+    const baseWidth =
+      (this.highlighted ? 2 : 0.5) + (this.flowRole ? 0.5 : 0);
+    const angle = Math.atan2(p[3] - p[1], p[2] - p[0]);
+    const perpX = -Math.sin(angle);
+    const perpY = Math.cos(angle);
+
+    const hw0 = (baseWidth * this.sourceScale) / 2;
+    const hw1 = (baseWidth * this.targetScale) / 2;
 
     graphics.clear();
-    graphics.moveTo(p[0], p[1]);
-    graphics.lineTo(p[2], p[3]);
-    graphics.stroke({ color, width: strokeWidth, cap: "round", join: "round" });
 
-    const headLength = 6 * this.scale;
-    const angle = Math.atan2(p[3] - p[1], p[2] - p[0]);
+    // Tapered quadrilateral shaft
+    graphics
+      .moveTo(p[0] + hw0 * perpX, p[1] + hw0 * perpY)
+      .lineTo(p[2] + hw1 * perpX, p[3] + hw1 * perpY)
+      .lineTo(p[2] - hw1 * perpX, p[3] - hw1 * perpY)
+      .lineTo(p[0] - hw0 * perpX, p[1] - hw0 * perpY)
+      .closePath()
+      .fill(color);
 
+    // Rounded caps
+    graphics.circle(p[0], p[1], hw0).fill(color);
+    graphics.circle(p[2], p[3], hw1).fill(color);
+
+    // Arrowhead at target
+    const headLength = 6 * this.targetScale;
     this.drawArrowHead(graphics, p[2], p[3], angle, headLength, color);
 
+    // Arrowhead at source (bidirectional)
     if (bidirectional) {
-      this.drawArrowHead(graphics, p[0], p[1], angle, headLength, color);
+      const startHeadLength = 6 * this.sourceScale;
+      this.drawArrowHead(graphics, p[0], p[1], angle, startHeadLength, color);
     }
   }
 }
