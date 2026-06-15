@@ -55,6 +55,15 @@ const inlineLargeDataHandles = new Map<
     details?: Record<string, GraphNodeDetail>;
   }
 >();
+const MAX_INLINE_HANDLES = 20;
+
+function touchInlineHandle(handleId: string) {
+  const entry = inlineLargeDataHandles.get(handleId);
+  if (entry) {
+    inlineLargeDataHandles.delete(handleId);
+    inlineLargeDataHandles.set(handleId, entry);
+  }
+}
 
 async function isBackendAlive(): Promise<boolean> {
   return new Promise((resolve) => {
@@ -564,6 +573,12 @@ function storeInlineLargeData(
     details,
   };
   inlineLargeDataHandles.set(handleId, entry);
+  if (inlineLargeDataHandles.size > MAX_INLINE_HANDLES) {
+    const oldestKey = inlineLargeDataHandles.keys().next().value;
+    if (oldestKey !== undefined) {
+      inlineLargeDataHandles.delete(oldestKey);
+    }
+  }
   broadcastLargeDataUpdate({
     kind,
     key,
@@ -628,6 +643,7 @@ async function openInlineLargeData(
       getInlineHandleId(args.kind, key),
     );
     if (cached && !args.refreshHandle) {
+      touchInlineHandle(getInlineHandleId(args.kind, key));
       return buildHandleFromEntry(cached);
     }
 
@@ -771,6 +787,7 @@ async function openInlineLargeData(
       getInlineHandleId(args.kind, key),
     );
     if (cached && !args.refreshHandle) {
+      touchInlineHandle(getInlineHandleId(args.kind, key));
       return buildHandleFromEntry(cached);
     }
 
@@ -1625,7 +1642,11 @@ ipcMain.handle(
     const cached = inlineLargeDataHandles.get(
       getInlineHandleId(args.kind, key),
     );
-    return cached ? buildHandleFromEntry(cached) : openInlineLargeData(args);
+    if (cached) {
+      touchInlineHandle(getInlineHandleId(args.kind, key));
+      return buildHandleFromEntry(cached);
+    }
+    return openInlineLargeData(args);
   },
 );
 
