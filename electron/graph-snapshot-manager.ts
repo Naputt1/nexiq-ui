@@ -193,6 +193,10 @@ export class GraphSnapshotManager {
             details: message.details,
           });
         }
+        if (controller.inlineOnly) {
+          controller.worker.terminate();
+          this.controllers.delete(this.getControllerId(kind, key));
+        }
         return;
       }
 
@@ -202,6 +206,10 @@ export class GraphSnapshotManager {
           clearTimeout(request.timeout);
           this.inlineRequests.delete(message.requestId);
           request.reject(new Error(message.error));
+        }
+        if (controller.inlineOnly) {
+          controller.worker.terminate();
+          this.controllers.delete(this.getControllerId(kind, key));
         }
         return;
       }
@@ -324,6 +332,11 @@ export class GraphSnapshotManager {
       const requestId = `inline-${Math.random().toString(36).substring(7)}`;
       const timeout = setTimeout(() => {
         this.inlineRequests.delete(requestId);
+        const timedOutController = this.controllers.get(controllerId);
+        if (timedOutController?.inlineOnly) {
+          timedOutController.worker.terminate();
+          this.controllers.delete(controllerId);
+        }
         reject(new Error(`Worker inline request timed out: ${message.type}`));
       }, 1800000);
 
@@ -411,7 +424,21 @@ export class GraphSnapshotManager {
     });
   }
 
+  disposeKey(kind: LargeDataKind, key: string) {
+    const controllerId = this.getControllerId(kind, key);
+    const controller = this.controllers.get(controllerId);
+    if (controller) {
+      controller.worker.terminate();
+      this.controllers.delete(controllerId);
+    }
+  }
+
   dispose() {
+    for (const request of this.inlineRequests.values()) {
+      clearTimeout(request.timeout);
+      request.reject(new Error("GraphSnapshotManager disposed"));
+    }
+    this.inlineRequests.clear();
     for (const sessions of this.portSessions.values()) {
       for (const session of sessions) {
         session.port.close();
