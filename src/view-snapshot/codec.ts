@@ -51,7 +51,7 @@ export class GraphViewBufferView {
         id: node.id()!,
         name: node.name()!,
         displayName: node.displayName()!,
-        type: this.mapItemType(node.type()),
+        type: FlatBuffers.itemTypeToString(node.type()),
         combo: node.comboId() || undefined,
         color: node.color() || undefined,
         radius: node.radius() > 0 ? node.radius() : undefined,
@@ -66,7 +66,7 @@ export class GraphViewBufferView {
         id: combo.id()!,
         name: combo.name()!,
         displayName: combo.displayName()!,
-        type: this.mapItemType(combo.type()),
+        type: FlatBuffers.itemTypeToString(combo.type()),
         combo: combo.parentId() || undefined,
         collapsed: combo.collapsed(),
         color: combo.color() || undefined,
@@ -111,45 +111,6 @@ export class GraphViewBufferView {
     };
     return this.materializedCache;
   }
-
-  private mapItemType(type: FlatBuffers.ItemType): string {
-    switch (type) {
-      case FlatBuffers.ItemType.Package:
-        return "package";
-      case FlatBuffers.ItemType.Scope:
-        return "scope";
-      case FlatBuffers.ItemType.Component:
-        return "component";
-      case FlatBuffers.ItemType.Hook:
-        return "hook";
-      case FlatBuffers.ItemType.State:
-        return "state";
-      case FlatBuffers.ItemType.Memo:
-        return "memo";
-      case FlatBuffers.ItemType.Callback:
-        return "callback";
-      case FlatBuffers.ItemType.Ref:
-        return "ref";
-      case FlatBuffers.ItemType.Effect:
-        return "effect";
-      case FlatBuffers.ItemType.Prop:
-        return "prop";
-      case FlatBuffers.ItemType.Render:
-        return "render";
-      case FlatBuffers.ItemType.RenderGroup:
-        return "render-group";
-      case FlatBuffers.ItemType.SourceGroup:
-        return "source-group";
-      case FlatBuffers.ItemType.PathGroup:
-        return "path-group";
-      case FlatBuffers.ItemType.Variable:
-        return "variable";
-      case FlatBuffers.ItemType.Attribute:
-        return "attribute";
-      default:
-        return "scope";
-    }
-  }
 }
 
 export function encodeGraphViewSnapshot(result: GraphViewResult): Uint8Array {
@@ -158,7 +119,8 @@ export function encodeGraphViewSnapshot(result: GraphViewResult): Uint8Array {
   const nodeOffsets = result.nodes.map((node) => {
     // Pre-create all strings before starting the object to avoid nesting issues
     const id = builder.createString(String(node.id));
-    const nameStr = typeof node.name === "string" ? node.name : String(node.name || "");
+    const nameStr =
+      typeof node.name === "string" ? node.name : String(node.name || "");
     const name = builder.createString(nameStr);
     const displayName = builder.createString(String(node.displayName || ""));
     const comboId = node.combo ? builder.createString(String(node.combo)) : 0;
@@ -166,7 +128,10 @@ export function encodeGraphViewSnapshot(result: GraphViewResult): Uint8Array {
 
     FlatBuffers.GraphNode.startGraphNode(builder);
     FlatBuffers.GraphNode.addId(builder, id);
-    FlatBuffers.GraphNode.addType(builder, mapToItemType(node.type as string));
+    FlatBuffers.GraphNode.addType(
+      builder,
+      FlatBuffers.stringToItemType(node.type as string),
+    );
     FlatBuffers.GraphNode.addName(builder, name);
     FlatBuffers.GraphNode.addDisplayName(builder, displayName);
     if (comboId) FlatBuffers.GraphNode.addComboId(builder, comboId);
@@ -185,17 +150,20 @@ export function encodeGraphViewSnapshot(result: GraphViewResult): Uint8Array {
 
   const comboOffsets = result.combos.map((combo) => {
     const id = builder.createString(String(combo.id));
-    const nameStr = typeof combo.name === "string" ? combo.name : String(combo.name || "");
+    const nameStr =
+      typeof combo.name === "string" ? combo.name : String(combo.name || "");
     const name = builder.createString(nameStr);
     const displayName = builder.createString(String(combo.displayName || ""));
-    const parentId = combo.combo ? builder.createString(String(combo.combo)) : 0;
+    const parentId = combo.combo
+      ? builder.createString(String(combo.combo))
+      : 0;
     const color = combo.color ? builder.createString(String(combo.color)) : 0;
 
     FlatBuffers.GraphCombo.startGraphCombo(builder);
     FlatBuffers.GraphCombo.addId(builder, id);
     FlatBuffers.GraphCombo.addType(
       builder,
-      mapToItemType(combo.type as string),
+      FlatBuffers.stringToItemType(combo.type as string),
     );
     FlatBuffers.GraphCombo.addName(builder, name);
     FlatBuffers.GraphCombo.addDisplayName(builder, displayName);
@@ -204,7 +172,9 @@ export function encodeGraphViewSnapshot(result: GraphViewResult): Uint8Array {
     FlatBuffers.GraphCombo.addCollapsed(builder, !!combo.collapsed);
     FlatBuffers.GraphCombo.addRadius(builder, combo.radius || 0);
 
-    const gitStatus = combo.gitStatus ? builder.createString(combo.gitStatus) : 0;
+    const gitStatus = combo.gitStatus
+      ? builder.createString(combo.gitStatus)
+      : 0;
     if (gitStatus) FlatBuffers.GraphCombo.addGitStatus(builder, gitStatus);
 
     return FlatBuffers.GraphCombo.endGraphCombo(builder);
@@ -249,11 +219,7 @@ export function encodeGraphViewSnapshot(result: GraphViewResult): Uint8Array {
       : 0;
 
     const loc = detail.loc
-      ? FlatBuffers.Loc.createLoc(
-          builder,
-          detail.loc.line,
-          detail.loc.column,
-        )
+      ? FlatBuffers.Loc.createLoc(builder, detail.loc.line, detail.loc.column)
       : 0;
 
     FlatBuffers.GraphNodeDetail.startGraphNodeDetail(builder);
@@ -279,49 +245,6 @@ export function encodeGraphViewSnapshot(result: GraphViewResult): Uint8Array {
 
   builder.finish(root, "NXGV");
   return builder.asUint8Array();
-}
-
-function mapToItemType(type: string | number | undefined): FlatBuffers.ItemType {
-  if (typeof type === "number") return type;
-  if (!type) return FlatBuffers.ItemType.Scope;
-  const t = type.toLowerCase().replace(/-/g, "").replace(/group$/, "group"); // normalization
-  switch (t) {
-    case "package":
-      return FlatBuffers.ItemType.Package;
-    case "scope":
-      return FlatBuffers.ItemType.Scope;
-    case "component":
-      return FlatBuffers.ItemType.Component;
-    case "hook":
-      return FlatBuffers.ItemType.Hook;
-    case "state":
-      return FlatBuffers.ItemType.State;
-    case "memo":
-      return FlatBuffers.ItemType.Memo;
-    case "callback":
-      return FlatBuffers.ItemType.Callback;
-    case "ref":
-      return FlatBuffers.ItemType.Ref;
-    case "effect":
-      return FlatBuffers.ItemType.Effect;
-    case "prop":
-      return FlatBuffers.ItemType.Prop;
-    case "render":
-      return FlatBuffers.ItemType.Render;
-    case "rendergroup":
-      return FlatBuffers.ItemType.RenderGroup;
-    case "sourcegroup":
-      return FlatBuffers.ItemType.SourceGroup;
-    case "pathgroup":
-      return FlatBuffers.ItemType.PathGroup;
-    case "variable":
-    case "normal":
-      return FlatBuffers.ItemType.Variable;
-    case "attribute":
-      return FlatBuffers.ItemType.Attribute;
-    default:
-      return FlatBuffers.ItemType.Scope;
-  }
 }
 
 export function decodeGraphViewSnapshot(data: Uint8Array) {

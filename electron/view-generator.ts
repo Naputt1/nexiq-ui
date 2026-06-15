@@ -632,7 +632,7 @@ function convertSqliteToFlatBuffers(db: Database.Database): {
     FB.GraphNode.startGraphNode(builder);
     FB.GraphNode.addId(builder, idOffset);
     FB.GraphNode.addName(builder, nameOffset);
-    FB.GraphNode.addType(builder, mapToFBItemType(node.type));
+    FB.GraphNode.addType(builder, FB.stringToItemType(node.type));
     if (comboOffset) FB.GraphNode.addComboId(builder, comboOffset);
     if (colorOffset) FB.GraphNode.addColor(builder, colorOffset);
     if (node.radius) FB.GraphNode.addRadius(builder, node.radius);
@@ -682,7 +682,7 @@ function convertSqliteToFlatBuffers(db: Database.Database): {
     FB.GraphCombo.startGraphCombo(builder);
     FB.GraphCombo.addId(builder, idOffset);
     FB.GraphCombo.addName(builder, nameOffset);
-    FB.GraphCombo.addType(builder, mapToFBItemType(combo.type));
+    FB.GraphCombo.addType(builder, FB.stringToItemType(combo.type));
     if (parentOffset) FB.GraphCombo.addParentId(builder, parentOffset);
     if (colorOffset) FB.GraphCombo.addColor(builder, colorOffset);
     if (combo.radius) FB.GraphCombo.addRadius(builder, combo.radius);
@@ -749,49 +749,7 @@ function convertSqliteToFlatBuffers(db: Database.Database): {
   };
 }
 
-function mapToFBItemType(type: string | undefined): FB.ItemType {
-  if (!type) return FB.ItemType.Scope;
-  const t = type
-    .toLowerCase()
-    .replace(/-/g, "")
-    .replace(/group$/, "group");
-  switch (t) {
-    case "package":
-      return FB.ItemType.Package;
-    case "scope":
-      return FB.ItemType.Scope;
-    case "component":
-      return FB.ItemType.Component;
-    case "hook":
-      return FB.ItemType.Hook;
-    case "state":
-      return FB.ItemType.State;
-    case "memo":
-      return FB.ItemType.Memo;
-    case "callback":
-      return FB.ItemType.Callback;
-    case "ref":
-      return FB.ItemType.Ref;
-    case "effect":
-      return FB.ItemType.Effect;
-    case "prop":
-      return FB.ItemType.Prop;
-    case "render":
-      return FB.ItemType.Render;
-    case "rendergroup":
-      return FB.ItemType.RenderGroup;
-    case "sourcegroup":
-      return FB.ItemType.SourceGroup;
-    case "pathgroup":
-      return FB.ItemType.PathGroup;
-    case "variable":
-      return FB.ItemType.Variable;
-    case "attribute":
-      return FB.ItemType.Attribute;
-    default:
-      return FB.ItemType.Scope;
-  }
-}
+
 
 export async function generateGraphView(
   options: GenerateGraphViewOptions,
