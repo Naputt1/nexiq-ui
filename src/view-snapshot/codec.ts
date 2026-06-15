@@ -144,6 +144,8 @@ export class GraphViewBufferView {
         return "path-group";
       case FlatBuffers.ItemType.Variable:
         return "variable";
+      case FlatBuffers.ItemType.Attribute:
+        return "attribute";
       default:
         return "scope";
     }
@@ -315,6 +317,8 @@ function mapToItemType(type: string | number | undefined): FlatBuffers.ItemType 
     case "variable":
     case "normal":
       return FlatBuffers.ItemType.Variable;
+    case "attribute":
+      return FlatBuffers.ItemType.Attribute;
     default:
       return FlatBuffers.ItemType.Scope;
   }

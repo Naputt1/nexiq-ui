@@ -23,7 +23,8 @@ type NodeAppearanceKey =
   | "effect"
   | "prop"
   | "render"
-  | "variable";
+  | "variable"
+  | "attribute";
 
 export function getGraphAppearance(
   appearance?: GraphAppearance,
@@ -50,6 +51,7 @@ export function getNodeAppearanceKey(
   if (type === "prop") return "prop";
   if (type === "render") return "render";
   if (type === "normal" || type === "variable") return "variable";
+  if (type === "attribute") return "attribute";
   if (id?.endsWith("-props")) return "prop";
   if (id?.endsWith("-render")) return "render";
   return undefined;

@@ -786,6 +786,8 @@ function mapToFBItemType(type: string | undefined): FB.ItemType {
       return FB.ItemType.PathGroup;
     case "variable":
       return FB.ItemType.Variable;
+    case "attribute":
+      return FB.ItemType.Attribute;
     default:
       return FB.ItemType.Scope;
   }
