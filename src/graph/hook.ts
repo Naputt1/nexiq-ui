@@ -1231,6 +1231,11 @@ export class GraphData {
 
     const previousRadius = combo.radius;
     combo.collapsed = !combo.collapsed;
+
+    if (!combo.collapsed && combo.child && !combo.isLayoutCalculated) {
+      combo.expandedRadius = this.calculateComboRadius(combo);
+    }
+
     combo.radius = combo.collapsed
       ? combo.collapsedRadius
       : combo.expandedRadius;
