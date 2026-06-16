@@ -44,7 +44,7 @@ const GraphSearch: React.FC<GraphSearchProps> = ({ rendererRef }) => {
     setSelectedId(matches[prevIndex]);
   }, [matches, currentMatchIndex, graph, rendererRef, setSelectedId]);
 
-  useHotkey("Control+F", () => {
+  useHotkey("Mod+F", () => {
     if (searchIsOpen) {
       searchInputRef.current?.select();
     } else {

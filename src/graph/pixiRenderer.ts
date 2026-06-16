@@ -618,7 +618,7 @@ export class PixiRenderer {
         if (this.combos.size !== this.graph.getAllCombos().length) {
           this.requestRender();
         } else {
-          this.updateCombos();
+          this.updateAllItems();
         }
         break;
       case "new-edges":
@@ -815,17 +815,4 @@ export class PixiRenderer {
     }
   }
 
-  private updateCombos() {
-    if (!this.isReady) return;
-    const context = this.getRenderContext();
-    for (const combo of this.graph.getAllCombos()) {
-      const container = this.combos.get(combo.id);
-      if (!container) continue;
-      const targetRadius = combo.collapsed
-        ? combo.collapsedRadius
-        : combo.expandedRadius;
-      combo.animateRadius(context, container, targetRadius);
-    }
-    this.updateEdges(this.graph.getAllEdges().map((edge) => edge.id));
-  }
 }
