@@ -335,7 +335,7 @@ export class GraphArrow implements Renderable {
     // Arrowhead at source (bidirectional)
     if (bidirectional) {
       const startHeadLength = 6 * this.sourceScale;
-      this.drawArrowHead(graphics, p[0], p[1], angle, startHeadLength, color);
+      this.drawArrowHead(graphics, p[0], p[1], angle + Math.PI, startHeadLength, color);
     }
   }
 }
