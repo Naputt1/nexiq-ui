@@ -13,7 +13,7 @@ export class PixiRenderer {
   app: PIXI.Application;
   viewport!: Viewport;
   graph: GraphData;
-  onSelect?: (id: string, center?: boolean, highlight?: boolean) => void;
+  onSelect?: (id: string | null, center?: boolean, highlight?: boolean) => void;
   onSelectEdge?: (id: string, center?: boolean) => void;
   onRightClick?: (id: string | null, x: number, y: number) => void;
   onZoomChange?: (zoom: number) => void;
@@ -60,7 +60,7 @@ export class PixiRenderer {
     graph: GraphData,
     width: number,
     height: number,
-    onSelect?: (id: string, center?: boolean, highlight?: boolean) => void,
+    onSelect?: (id: string | null, center?: boolean, highlight?: boolean) => void,
     onSelectEdge?: (id: string, center?: boolean) => void,
     onRightClick?: (id: string | null, x: number, y: number) => void,
     onZoomChange?: (zoom: number) => void,
@@ -157,6 +157,14 @@ export class PixiRenderer {
       this.onRightClick?.(null, e.client.x, e.client.y);
     });
 
+    this.viewport.on("pointertap", (e) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      const hitItem = this.getItemAt(e.client.x, e.client.y);
+      if (!hitItem) {
+        this.onSelect?.(null, false, false);
+      }
+    });
+
     this.isReady = true;
     this.render();
   }
@@ -218,7 +226,8 @@ export class PixiRenderer {
     });
   }
 
-  focusItem(id: string, scale: number = 1.5) {
+  focusItem(id: string | null, scale: number = 1.5) {
+    if (!id) return;
     if (!this.isReady) {
       this.readyPromise.then(() => this.focusItem(id, scale));
       return;

@@ -525,7 +525,13 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   }, [graph]);
 
   const onSelect = useCallback(
-    (id: string, center = true, highlight = false) => {
+    (id: string | null, center = true, highlight = false) => {
+      if (id === null) {
+        resetHighlights();
+        graph.focusItem(null);
+        return;
+      }
+
       setSelectedId(id);
       setCenteredItemId(id);
 
