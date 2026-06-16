@@ -19,6 +19,7 @@ import { Badge } from "./ui/badge";
 import { Separator } from "./ui/separator";
 import { useAppStateStore } from "@/hooks/use-app-state-store";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useGraphStore } from "@/hooks/use-graph-store";
 
 interface SourceNodeMarker {
   id: string;
@@ -489,7 +490,7 @@ const ErrorListItem: React.FC<ErrorListItemProps> = React.memo(
                       </Badge>
                     ) : null}
                   </div>
-                  <p className="mt-1 break-words text-sm text-muted-foreground">
+                  <p className="mt-1 wrap-break-word text-sm text-muted-foreground">
                     {error.message}
                   </p>
                 </div>
@@ -611,12 +612,9 @@ const ErrorList: React.FC<ErrorListProps> = React.memo(function ErrorList({
 });
 interface SourceEditorPanelProps {
   filePath: string | null;
-  projectPath: string;
   content: string;
   selectedNodeId: string | null;
   markers: SourceNodeMarker[];
-  fileErrors: FileAnalysisErrorRow[];
-  resolveErrors: ResolveErrorRow[];
   isOpen: boolean;
   onSelectNode: (id: string) => void;
   onOpenFile: () => void;
@@ -625,12 +623,9 @@ interface SourceEditorPanelProps {
 
 export const SourceEditorPanel = React.memo(function SourceEditorPanel({
   filePath,
-  projectPath,
   content,
   selectedNodeId,
   markers,
-  fileErrors,
-  resolveErrors,
   isOpen,
   onSelectNode,
   onOpenFile,
@@ -644,12 +639,16 @@ export const SourceEditorPanel = React.memo(function SourceEditorPanel({
   const bottomPanelTab = useAppStateStore((s) => s.sidebar.bottom.activeTab);
   const setBottomPanelTab = useAppStateStore((s) => s.setBottomPanelTab);
 
+  const graph = useGraphStore((s) => s.graphInstance);
+  const fileErrors = useGraphStore((s) => s.fileErrors);
+  const resolveErrors = useGraphStore((s) => s.resolveErrors);
+  const totalErrorCount = useGraphStore((s) => s.totalErrorCount);
+
   const activeTab = bottomPanelTab ?? uncontrolledTab;
 
   const language = detectLanguage(filePath);
-  const relativePath = getRelativePath(filePath, projectPath);
+  const relativePath = getRelativePath(filePath, graph.projectPath);
   const fileBadge = getFileBadge(language);
-  const totalErrors = fileErrors.length + resolveErrors.length;
 
   const setActiveTab = (tab: "source" | "errors") => {
     startTransition(() => {
@@ -673,7 +672,7 @@ export const SourceEditorPanel = React.memo(function SourceEditorPanel({
         <SourcePanelHeader
           fileBadge={fileBadge}
           relativePath={relativePath}
-          totalErrors={totalErrors}
+          totalErrors={totalErrorCount}
           filePath={filePath}
           onOpenFile={onOpenFile}
           onClose={onClose}
@@ -700,7 +699,7 @@ export const SourceEditorPanel = React.memo(function SourceEditorPanel({
           className="flex-1 min-h-0 overflow-auto"
         >
           <ErrorList
-            projectPath={projectPath}
+            projectPath={graph.projectPath}
             fileErrors={fileErrors}
             resolveErrors={resolveErrors}
             filePath={filePath}

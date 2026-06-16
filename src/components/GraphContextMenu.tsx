@@ -9,11 +9,10 @@ import {
   ContextMenuTrigger,
 } from "./ui/context-menu";
 import { Kbd } from "./ui/kbd";
-import { GraphData } from "@/graph/hook";
 import { PixiRenderer } from "@/graph/pixiRenderer";
+import { useGraphStore } from "@/hooks/use-graph-store";
 
 interface GraphContextMenuProps {
-  graph: GraphData;
   rendererRef: React.RefObject<PixiRenderer | null>;
   modLabel: string;
   children: React.ReactNode;
@@ -26,7 +25,9 @@ export interface GraphContextMenuHandle {
 export const GraphContextMenu = forwardRef<
   GraphContextMenuHandle,
   GraphContextMenuProps
->(({ graph, rendererRef, modLabel, children }, ref) => {
+>(({ rendererRef, modLabel, children }, ref) => {
+  const graph = useGraphStore((s) => s.graphInstance);
+
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;

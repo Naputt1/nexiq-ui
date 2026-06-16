@@ -12,3 +12,5 @@ allowBuilds:
 strictPeerDependencies: false
 shamefullyHoist: true
 nodeLinker: hoisted
+
+ignore-workspace-root-check: true

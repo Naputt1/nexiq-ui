@@ -28,6 +28,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { GraphViewBufferView } from "@/view-snapshot/codec";
+import { useHotkey } from "@tanstack/react-hotkeys";
 
 interface SidebarProps {
   currentPath: string;
@@ -113,6 +114,10 @@ export function ProjectSidebar({
 
   const isModalOpen = useAppStateStore((s) => s.isProjectModalOpen);
   const setIsModalOpen = useAppStateStore((s) => s.setProjectModalOpen);
+
+  useHotkey("Control+P", () => {
+    setIsModalOpen(!isModalOpen);
+  });
 
   const hasProjectSelector = filteredSubProjects.length > 1;
 

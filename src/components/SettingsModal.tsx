@@ -10,10 +10,16 @@ import { GlobalSettings } from "@/pages/GlobalSettings";
 import { useAppStateStore } from "@/hooks/use-app-state-store";
 import { useProjectStore } from "@/hooks/use-project-store";
 import { Settings, FolderCog, Globe } from "lucide-react";
+import { useHotkey } from "@tanstack/react-hotkeys";
 
 export function SettingsModal() {
-  const { isSettingsModalOpen, setSettingsModalOpen } = useAppStateStore();
+  const isSettingsModalOpen = useAppStateStore((s) => s.isSettingsModalOpen);
+  const setSettingsModalOpen = useAppStateStore((s) => s.setSettingsModalOpen);
   const { projectRoot } = useProjectStore();
+
+  useHotkey("Control+,", () => {
+    setSettingsModalOpen(!isSettingsModalOpen);
+  });
 
   return (
     <Dialog open={isSettingsModalOpen} onOpenChange={setSettingsModalOpen}>

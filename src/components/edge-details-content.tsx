@@ -1,19 +1,20 @@
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import type { GraphArrow, GraphData } from "@/graph/hook";
+import type { GraphArrow } from "@/graph/hook";
+import { useGraphStore } from "@/hooks/use-graph-store";
 import { getDisplayName } from "@nexiq/shared";
 
 interface EdgeDetailsContentProps {
   edge: GraphArrow;
-  graph: GraphData;
   onSelect: (id: string) => void;
 }
 
 export function EdgeDetailsContent({
   edge,
-  graph,
   onSelect,
 }: EdgeDetailsContentProps) {
+  const graph = useGraphStore((s) => s.graphInstance);
+
   const source = graph.getPointByID(edge.source);
   const target = graph.getPointByID(edge.target);
 
@@ -23,7 +24,7 @@ export function EdgeDetailsContent({
         <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
           {edge.category || edge.edgeKind || "edge"}
         </div>
-        <div className="mt-1 break-words text-lg font-semibold text-foreground">
+        <div className="mt-1 wrap-break-word text-lg font-semibold text-foreground">
           {source ? getDisplayName(source.name) : edge.source} to{" "}
           {target ? getDisplayName(target.name) : edge.target}
         </div>
@@ -89,7 +90,7 @@ export function EdgeDetailsContent({
                 )
               }
             >
-              <div className="break-words text-sm font-medium text-foreground">
+              <div className="wrap-break-word text-sm font-medium text-foreground">
                 {usage.displayLabel || usage.filePath}
               </div>
               <div className="mt-1 break-all text-xs text-muted-foreground">

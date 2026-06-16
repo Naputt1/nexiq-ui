@@ -6,39 +6,11 @@ import React, {
   useState,
   useTransition,
 } from "react";
-import { type TypeDataDeclare } from "@nexiq/shared";
-import useGraph, { GraphCombo, type GraphNodeData } from "./graph/hook";
+import useGraph, { GraphCombo } from "./graph/hook";
 import { PixiRenderer } from "./graph/pixiRenderer";
 import { ProjectSidebar } from "./components/Sidebar";
-import { RightSidebar } from "./components/RightSidebar";
-import { ZoomSlider } from "./components/ZoomSlider";
-import {
-  AlertTriangle,
-  FolderOpen,
-  PanelBottomOpen,
-  Loader2,
-  PanelLeft,
-  PanelRight,
-  RefreshCw,
-  Search,
-  Settings,
-} from "lucide-react";
-import { cn, debounce } from "@/lib/utils";
-import {
-  SidebarProvider,
-  SidebarInset,
-  SidebarTrigger,
-} from "@/components/ui/sidebar";
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "./components/ui/resizable";
-import {
-  useDefaultLayout,
-  type GroupImperativeHandle,
-  type PanelImperativeHandle,
-} from "react-resizable-panels";
+import { debounce } from "@/lib/utils";
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 
 import { setupAutoSave, useAppStateStore } from "./hooks/use-app-state-store";
 import { useGraphStore } from "./hooks/use-graph-store";
@@ -58,27 +30,15 @@ import {
   refreshLargeData,
   subscribeGraphSnapshot,
 } from "./graph-snapshot/client";
-import { Button } from "./components/ui/button";
-import { SourceEditorPanel } from "./components/source-editor-panel";
-import type { FileAnalysisErrorRow, ResolveErrorRow } from "../electron/types";
-import { Card } from "./components/ui/card";
-import { ViewSwitcher } from "./components/ViewSwitcher";
 import type { GraphViewBufferView } from "./view-snapshot/codec";
 
 import {
   GraphContextMenu,
   type GraphContextMenuHandle,
 } from "./components/GraphContextMenu";
-import {
-  CommandDialog,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  CommandShortcut,
-} from "./components/ui/command";
-import { Kbd } from "./components/ui/kbd";
+import GraphOverlay from "./components/graph-overlay";
+import { useHotkey } from "@tanstack/react-hotkeys";
+import GraphPanel from "./components/panel";
 
 interface ComponentGraphProps {
   projectPath: string;
@@ -89,15 +49,11 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   const selectedSubProjects = useAppStateStore((s) => s.selectedSubProjects);
   const selectedId = useAppStateStore((s) => s.selectedId);
   const setSelectedId = useAppStateStore((s) => s.setSelectedId);
-  const selectedEdgeId = useAppStateStore((s) => s.selectedEdgeId);
   const setSelectedEdgeId = useAppStateStore((s) => s.setSelectedEdgeId);
-  const selectedItemType = useAppStateStore((s) => s.selectedItemType);
   const centeredItemId = useAppStateStore((s) => s.centeredItemId);
   const setCenteredItemId = useAppStateStore((s) => s.setCenteredItemId);
   const isSidebarOpen = useAppStateStore((s) => s.isSidebarOpen);
   const setIsSidebarOpen = useAppStateStore((s) => s.setIsSidebarOpen);
-  const isRightSidebarOpen = useAppStateStore((s) => s.sidebar.right.isOpen);
-  const setRightSidebarOpen = useAppStateStore((s) => s.setRightSidebarOpen);
   const selectedCommit = useAppStateStore((s) => s.selectedCommit);
   const gitComparisonEnabled = useAppStateStore((s) => s.gitComparisonEnabled);
   const setGitComparisonEnabled = useAppStateStore(
@@ -107,20 +63,15 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   const resetState = useAppStateStore((s) => s.reset);
   const isLoaded = useAppStateStore((s) => s.isLoaded);
   const view = useAppStateStore((s) => s.view);
-  const setRightSidebarWidthRatio = useAppStateStore(
-    (s) => s.setRightSidebarWidth,
-  );
-  const bottomPanelHeight = useAppStateStore((s) => s.sidebar.bottom.height);
-  const isBottomPanelOpen = useAppStateStore((s) => s.sidebar.bottom.isOpen);
-  const setBottomPanelHeight = useAppStateStore((s) => s.setBottomPanelHeight);
-  const setBottomPanelOpen = useAppStateStore((s) => s.setBottomPanelOpen);
-  const setBottomPanelTab = useAppStateStore((s) => s.setBottomPanelTab);
-  const setProjectModalOpen = useAppStateStore((s) => s.setProjectModalOpen);
-  const setSettingsModalOpen = useAppStateStore((s) => s.setSettingsModalOpen);
-  const sidebarWidth = useAppStateStore((s) => s.sidebar.right.width);
+
   const setViewport = useAppStateStore((s) => s.setViewport);
 
+  const searchIsOpen = useAppStateStore((s) => s.search.isOpen);
+
   const details = useGraphStore((s) => s.details);
+  const setfileErrors = useGraphStore((s) => s.setFileErrors);
+  const setResolveErrors = useGraphStore((s) => s.setResolveErrors);
+  const setTotalErrorCount = useGraphStore((s) => s.setTotalErrorCount);
 
   const clearAnalyzedDiffCache = useGitStore((s) => s.clearAnalyzedDiffCache);
 
@@ -128,31 +79,6 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
 
   const [isGeneratingView, setIsGeneratingView] = useState(false);
   const [isPending, startTransition] = useTransition();
-
-  // Persistence bridge for useDefaultLayout
-  const storage = useMemo(
-    () => ({
-      getItem: () => {
-        return JSON.stringify({
-          main: 100 - sidebarWidth,
-          sidebar: sidebarWidth,
-        });
-      },
-      setItem: (_: string, value: string) => {
-        const layout = JSON.parse(value);
-        if (layout.sidebar !== undefined) {
-          setRightSidebarWidthRatio(layout.sidebar);
-        }
-      },
-    }),
-    [sidebarWidth, setRightSidebarWidthRatio],
-  );
-
-  const { defaultLayout, onLayoutChanged } = useDefaultLayout({
-    id: "main-horizontal",
-    panelIds: ["main", "sidebar"],
-    storage,
-  });
 
   const subPath = useMemo(() => {
     const selectedSubProject = selectedSubProjects[0];
@@ -171,33 +97,16 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   const [graphViewBuffer, setGraphViewBuffer] =
     useState<GraphViewBufferView | null>(null);
 
-  const rendererRef = useRef<PixiRenderer | null>(null);
   const graphContextMenuRef = useRef<GraphContextMenuHandle>(null);
+  const rendererRef = useRef<PixiRenderer | null>(null);
 
-  const [search, setSearch] = useState<string>("");
-  const [debouncedSearch, setDebouncedSearch] = useState<string>("");
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [matches, setMatches] = useState<string[]>([]);
-  const [currentMatchIndex, setCurrentMatchIndex] = useState(-1);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
-  const [typeData, settypeData] = useState<{ [key: string]: TypeDataDeclare }>(
-    {},
-  );
-  const [sourceFilePath, setSourceFilePath] = useState<string | null>(null);
-  const [sourceContent, setSourceContent] = useState("");
-  const [fileErrors, setFileErrors] = useState<FileAnalysisErrorRow[]>([]);
-  const [resolveErrors, setResolveErrors] = useState<ResolveErrorRow[]>([]);
   const [activeProfileRunId, setActiveProfileRunId] = useState<string | null>(
     null,
   );
-  const sourceContentCacheRef = useRef(new Map<string, string>());
 
   const graphContainerRef = useRef<HTMLDivElement>(null);
-  const graphPanelGroupRef = useRef<GroupImperativeHandle | null>(null);
-  const sourcePanelRef = useRef<PanelImperativeHandle | null>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
   const hasRestoredViewport = useRef(false);
   const { theme, customColors, fetchConfig } = useConfigStore();
 
@@ -210,13 +119,24 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     window.ipcRenderer
       .invoke("get-analysis-errors", projectPath, analysisTarget)
       .then((result) => {
-        setFileErrors(result.fileErrors);
+        setfileErrors(result.fileErrors);
         setResolveErrors(result.resolveErrors);
+        setTotalErrorCount(
+          result.fileErrors.length + result.resolveErrors.length,
+        );
       })
       .catch((error) => {
         console.error("Failed to load analysis errors", error);
       });
-  }, [projectPath, selectedSubProjects, isAnalyzing, graphViewBuffer]);
+  }, [
+    projectPath,
+    selectedSubProjects,
+    isAnalyzing,
+    graphViewBuffer,
+    setfileErrors,
+    setResolveErrors,
+    setTotalErrorCount,
+  ]);
 
   // Use useEffect to update renderer theme when customColors or theme changes
   useEffect(() => {
@@ -230,27 +150,6 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     const unsubscribe = setupAutoSave(projectPath);
     return () => unsubscribe();
   }, [projectPath]);
-
-  useEffect(() => {
-    const group = graphPanelGroupRef.current;
-    const sourcePanel = sourcePanelRef.current;
-    if (!group || !sourcePanel) return;
-
-    if (isBottomPanelOpen) {
-      sourcePanel.expand();
-      sourcePanel.resize(`${bottomPanelHeight}%`);
-      group.setLayout({
-        "graph-canvas": 100 - bottomPanelHeight,
-        "graph-bottom-panel": bottomPanelHeight,
-      });
-    } else {
-      sourcePanel.collapse();
-      group.setLayout({
-        "graph-canvas": 100,
-        "graph-bottom-panel": 0,
-      });
-    }
-  }, [bottomPanelHeight, isBottomPanelOpen]);
 
   const snapshotKeyRef = useRef<string | null>(null);
   const viewRequestIdRef = useRef(0);
@@ -370,7 +269,6 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
           return;
         }
 
-        settypeData(result.getTypeData());
         setGraphViewBuffer(result);
 
         // Fetch and apply UI state after graph buffer is set
@@ -433,24 +331,6 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
       }, 100),
     [graph],
   );
-
-  const goToNextMatch = useCallback(() => {
-    if (matches.length === 0) return;
-    const nextIndex = (currentMatchIndex + 1) % matches.length;
-    setCurrentMatchIndex(nextIndex);
-    graph.expandAncestors(matches[nextIndex]);
-    rendererRef.current?.focusItem(matches[nextIndex], 1.5);
-    setSelectedId(matches[nextIndex]);
-  }, [matches, currentMatchIndex, graph, setSelectedId]);
-
-  const goToPrevMatch = useCallback(() => {
-    if (matches.length === 0) return;
-    const prevIndex = (currentMatchIndex - 1 + matches.length) % matches.length;
-    setCurrentMatchIndex(prevIndex);
-    graph.expandAncestors(matches[prevIndex]);
-    rendererRef.current?.focusItem(matches[prevIndex], 1.5);
-    setSelectedId(matches[prevIndex]);
-  }, [matches, currentMatchIndex, graph, setSelectedId]);
 
   const resetHighlights = useCallback(() => {
     const combos = graph.getAllCombos();
@@ -640,86 +520,9 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     [graph, resetHighlights],
   );
 
-  const performSearch = useCallback(
-    (value: string) => {
-      let firstMatchId: string | null = null;
-      const newMatches: string[] = [];
-
-      graph.batch(() => {
-        if (value === "") {
-          setMatches([]);
-          setCurrentMatchIndex(-1);
-          resetHighlights();
-          return;
-        }
-
-        const lowerValue = value.toLowerCase();
-
-        const combos = graph.getAllCombos();
-        for (const combo of combos) {
-          if (combo.id.endsWith("-render")) continue;
-
-          const text = (
-            combo.displayName || String(combo.name || "")
-          ).toLowerCase();
-          const isMatch = text.includes(lowerValue);
-          if (isMatch) {
-            if (!combo.highlighted) {
-              combo.highlighted = true;
-              graph.updateCombo(combo);
-            }
-            newMatches.push(combo.id);
-          } else if (combo.highlighted) {
-            combo.highlighted = false;
-            graph.updateCombo(combo);
-          }
-        }
-
-        const nodes = graph.getAllNodes();
-        for (const node of nodes) {
-          const text = (
-            node.displayName || String(node.name || "")
-          ).toLowerCase();
-          const isMatch = text.includes(lowerValue);
-          if (isMatch) {
-            if (!node.highlighted) {
-              node.highlighted = true;
-              graph.updateNode(node);
-            }
-            newMatches.push(node.id);
-          } else if (node.highlighted) {
-            node.highlighted = false;
-            graph.updateNode(node);
-          }
-        }
-
-        if (newMatches.length > 0) {
-          firstMatchId = newMatches[0];
-        }
-      });
-
-      setMatches(newMatches);
-      if (newMatches.length > 0) {
-        setCurrentMatchIndex(0);
-        setSelectedId(firstMatchId);
-        // Small timeout to allow the batch render to complete before starting expansion animations
-        setTimeout(() => {
-          if (firstMatchId) {
-            graph.expandAncestors(firstMatchId);
-            rendererRef.current?.focusItem(firstMatchId, 1.5);
-          }
-        }, 50);
-      } else {
-        setCurrentMatchIndex(-1);
-      }
-    },
-    [graph, resetHighlights, setSelectedId],
-  );
-
   useEffect(() => {
     window.nexiqGraph = graph;
-    window.nexiqSearch = performSearch;
-  }, [graph, performSearch]);
+  }, [graph]);
 
   const onSelect = useCallback(
     (id: string, center = true, highlight = false) => {
@@ -780,14 +583,10 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
 
   // Clear search and highlights when search bar is closed
   useEffect(() => {
-    if (!isSearchOpen) {
-      setSearch("");
-      setDebouncedSearch("");
-      setMatches([]);
-      setCurrentMatchIndex(-1);
+    if (!searchIsOpen) {
       resetHighlights();
     }
-  }, [isSearchOpen, resetHighlights]);
+  }, [searchIsOpen, resetHighlights]);
 
   useEffect(() => {
     const savePositions = debounce(() => {
@@ -999,181 +798,38 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     return () => unsubscribe();
   }, [loadData, projectPath, selectedCommit, selectedSubProjects]);
 
-  // Resize observer for container
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const { width, height } = entry.contentRect;
-        setSize({ width, height });
-        rendererRef.current?.resize(width, height);
+  useHotkey("Control+L", () => {
+    const focusedId = graph.getFocusedId();
+    if (focusedId) {
+      const item = graph.getPointByID(focusedId);
+      if (item instanceof GraphCombo) {
+        graph.layout(true, focusedId);
+      } else if (item?.parent) {
+        graph.layout(true, item.parent.id);
+      } else {
+        graph.layout(true);
       }
-    });
-    resizeObserver.observe(containerRef.current);
-    return () => resizeObserver.disconnect();
-  }, []);
-
-  // Force re-calculation of size when sidebar toggles or right sidebar width changes
-  useEffect(() => {
-    if (containerRef.current) {
-      const { width, height } = containerRef.current.getBoundingClientRect();
-      setSize({ width, height });
+    } else if (selectedId) {
+      const item = graph.getPointByID(selectedId);
+      if (item instanceof GraphCombo) {
+        graph.layout(true, selectedId);
+      } else if (item?.parent) {
+        graph.layout(true, item.parent.id);
+      } else {
+        graph.layout(true);
+      }
+    } else {
+      graph.layout(true);
     }
-  }, [isSidebarOpen, selectedId, selectedEdgeId, isBottomPanelOpen]);
+  });
 
-  // handle global shortcuts
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
-        e.preventDefault();
-        setSettingsModalOpen(true);
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
-        e.preventDefault();
-        if (isSearchOpen) {
-          searchInputRef.current?.select();
-        } else {
-          setIsSearchOpen(true);
-        }
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setIsCommandPaletteOpen(true);
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "l") {
-        e.preventDefault();
-        const focusedId = graph.getFocusedId();
-        if (focusedId) {
-          const item = graph.getPointByID(focusedId);
-          if (item instanceof GraphCombo) {
-            graph.layout(true, focusedId);
-          } else if (item?.parent) {
-            graph.layout(true, item.parent.id);
-          } else {
-            graph.layout(true);
-          }
-        } else if (selectedId) {
-          const item = graph.getPointByID(selectedId);
-          if (item instanceof GraphCombo) {
-            graph.layout(true, selectedId);
-          } else if (item?.parent) {
-            graph.layout(true, item.parent.id);
-          } else {
-            graph.layout(true);
-          }
-        } else {
-          graph.layout(true);
-        }
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") {
-        if (e.shiftKey) {
-          // Handled by Ctrl + \ now or keep as alternative but don't fall through
-          e.preventDefault();
-          setRightSidebarOpen(!isRightSidebarOpen);
-        } else {
-          e.preventDefault();
-          setIsSidebarOpen(!isSidebarOpen);
-        }
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
-        e.preventDefault();
-        setBottomPanelOpen(!isBottomPanelOpen);
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "p") {
-        e.preventDefault();
-        setProjectModalOpen(true);
-      }
-      if (
-        (e.metaKey || e.ctrlKey) &&
-        e.shiftKey &&
-        e.key.toLowerCase() === "g"
-      ) {
-        e.preventDefault();
-        setGitComparisonEnabled(!gitComparisonEnabled);
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-        if (selectedId) {
-          e.preventDefault();
-          if (e.shiftKey) {
-            graph.focusItem(null);
-          } else {
-            graph.focusItem(selectedId);
-          }
-        } else if (e.shiftKey) {
-          e.preventDefault();
-          graph.focusItem(null);
-        }
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === "\\") {
-        e.preventDefault();
-        setRightSidebarOpen(!isRightSidebarOpen);
-      }
-      if (e.key === "Escape") {
-        setIsSearchOpen(false);
-      }
-      if (isSearchOpen && e.key === "Enter") {
-        e.preventDefault();
-        if (e.shiftKey) {
-          goToPrevMatch();
-        } else {
-          goToNextMatch();
-        }
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
+  useHotkey("Control+B", () => {
+    setIsSidebarOpen(!isSidebarOpen);
+  });
 
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [
-    isSearchOpen,
-    matches,
-    currentMatchIndex,
-    goToNextMatch,
-    goToPrevMatch,
-    isSidebarOpen,
-    isRightSidebarOpen,
-    isBottomPanelOpen,
-    selectedId,
-    gitComparisonEnabled,
-    graph,
-    setRightSidebarOpen,
-    setIsSidebarOpen,
-    setBottomPanelOpen,
-    setProjectModalOpen,
-    setGitComparisonEnabled,
-    setSettingsModalOpen,
-  ]);
-
-  // Focus and select search input when opened
-  useEffect(() => {
-    if (isSearchOpen) {
-      // Small delay to ensure the input is rendered and focused
-      setTimeout(() => {
-        searchInputRef.current?.focus();
-        searchInputRef.current?.select();
-      }, 10);
-    }
-  }, [isSearchOpen]);
-
-  // Debounce search input
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedSearch(search);
-    }, 200);
-    return () => clearTimeout(handler);
-  }, [search]);
-
-  // Trigger search when debounced value changes
-  useEffect(() => {
-    performSearch(debouncedSearch);
-  }, [debouncedSearch, performSearch]);
-
-  const onSearch = (value: string) => {
-    setSearch(value);
-  };
+  useHotkey("Control+Shift+G", () => {
+    setGitComparisonEnabled(!gitComparisonEnabled);
+  });
 
   const isMac =
     typeof window !== "undefined" &&
@@ -1218,51 +874,6 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     };
   }, [handleReloadProject]);
 
-  const selectedItem = useMemo(() => {
-    if (!selectedId) return undefined;
-    return graph.getPointByID(selectedId);
-  }, [selectedId, graph]);
-
-  const selectedEdge = useMemo(() => {
-    if (!selectedEdgeId) return undefined;
-    return graph.getEdge(selectedEdgeId);
-  }, [selectedEdgeId, graph]);
-
-  const renderNodes = useMemo(() => {
-    if (!selectedId || selectedItem?.type !== "component") return [];
-    const renderComboId = selectedId + "-render";
-    const renderCombo = graph.getCombo(renderComboId);
-    if (!renderCombo || !renderCombo.child) return [];
-    return Object.values(renderCombo.child.nodes) as GraphNodeData[];
-  }, [selectedId, selectedItem, graph]);
-
-  const handleClose = useCallback(() => {
-    setSelectedId(null);
-    setSelectedEdgeId(null);
-    resetHighlights();
-  }, [setSelectedId, setSelectedEdgeId, resetHighlights]);
-
-  const handleZoomChange = useCallback((zoom: number) => {
-    rendererRef.current?.setZoom(zoom);
-  }, []);
-
-  const toggleBottomPanel = useCallback(() => {
-    setBottomPanelTab("source");
-    setBottomPanelOpen(!isBottomPanelOpen);
-  }, [isBottomPanelOpen, setBottomPanelOpen, setBottomPanelTab]);
-
-  const handleOpenErrors = useCallback(() => {
-    setBottomPanelTab("errors");
-    setBottomPanelOpen(true);
-  }, [setBottomPanelOpen, setBottomPanelTab]);
-
-  const handleSelectNode = useCallback(
-    (id: string) => {
-      onSelect(id, true, true);
-    },
-    [onSelect],
-  );
-
   const handleLocateFile = useCallback(
     (filePath: string) => {
       const nodes = graph.getAllNodes();
@@ -1283,111 +894,6 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
     [graph, onSelect, details],
   );
 
-  const sourceMarkers = useMemo(() => {
-    if (!sourceFilePath) return [];
-    const normalizedPath = sourceFilePath.replace(/\\/g, "/");
-
-    const markers = graph
-      .getAllNodes()
-      .filter((node) => {
-        const fileName = (
-          details[node.id]?.fileName ||
-          node.fileName ||
-          ""
-        ).replace(/\\/g, "/");
-        return fileName === normalizedPath;
-      })
-      .map((node) => ({
-        id: node.id,
-        label: String(node.displayName || node.name || node.id),
-        line: details[node.id]?.loc?.line || node.loc?.line || 1,
-      }));
-
-    // Add props and effects from components in this file
-    for (const node of graph.getAllNodes()) {
-      const detail = details[node.id];
-      const fileName = (detail?.fileName || node.fileName || "").replace(
-        /\\/g,
-        "/",
-      );
-      if (fileName !== normalizedPath) continue;
-
-      if (detail?.raw && typeof detail.raw === "object") {
-        const raw = detail.raw as any;
-
-        // Add Props
-        if (Array.isArray(raw.props)) {
-          for (const prop of raw.props) {
-            const loc = (prop as any).loc;
-            markers.push({
-              id: prop.id,
-              label: prop.name,
-              line: loc?.line || 1,
-            });
-          }
-        }
-
-        // Add Effects
-        if (raw.effects && typeof raw.effects === "object") {
-          for (const effect of Object.values(raw.effects) as any[]) {
-            const loc = (effect as any).loc;
-            markers.push({
-              id: effect.id,
-              label: effect.name || "useEffect",
-              line: loc?.line || 1,
-            });
-          }
-        }
-      }
-    }
-
-    return markers.sort((a, b) => a.line - b.line);
-  }, [graph, sourceFilePath, details]);
-
-  const totalErrorCount = fileErrors.length + resolveErrors.length;
-
-  useEffect(() => {
-    const item = selectedItem || graph.getCombo(selectedId || "");
-    const filePath =
-      item?.fileName ||
-      (selectedId ? details[selectedId]?.fileName : undefined);
-    if (!filePath) return;
-    const normalizedPath = filePath.replace(/\\/g, "/");
-
-    if (sourceFilePath === normalizedPath) {
-      return;
-    }
-
-    let cancelled = false;
-    const cachedContent = sourceContentCacheRef.current.get(normalizedPath);
-    if (cachedContent !== undefined) {
-      setSourceFilePath(normalizedPath);
-      setSourceContent(cachedContent);
-    } else {
-      window.ipcRenderer
-        .invoke("read-source-file", projectPath, filePath)
-        .then((result) => {
-          if (cancelled) return;
-          const nextPath = result.path.replace(/\\/g, "/");
-          sourceContentCacheRef.current.set(nextPath, result.content);
-          setSourceFilePath(nextPath);
-          setSourceContent(result.content);
-        })
-        .catch((error) => {
-          console.error("Failed to read source file", error);
-        });
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [projectPath, selectedId, selectedItem, graph, sourceFilePath, details]);
-
-  const handleOpenCurrentFile = useCallback(() => {
-    if (!sourceFilePath) return;
-    void window.ipcRenderer.invoke("open-vscode", sourceFilePath, projectPath);
-  }, [sourceFilePath, projectPath]);
-
   return (
     <div className="w-screen h-screen relative bg-background overflow-hidden">
       <SidebarProvider open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
@@ -1395,446 +901,29 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
           currentPath={selectedSubProjects[0] || projectPath}
           projectRoot={projectPath}
           onLocateFile={handleLocateFile}
-          onSelectNode={handleSelectNode}
+          onSelectNode={(id: string) => {
+            onSelect(id, true, true);
+          }}
           isLoading={isAnalyzing}
           graphViewBuffer={graphViewBuffer}
         />
         <SidebarInset className="min-w-0">
-          <ResizablePanelGroup
-            orientation="horizontal"
-            className="h-full w-full overflow-hidden"
-            defaultLayout={defaultLayout}
-            onLayoutChanged={onLayoutChanged}
-          >
-            <ResizablePanel id="main" minSize="30%">
-              <ResizablePanelGroup
-                orientation="vertical"
-                className="h-full"
-                groupRef={graphPanelGroupRef}
-                onLayoutChanged={(layout) => {
-                  const nextHeight = layout["graph-bottom-panel"];
-                  if (typeof nextHeight === "number" && nextHeight > 0) {
-                    setBottomPanelHeight(nextHeight);
-                  }
-                }}
+          <GraphPanel onSelect={onSelect}>
+            <GraphOverlay
+              setSize={setSize}
+              handleReloadProject={handleReloadProject}
+              rendererRef={rendererRef}
+              isPending={isPending}
+            >
+              <GraphContextMenu
+                ref={graphContextMenuRef}
+                rendererRef={rendererRef}
+                modLabel={modLabel}
               >
-                <ResizablePanel
-                  id="graph-canvas"
-                  defaultSize={
-                    isBottomPanelOpen ? 100 - bottomPanelHeight : 100
-                  }
-                  minSize={35}
-                >
-                  <div className="flex-1 relative min-w-0 h-full">
-                    <SidebarTrigger
-                      className={cn("absolute top-4 left-4 z-120")}
-                    />
-                    <Card className="absolute bottom-4 right-4 z-20 flex flex-row items-center gap-2 p-2 shadow-lg">
-                      <ViewSwitcher compact />
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setIsSearchOpen(true)}
-                      >
-                        <Search className="h-4 w-4" />
-                        Search
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={toggleBottomPanel}
-                      >
-                        Source
-                      </Button>
-                      {totalErrorCount > 0 && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="gap-2"
-                          onClick={handleOpenErrors}
-                        >
-                          <AlertTriangle className="h-3.5 w-3.5" />
-                          {totalErrorCount} issues
-                        </Button>
-                      )}
-                    </Card>
-                    {isSearchOpen && (
-                      <div className="absolute bottom-17.5 right-4 z-20 flex items-center rounded border border-border bg-popover p-1 shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200">
-                        <div className="flex items-center gap-1">
-                          <div className="relative flex items-center">
-                            <input
-                              ref={searchInputRef}
-                              autoFocus
-                              type="text"
-                              value={search}
-                              placeholder="Find"
-                              onChange={(e) => onSearch(e.target.value)}
-                              className="bg-muted text-foreground pl-2 pr-16 py-1 outline-none text-sm w-64 border border-transparent focus:border-primary rounded-sm placeholder:text-muted-foreground"
-                            />
-                            <div className="absolute right-2 text-[11px] text-muted-foreground pointer-events-none">
-                              {matches.length > 0 ? (
-                                <span className="text-foreground">
-                                  {currentMatchIndex + 1} of {matches.length}
-                                </span>
-                              ) : search !== "" ? (
-                                <span className="text-destructive">
-                                  No results
-                                </span>
-                              ) : null}
-                            </div>
-                          </div>
-
-                          <div className="flex items-center border-l border-border pl-1 gap-1">
-                            <button
-                              onClick={goToPrevMatch}
-                              className="p-1 hover:bg-accent hover:text-accent-foreground rounded-sm text-muted-foreground transition-colors"
-                              title="Previous Match (Shift+Enter)"
-                            >
-                              <svg
-                                width="16"
-                                height="16"
-                                viewBox="0 0 16 16"
-                                fill="currentColor"
-                              >
-                                <path d="M7.707 5.293a1 1 0 0 1 1.414 0l4 4a1 1 0 0 1-1.414 1.414L8 7.414l-3.707 3.707a1 1 0 0 1-1.414-1.414l4-4z" />
-                              </svg>
-                            </button>
-                            <button
-                              onClick={goToNextMatch}
-                              className="p-1 hover:bg-accent hover:text-accent-foreground rounded-sm text-muted-foreground transition-colors"
-                              title="Next Match (Enter)"
-                            >
-                              <svg
-                                width="16"
-                                height="16"
-                                viewBox="0 0 16 16"
-                                fill="currentColor"
-                              >
-                                <path d="M7.707 10.707a1 1 0 0 0 1.414 0l4-4a1 1 0 0 0-1.414-1.414L8 8.586l-3.707-3.707a1 1 0 0 0-1.414 1.414l4 4z" />
-                              </svg>
-                            </button>
-                            <button
-                              onClick={() => setIsSearchOpen(false)}
-                              className="p-1 hover:bg-accent hover:text-accent-foreground rounded-sm text-muted-foreground transition-colors ml-1"
-                              title="Close (Esc)"
-                            >
-                              <svg
-                                width="16"
-                                height="16"
-                                viewBox="0 0 16 16"
-                                fill="currentColor"
-                              >
-                                <path d="M1.293 1.293a1 1 0 0 1 1.414 0L8 6.586l5.293-5.293a1 1 0 1 1 1.414 1.414L9.414 8l5.293 5.293a1 1 0 0 1-1.414 1.414L8 9.414l-5.293 5.293a1 1 0 0 1-1.414-1.414L8 9.414l-5.293 5.293a1 1 0 0 1-1.414-1.414L6.586 8 1.293 2.707a1 1 0 0 1 0-1.414z" />
-                              </svg>
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    <div
-                      ref={containerRef}
-                      className="w-full h-full overflow-hidden relative min-w-0"
-                    >
-                      <GraphContextMenu
-                        ref={graphContextMenuRef}
-                        graph={graph}
-                        rendererRef={rendererRef}
-                        modLabel={modLabel}
-                      >
-                        <div
-                          className="absolute inset-0"
-                          ref={graphContainerRef}
-                        />
-                      </GraphContextMenu>
-
-                      <CommandDialog
-                        open={isCommandPaletteOpen}
-                        onOpenChange={setIsCommandPaletteOpen}
-                      >
-                        <CommandInput placeholder="Type a command or search..." />
-                        <CommandList>
-                          <CommandEmpty>No results found.</CommandEmpty>
-                          <CommandGroup heading="Actions">
-                            <CommandItem
-                              onSelect={() => {
-                                handleReloadProject();
-                                setIsCommandPaletteOpen(false);
-                              }}
-                            >
-                              <RefreshCw className="mr-2 h-4 w-4" />
-                              Reload Project
-                            </CommandItem>
-                            <CommandItem
-                              onSelect={() => {
-                                setSettingsModalOpen(true);
-                                setIsCommandPaletteOpen(false);
-                              }}
-                            >
-                              <Settings className="mr-2 h-4 w-4" />
-                              Settings
-                              <CommandShortcut>
-                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                  {modLabel}
-                                </Kbd>
-                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                  ,
-                                </Kbd>
-                              </CommandShortcut>
-                            </CommandItem>
-                            <CommandItem
-                              onSelect={() => {
-                                const focusedId = graph.getFocusedId();
-                                let targetId: string | undefined = undefined;
-                                if (focusedId) {
-                                  targetId = focusedId;
-                                } else if (selectedId) {
-                                  targetId = selectedId;
-                                }
-
-                                if (targetId) {
-                                  const item = graph.getPointByID(targetId);
-                                  if (item instanceof GraphCombo) {
-                                    graph.layout(true, targetId);
-                                  } else if (item?.parent) {
-                                    graph.layout(true, item.parent.id);
-                                  } else {
-                                    graph.layout(true);
-                                  }
-                                } else {
-                                  graph.layout(true);
-                                }
-                                setIsCommandPaletteOpen(false);
-                              }}
-                            >
-                              <RefreshCw className="mr-2 h-4 w-4" />
-                              Recalculate Layout
-                              <CommandShortcut>
-                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                  {modLabel}
-                                </Kbd>
-                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                  L
-                                </Kbd>
-                              </CommandShortcut>
-                            </CommandItem>
-                            <CommandItem
-                              onSelect={() => {
-                                if (selectedId) {
-                                  graph.focusItem(selectedId);
-                                }
-                                setIsCommandPaletteOpen(false);
-                              }}
-                              disabled={!selectedId}
-                            >
-                              <Search className="mr-2 h-4 w-4" />
-                              Focus Selected Item
-                              <CommandShortcut>
-                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                  {modLabel}
-                                </Kbd>
-                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                  Enter
-                                </Kbd>
-                              </CommandShortcut>
-                            </CommandItem>
-                            {graph.getFocusedId() && (
-                              <CommandItem
-                                onSelect={() => {
-                                  graph.focusItem(null);
-                                  setIsCommandPaletteOpen(false);
-                                }}
-                              >
-                                <RefreshCw className="mr-2 h-4 w-4" />
-                                Reset Focus
-                                <CommandShortcut>
-                                  <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                    {modLabel}
-                                  </Kbd>
-                                  <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                    ⇧
-                                  </Kbd>
-                                  <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                    Enter
-                                  </Kbd>
-                                </CommandShortcut>
-                              </CommandItem>
-                            )}
-                          </CommandGroup>
-                          <CommandGroup heading="View">
-                            <CommandItem
-                              onSelect={() => {
-                                setIsSidebarOpen(!isSidebarOpen);
-                                setIsCommandPaletteOpen(false);
-                              }}
-                            >
-                              <PanelLeft className="mr-2 h-4 w-4" />
-                              Toggle Left Sidebar
-                              <CommandShortcut>
-                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                  {modLabel}
-                                </Kbd>
-                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                  B
-                                </Kbd>
-                              </CommandShortcut>
-                            </CommandItem>
-                            <CommandItem
-                              onSelect={() => {
-                                setRightSidebarOpen(!isRightSidebarOpen);
-                                setIsCommandPaletteOpen(false);
-                              }}
-                            >
-                              <PanelRight className="mr-2 h-4 w-4" />
-                              Toggle Right Sidebar
-                              <CommandShortcut>
-                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                  {modLabel}
-                                </Kbd>
-                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                  \
-                                </Kbd>
-                              </CommandShortcut>
-                            </CommandItem>
-                            <CommandItem
-                              onSelect={() => {
-                                setBottomPanelOpen(!isBottomPanelOpen);
-                                setIsCommandPaletteOpen(false);
-                              }}
-                            >
-                              <PanelBottomOpen className="mr-2 h-4 w-4" />
-                              Toggle Bottom Panel
-                              <CommandShortcut>
-                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                  {modLabel}
-                                </Kbd>
-                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                  J
-                                </Kbd>
-                              </CommandShortcut>
-                            </CommandItem>
-                            <CommandItem
-                              onSelect={() => {
-                                setGitComparisonEnabled(!gitComparisonEnabled);
-                                setIsCommandPaletteOpen(false);
-                              }}
-                            >
-                              <RefreshCw className="mr-2 h-4 w-4" />
-                              {gitComparisonEnabled
-                                ? "Turn Off Git Compare"
-                                : "Turn On Git Compare"}
-                              <CommandShortcut>
-                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                  {modLabel}
-                                </Kbd>
-                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                  ⇧
-                                </Kbd>
-                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                  G
-                                </Kbd>
-                              </CommandShortcut>
-                            </CommandItem>
-                            <CommandItem
-                              onSelect={() => {
-                                setProjectModalOpen(true);
-                                setIsCommandPaletteOpen(false);
-                              }}
-                            >
-                              <FolderOpen className="mr-2 h-4 w-4" />
-                              Select Project
-                              <CommandShortcut>
-                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                  {modLabel}
-                                </Kbd>
-                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                  P
-                                </Kbd>
-                              </CommandShortcut>
-                            </CommandItem>
-                          </CommandGroup>
-                          <CommandGroup heading="Navigation">
-                            <CommandItem
-                              onSelect={() => {
-                                setIsSearchOpen(true);
-                                setIsCommandPaletteOpen(false);
-                              }}
-                            >
-                              <Search className="mr-2 h-4 w-4" />
-                              Search...
-                              <CommandShortcut>
-                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                  {modLabel}
-                                </Kbd>
-                                <Kbd className="bg-transparent border-0 p-0 text-inherit">
-                                  F
-                                </Kbd>
-                              </CommandShortcut>
-                            </CommandItem>
-                          </CommandGroup>
-                        </CommandList>
-                      </CommandDialog>
-
-                      {(isGeneratingView || isPending) && (
-                        <div className="absolute inset-0 z-10 bg-background/50 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
-                          <Loader2 className="h-10 w-10 animate-spin text-primary" />
-                          <span className="text-sm font-medium text-muted-foreground animate-pulse">
-                            Generating graph view...
-                          </span>
-                        </div>
-                      )}
-                      {/* Zoom Slider */}
-                      <div className="absolute left-4 top-1/2 -translate-y-1/2 z-20">
-                        <MemoizedViewportZoomSlider
-                          onChange={handleZoomChange}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </ResizablePanel>
-                <ResizableHandle withHandle />
-                <ResizablePanel
-                  id="graph-bottom-panel"
-                  panelRef={sourcePanelRef}
-                  defaultSize={bottomPanelHeight}
-                  minSize={16}
-                  collapsible
-                  collapsedSize={0}
-                >
-                  <SourceEditorPanel
-                    filePath={sourceFilePath}
-                    projectPath={projectPath}
-                    content={sourceContent}
-                    selectedNodeId={selectedId}
-                    markers={sourceMarkers}
-                    fileErrors={fileErrors}
-                    resolveErrors={resolveErrors}
-                    isOpen={isBottomPanelOpen}
-                    onSelectNode={handleSelectNode}
-                    onOpenFile={handleOpenCurrentFile}
-                    onClose={() => setBottomPanelOpen(false)}
-                  />
-                </ResizablePanel>
-              </ResizablePanelGroup>
-            </ResizablePanel>
-            {(selectedId || selectedEdgeId) && isRightSidebarOpen && (
-              <>
-                <ResizableHandle withHandle />
-                <ResizablePanel id="sidebar" minSize="15%" maxSize="50%">
-                  <RightSidebar
-                    selectedId={selectedId}
-                    selectedItemType={selectedItemType}
-                    selectedEdge={selectedEdge}
-                    graph={graph}
-                    typeData={typeData}
-                    projectPath={projectPath}
-                    onClose={handleClose}
-                    onSelect={handleSelectNode}
-                    renderNodes={renderNodes}
-                  />
-                </ResizablePanel>
-              </>
-            )}
-          </ResizablePanelGroup>
+                <div className="absolute inset-0" ref={graphContainerRef} />
+              </GraphContextMenu>
+            </GraphOverlay>
+          </GraphPanel>
         </SidebarInset>
       </SidebarProvider>
     </div>
@@ -1842,22 +931,5 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
 };
 
 const MemoizedProjectSidebar = React.memo(ProjectSidebar);
-const MemoizedViewportZoomSlider = React.memo(function ViewportZoomSlider({
-  onChange,
-}: {
-  onChange: (zoom: number) => void;
-}) {
-  const zoom = useViewportUiStore((s) => s.zoom);
-  const zoomRange = useViewportUiStore((s) => s.zoomRange);
-
-  return (
-    <ZoomSlider
-      value={zoom}
-      min={zoomRange.min}
-      max={zoomRange.max}
-      onChange={onChange}
-    />
-  );
-});
 
 export default ComponentGraph;

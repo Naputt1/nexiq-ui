@@ -56,6 +56,11 @@ interface AppState {
       activeTab: "source" | "errors";
     };
   };
+  search: {
+    isOpen: boolean;
+    value: string;
+  };
+  isGeneratingView: boolean;
 
   setSelectedSubProjects: (paths: string[]) => void;
   toggleSubProject: (path: string) => void;
@@ -79,6 +84,9 @@ interface AppState {
   setBottomPanelOpen: (open: boolean) => void;
   setBottomPanelHeight: (height: number) => void;
   setBottomPanelTab: (tab: "source" | "errors") => void;
+  setIsSearchOpen: (isOpen: boolean) => void;
+  setSearchValue: (value: string) => void;
+  setIsGeneratingView: (isGeneratingView: boolean) => void;
 
   // Persistence helpers
   loadState: (
@@ -118,6 +126,11 @@ export const useAppStateStore = create<AppState>()(
         activeTab: "source",
       },
     },
+    search: {
+      isOpen: false,
+      value: "",
+    },
+    isGeneratingView: false,
 
     setSelectedSubProjects: (paths) => set({ selectedSubProjects: paths }),
     toggleSubProject: (path) =>
@@ -165,7 +178,8 @@ export const useAppStateStore = create<AppState>()(
       })),
     setActiveTab: (tab) => set({ activeTab: tab }),
     setSelectedCommit: (commit) => set({ selectedCommit: commit }),
-    setGitComparisonEnabled: (enabled) => set({ gitComparisonEnabled: enabled }),
+    setGitComparisonEnabled: (enabled) =>
+      set({ gitComparisonEnabled: enabled }),
     setViewport: (viewport) => set({ viewport }),
     setView: (view) => set({ view }),
     setRightSidebarWidth: (width) =>
@@ -247,7 +261,17 @@ export const useAppStateStore = create<AppState>()(
             activeTab: "source",
           },
         },
+        search: {
+          isOpen: false,
+          value: "",
+        },
+        isGeneratingView: false,
       }),
+    setIsSearchOpen: (isOpen) =>
+      set((state) => ({ search: { ...state.search, isOpen } })),
+    setSearchValue: (value) =>
+      set((state) => ({ search: { ...state.search, value } })),
+    setIsGeneratingView: (isGeneratingView) => set({ isGeneratingView }),
 
     loadState: async (
       projectRoot: string,
@@ -326,6 +350,10 @@ export const useAppStateStore = create<AppState>()(
                     ? persistedSidebar.bottom.activeTab
                     : "source",
               },
+            },
+            search: {
+              isOpen: false,
+              value: "",
             },
           });
         } else {

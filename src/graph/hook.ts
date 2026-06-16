@@ -141,7 +141,7 @@ export class GraphData {
 
   private worker: globalThis.Worker;
 
-  public projectPath?: string;
+  public projectPath: string;
   public targetPath?: string;
 
   private layoutInProgress: Set<string> = new Set();
@@ -162,11 +162,11 @@ export class GraphData {
     nodes: GraphNodeData[],
     edges: GraphArrowData[],
     combos: GraphComboData[],
-    config?: GraphDataConfig,
     projectPath?: string,
+    config?: GraphDataConfig,
     targetPath?: string,
   ) {
-    this.projectPath = projectPath;
+    this.projectPath = projectPath ?? "";
     this.targetPath = targetPath;
     this.worker = new LayoutWorker();
     this.worker.onmessage = (e: MessageEvent) => {
@@ -1314,9 +1314,10 @@ export class GraphData {
     for (const info of resolved) {
       const id1 = info.srcNode.id;
       const id2 = info.targetNode.id;
-      const key = id1 < id2
-        ? `${id1}|${id2}|${info.parentNode?.id ?? ''}`
-        : `${id2}|${id1}|${info.parentNode?.id ?? ''}`;
+      const key =
+        id1 < id2
+          ? `${id1}|${id2}|${info.parentNode?.id ?? ""}`
+          : `${id2}|${id1}|${info.parentNode?.id ?? ""}`;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(info);
     }
@@ -1334,10 +1335,14 @@ export class GraphData {
       group.sort((a, b) => a.edge.id.localeCompare(b.edge.id));
 
       const hasForward = group.some(
-        (info) => info.srcNode.id === srcNode.id && info.targetNode.id === targetNode.id,
+        (info) =>
+          info.srcNode.id === srcNode.id &&
+          info.targetNode.id === targetNode.id,
       );
       const hasReverse = group.some(
-        (info) => info.srcNode.id === targetNode.id && info.targetNode.id === srcNode.id,
+        (info) =>
+          info.srcNode.id === targetNode.id &&
+          info.targetNode.id === srcNode.id,
       );
       const isBidirectional = hasForward && hasReverse;
 
@@ -2113,23 +2118,26 @@ const useGraph: (option: useGraphProps) => GraphData = ({
   targetPath,
 }) => {
   const [data] = useState(
-    () => new GraphData(nodes, edges, combos, config, projectPath, targetPath),
+    () => new GraphData(nodes, edges, combos, projectPath, config, targetPath),
   );
 
   useEffect(() => {
     if (viewBuffer) {
       data.setDataFromViewBuffer(viewBuffer, projectPath, targetPath);
-      // Push details from buffer into store for synchronous lookup
+
+      // Important nood dynamic import to avoid circular dependency issues with Zustand store
       import("../hooks/use-graph-store").then(({ useGraphStore }) => {
         const result = viewBuffer.materialize();
-        useGraphStore.getState().setDetails(result.details || {});
+
+        const graphStore = useGraphStore.getState();
+        graphStore.setTypeData(result.typeData);
+        graphStore.setDetails(result.details);
       });
       return;
     }
     data.setData(nodes, edges, combos, projectPath, targetPath);
   }, [nodes, edges, combos, viewBuffer, projectPath, targetPath, data]);
 
-  // Register graph instance for devtools
   useEffect(() => {
     import("../hooks/use-graph-store").then(({ useGraphStore }) => {
       useGraphStore.getState().setGraphInstance(data);
@@ -2137,7 +2145,7 @@ const useGraph: (option: useGraphProps) => GraphData = ({
 
     return () => {
       import("../hooks/use-graph-store").then(({ useGraphStore }) => {
-        useGraphStore.getState().setGraphInstance(null);
+        useGraphStore.getState().setGraphInstance(new GraphData([], [], []));
       });
     };
   }, [data]);

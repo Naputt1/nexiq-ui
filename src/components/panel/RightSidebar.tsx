@@ -6,10 +6,9 @@ import React, {
   useMemo,
 } from "react";
 import { ChevronRight, ChevronDown, ListTree, Info, X } from "lucide-react";
-import { getDisplayName, type TypeDataDeclare } from "@nexiq/shared";
-import { NodeDetailsContent } from "./node-details-content";
+import { getDisplayName } from "@nexiq/shared";
+import { NodeDetailsContent } from "../node-details-content";
 import {
-  GraphData,
   GraphNode,
   GraphCombo,
   GraphArrow,
@@ -17,7 +16,7 @@ import {
 } from "@/graph/hook";
 import { cn } from "@/lib/utils";
 import { useAppStateStore } from "@/hooks/use-app-state-store";
-import { Button } from "./ui/button";
+import { Button } from "../ui/button";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useDefaultLayout } from "react-resizable-panels";
 import {
@@ -26,14 +25,15 @@ import {
   EmptyTitle,
   EmptyDescription,
   EmptyMedia,
-} from "./ui/empty";
+} from "../ui/empty";
 
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
-} from "./ui/resizable";
-import { EdgeDetailsContent } from "./edge-details-content";
+} from "../ui/resizable";
+import { EdgeDetailsContent } from "../edge-details-content";
+import { useGraphStore } from "@/hooks/use-graph-store";
 
 interface FlatTreeNode {
   id: string;
@@ -49,11 +49,8 @@ interface RightSidebarProps {
   selectedId: string | null;
   selectedItemType?: "node" | "edge" | null;
   selectedEdge?: GraphArrow;
-  graph: GraphData;
-  typeData: Record<string, TypeDataDeclare>;
-  projectPath: string;
   onSelect: (id: string) => void;
-  onClose: () => void;
+  onClose?: () => void;
   renderNodes: GraphNodeData[];
 }
 
@@ -61,9 +58,6 @@ export const RightSidebar = React.memo(function RightSidebar({
   selectedId,
   selectedItemType,
   selectedEdge,
-  graph,
-  typeData,
-  projectPath,
   onSelect,
   onClose,
   renderNodes,
@@ -72,6 +66,8 @@ export const RightSidebar = React.memo(function RightSidebar({
   const setDetailsHeightRatio = useAppStateStore(
     (s) => s.setRightSidebarHeight,
   );
+
+  const graph = useGraphStore((s) => s.graphInstance);
 
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [forceUpdate, setForceUpdate] = useState(0);
@@ -127,7 +123,6 @@ export const RightSidebar = React.memo(function RightSidebar({
     const item = graph.getPointByID(selectedId);
     if (!item) return;
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setExpandedIds((prev) => {
       const newExpanded = new Set(prev);
       let changed = false;
@@ -284,10 +279,7 @@ export const RightSidebar = React.memo(function RightSidebar({
           selectedEdge={selectedEdge}
           item={selectedItem}
           renderNodes={renderNodes}
-          typeData={typeData}
-          projectPath={projectPath}
           onSelect={onSelect}
-          graph={graph}
         />
       </ResizablePanel>
     </ResizablePanelGroup>
@@ -301,44 +293,33 @@ const MemoizedDetailsContent = React.memo(
     selectedEdge,
     item,
     renderNodes,
-    typeData,
-    projectPath,
     onSelect,
-    graph,
   }: {
     selectedId: string | null;
     selectedItemType?: "node" | "edge" | null;
     selectedEdge?: GraphArrow;
     item: GraphNode | GraphCombo | undefined;
     renderNodes: GraphNodeData[];
-    typeData: Record<string, TypeDataDeclare>;
-    projectPath: string;
     onSelect: (id: string) => void;
-    graph: GraphData;
-  }) => (
-    <div className="flex-1 min-h-0 overscroll-contain">
-      {selectedItemType === "edge" && selectedEdge ? (
-        <div className="h-full overflow-y-auto overscroll-contain">
-          <EdgeDetailsContent
-            edge={selectedEdge}
-            graph={graph}
+  }) => {
+    return (
+      <div className="flex-1 min-h-0 overscroll-contain">
+        {selectedItemType === "edge" && selectedEdge ? (
+          <div className="h-full overflow-y-auto overscroll-contain">
+            <EdgeDetailsContent edge={selectedEdge} onSelect={onSelect} />
+          </div>
+        ) : (
+          <NodeDetailsContent
+            selectedId={selectedId}
+            item={item}
+            renderNodes={renderNodes}
             onSelect={onSelect}
+            hideHeader={false}
           />
-        </div>
-      ) : (
-        <NodeDetailsContent
-          selectedId={selectedId}
-          item={item}
-          renderNodes={renderNodes}
-          typeData={typeData}
-          projectPath={projectPath}
-          onSelect={onSelect}
-          graph={graph}
-          hideHeader={false}
-        />
-      )}
-    </div>
-  ),
+        )}
+      </div>
+    );
+  },
 );
 
 const VirtualTree = React.memo(
@@ -353,7 +334,6 @@ const VirtualTree = React.memo(
   }) => {
     const parentRef = useRef<HTMLDivElement>(null);
 
-    // eslint-disable-next-line react-hooks/incompatible-library
     const rowVirtualizer = useVirtualizer({
       count: flatTree.length,
       getScrollElement: () => parentRef.current,

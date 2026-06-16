@@ -14,6 +14,8 @@ const init = async () => {
     });
 
     const { TanStackDevtools } = await import("@tanstack/react-devtools");
+    const { hotkeysDevtoolsPlugin } =
+      await import("@tanstack/react-hotkeys-devtools");
     const {
       AppStatePluginComponent,
       GraphProfilerPluginComponent,
@@ -43,6 +45,7 @@ const init = async () => {
                 name: "Worker Registry",
                 render: <WorkerStatePluginComponent />,
               },
+              hotkeysDevtoolsPlugin(),
             ]}
           />
         </HashRouter>
@@ -62,6 +65,8 @@ const init = async () => {
 init();
 
 // Use contextBridge
-window.ipcRenderer.on("main-process-message", (message: string) => {
-  console.log(message);
-});
+if (window.ipcRenderer) {
+  window.ipcRenderer.on("main-process-message", (message: string) => {
+    console.log(message);
+  });
+}

@@ -8,8 +8,8 @@ import {
   EmptyMedia,
 } from "@/components/ui/empty";
 
-import { type TypeDataDeclare, getDisplayName } from "@nexiq/shared";
-import type { GraphComboData, GraphNodeData, GraphData } from "@/graph/hook";
+import { getDisplayName } from "@nexiq/shared";
+import type { GraphComboData, GraphNodeData } from "@/graph/hook";
 import { useGraphStore } from "@/hooks/use-graph-store";
 import { useMemo } from "react";
 
@@ -25,11 +25,8 @@ interface NodeDetailsContentProps {
   selectedId: string | null;
   item: GraphNodeData | GraphComboData | undefined;
   renderNodes: GraphNodeData[];
-  typeData: Record<string, TypeDataDeclare>;
-  projectPath: string;
   onClose?: () => void;
   onSelect?: (id: string) => void;
-  graph: GraphData;
   hideHeader?: boolean;
 }
 
@@ -37,15 +34,15 @@ export function NodeDetailsContent({
   selectedId,
   item,
   renderNodes,
-  typeData,
-  projectPath,
   onClose,
   onSelect,
-  graph,
   hideHeader = false,
 }: NodeDetailsContentProps) {
   const allSections = useMemo(() => getDetailSections(), []);
+
+  const graph = useGraphStore((s) => s.graphInstance);
   const details = useGraphStore((s) => s.details);
+  const typeData = useGraphStore((s) => s.typeData);
 
   // Synchronous lookup — no IPC, no loading, no retries
   const detail = selectedId ? details[selectedId] : undefined;
@@ -173,7 +170,7 @@ export function NodeDetailsContent({
                     selectedId={selectedId}
                     item={item}
                     graph={graph}
-                    projectPath={projectPath}
+                    projectPath={graph.projectPath}
                     typeData={typeData}
                     detail={detail}
                     onSelect={onSelect}
