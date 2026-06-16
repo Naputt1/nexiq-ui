@@ -33,7 +33,9 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
   const [search, setSearch] = useState("");
   const [searchKeysOnly, setSearchKeysOnly] = useState(false);
   const [localFilters, setLocalFilters] = useState<Record<string, string>>({});
-  const [activeSearchPaths, setActiveSearchPaths] = useState<Set<string>>(new Set());
+  const [activeSearchPaths, setActiveSearchPaths] = useState<Set<string>>(
+    new Set(),
+  );
   const parentRef = useRef<HTMLDivElement>(null);
 
   // Initial expansion for first 2 levels
@@ -98,7 +100,9 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
       const keyMatch = key.toLowerCase().includes(searchLower);
       const valueMatch =
         !searchKeysOnly &&
-        (typeof val === "string" || typeof val === "number" || typeof val === "boolean") &&
+        (typeof val === "string" ||
+          typeof val === "number" ||
+          typeof val === "boolean") &&
         String(val).toLowerCase().includes(searchLower);
 
       if (search && (keyMatch || valueMatch)) {
@@ -141,7 +145,8 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
           : Object.keys(val as Record<string, unknown>).length === 0
         : true;
 
-      const isExpanded = expandedPaths.has(id) || (!!search && branchHasMatch.has(id));
+      const isExpanded =
+        expandedPaths.has(id) || (!!search && branchHasMatch.has(id));
 
       const item: FlattenedItem = {
         id,
@@ -183,6 +188,7 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
     return { flattenedData: items, matchSet };
   }, [data, label, expandedPaths, search, searchKeysOnly, localFilters]);
 
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: flattenedData.length,
     getScrollElement: () => parentRef.current,
@@ -388,7 +394,10 @@ const HighlightedText: React.FC<{ text: string; highlight: string }> = ({
     <>
       {parts.map((part, i) =>
         part.toLowerCase() === highlight.toLowerCase() ? (
-          <mark key={i} className="bg-yellow-500/50 text-white rounded-sm px-px">
+          <mark
+            key={i}
+            className="bg-yellow-500/50 text-white rounded-sm px-px"
+          >
             {part}
           </mark>
         ) : (

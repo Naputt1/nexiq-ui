@@ -43,7 +43,12 @@ export function ConfigStep({
     } else if (!initialStatus.isMonorepo && selectedSubProjects.length === 0) {
       setSelectedSubProjects([projectPath]);
     }
-  }, [initialStatus, projectPath]);
+  }, [
+    initialStatus,
+    projectPath,
+    selectedSubProjects.length,
+    setSelectedSubProjects,
+  ]);
 
   const handleConfirm = async () => {
     setIsSaving(true);
@@ -83,7 +88,7 @@ export function ConfigStep({
   };
 
   return (
-    <div className="flex min-h-screen w-screen items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.14),_transparent_28%),linear-gradient(180deg,_rgba(15,23,42,1)_0%,_rgba(9,9,11,1)_100%)] p-8 text-foreground">
+    <div className="flex min-h-screen w-screen items-center justify-center bg-[radial-gradient(circle_at_top,rgba(34,211,238,0.14),transparent_28%),linear-gradient(180deg,rgba(15,23,42,1)_0%,rgba(9,9,11,1)_100%)] p-8 text-foreground">
       <div className="flex w-full max-w-4xl flex-col gap-6">
         <Button
           onClick={onBack}
@@ -107,7 +112,7 @@ export function ConfigStep({
           <div className="space-y-6 mb-8">
             {/* Project Info Section */}
             <div className="grid grid-cols-2 gap-4">
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+              <div className="rounded-2xl border border-white/10 bg-white/4 p-4">
                 <label className="mb-1 block text-[10px] font-bold uppercase tracking-widest text-zinc-500">
                   Structure
                 </label>
@@ -115,7 +120,7 @@ export function ConfigStep({
                   {initialStatus.isMonorepo ? "Monorepo" : "Single Project"}
                 </div>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+              <div className="rounded-2xl border border-white/10 bg-white/4 p-4">
                 <label className="mb-1 block text-[10px] font-bold uppercase tracking-widest text-zinc-500">
                   Type
                 </label>
@@ -158,11 +163,11 @@ export function ConfigStep({
                     </Button>
                   </div>
 
-                  <div className="max-h-100 overflow-y-auto divide-y divide-white/8 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
+                  <div className="max-h-100 overflow-y-auto divide-y divide-white/8 overflow-hidden rounded-2xl border border-white/10 bg-white/3">
                     {initialStatus.subProjects.map((pkg) => (
                       <div
                         key={pkg.path}
-                        className="flex cursor-pointer items-center gap-3 p-4 transition-colors hover:bg-white/[0.04]"
+                        className="flex cursor-pointer items-center gap-3 p-4 transition-colors hover:bg-white/4"
                         onClick={() => toggleSubProject(pkg.path)}
                       >
                         <Checkbox
@@ -195,7 +200,7 @@ export function ConfigStep({
                 value={ignorePatterns}
                 onChange={(event) => setIgnorePatterns(event.target.value)}
                 placeholder="**/node_modules/**&#10;**/*.test.tsx&#10;apps/legacy/**"
-                className="min-h-[140px] rounded-2xl border-white/10 bg-white/[0.03] font-mono text-sm text-white placeholder:text-zinc-600"
+                className="min-h-35 rounded-2xl border-white/10 bg-white/3 font-mono text-sm text-white placeholder:text-zinc-600"
               />
             </div>
 
@@ -217,7 +222,7 @@ export function ConfigStep({
             <div
               className={`p-4 rounded-lg flex items-start gap-3 border ${
                 initialStatus.hasConfig
-                ? "bg-emerald-500/5 border-emerald-500/20"
+                  ? "bg-emerald-500/5 border-emerald-500/20"
                   : "bg-amber-500/5 border-amber-500/20"
               }`}
             >
