@@ -114,7 +114,17 @@ export class GraphArrow implements Renderable {
     graphics.alpha = this.dimmed ? 0.15 : context.hasGitChanges ? 0.1 : 1;
 
     if (graphics.visible) {
-      this.drawArrow(graphics, strokeColor, this.isBidirectional);
+      const targetTipOffset =
+        ((targetNode?.highlighted ? 3 : 1) * 0.5 + 0.5) * this.targetScale;
+      const sourceTipOffset =
+        ((srcNode?.highlighted ? 3 : 1) * 0.5 + 0.5) * this.sourceScale;
+      this.drawArrow(
+        graphics,
+        strokeColor,
+        this.isBidirectional,
+        targetTipOffset,
+        sourceTipOffset,
+      );
     }
 
     // Hit Area
@@ -188,7 +198,19 @@ export class GraphArrow implements Renderable {
     graphics.alpha = this.dimmed ? 0.2 : 1;
     const color = this.getArrowColor(context);
 
-    this.drawArrow(graphics, color, this.isBidirectional);
+    const srcNode = context.graph.getPointByID(this.source);
+    const targetNode = context.graph.getPointByID(this.target);
+    const targetTipOffset =
+      ((targetNode?.highlighted ? 3 : 1) * 0.5 + 0.5) * this.targetScale;
+    const sourceTipOffset =
+      ((srcNode?.highlighted ? 3 : 1) * 0.5 + 0.5) * this.sourceScale;
+    this.drawArrow(
+      graphics,
+      color,
+      this.isBidirectional,
+      targetTipOffset,
+      sourceTipOffset,
+    );
 
     const hitArea = container.children.find(
       (c) => c.label === `hit-${this.id}`,
@@ -302,10 +324,11 @@ export class GraphArrow implements Renderable {
     graphics: PIXI.Graphics,
     color: string | number,
     bidirectional?: boolean,
+    targetTipOffset: number = 0,
+    sourceTipOffset: number = 0,
   ) {
     const p = this.points;
-    const baseWidth =
-      (this.highlighted ? 2 : 0.5) + (this.flowRole ? 0.5 : 0);
+    const baseWidth = (this.highlighted ? 2 : 0.5) + (this.flowRole ? 0.5 : 0);
     const angle = Math.atan2(p[3] - p[1], p[2] - p[0]);
     const perpX = -Math.sin(angle);
     const perpY = Math.cos(angle);
@@ -315,27 +338,86 @@ export class GraphArrow implements Renderable {
 
     graphics.clear();
 
+    // Arrowhead dimensions
+    const headLength = 6 * this.targetScale;
+    const headDepth = headLength * Math.cos(Math.PI / 6);
+    const startHeadLength = bidirectional ? 6 * this.sourceScale : 0;
+    const startHeadDepth = startHeadLength * Math.cos(Math.PI / 6);
+
+    const totalLen = Math.sqrt((p[2] - p[0]) ** 2 + (p[3] - p[1]) ** 2);
+
+    // Target arrowhead tip (offset outward from node border past the stroke)
+    const targetTipX = p[2] - targetTipOffset * Math.cos(angle);
+    const targetTipY = p[3] - targetTipOffset * Math.sin(angle);
+
+    // Shaft end at target arrowhead base
+    const tx = targetTipX - headDepth * Math.cos(angle);
+    const ty = targetTipY - headDepth * Math.sin(angle);
+    const tFrac =
+      totalLen > 0
+        ? Math.max(0, Math.min(1, 1 - (headDepth + targetTipOffset) / totalLen))
+        : 1;
+    const thw = hw0 + tFrac * (hw1 - hw0);
+
+    // Shaft start depends on whether there's a source arrowhead
+    let sx = p[0],
+      sy = p[1];
+    let shw = hw0;
+    let sourceTipX = p[0],
+      sourceTipY = p[1];
+
+    if (bidirectional) {
+      sourceTipX = p[0] - sourceTipOffset * Math.cos(angle);
+      sourceTipY = p[1] - sourceTipOffset * Math.sin(angle);
+      sx = sourceTipX + startHeadDepth * Math.cos(angle);
+      sy = sourceTipY + startHeadDepth * Math.sin(angle);
+      const sFrac =
+        totalLen > 0
+          ? Math.max(
+              0,
+              Math.min(1, (startHeadDepth - sourceTipOffset) / totalLen),
+            )
+          : 0;
+      shw = hw0 + sFrac * (hw1 - hw0);
+    }
+
     // Tapered quadrilateral shaft
     graphics
-      .moveTo(p[0] + hw0 * perpX, p[1] + hw0 * perpY)
-      .lineTo(p[2] + hw1 * perpX, p[3] + hw1 * perpY)
-      .lineTo(p[2] - hw1 * perpX, p[3] - hw1 * perpY)
-      .lineTo(p[0] - hw0 * perpX, p[1] - hw0 * perpY)
+      .moveTo(sx + shw * perpX, sy + shw * perpY)
+      .lineTo(tx + thw * perpX, ty + thw * perpY)
+      .lineTo(tx - thw * perpX, ty - thw * perpY)
+      .lineTo(sx - shw * perpX, sy - shw * perpY)
       .closePath()
       .fill(color);
 
-    // Rounded caps
-    graphics.circle(p[0], p[1], hw0).fill(color);
-    graphics.circle(p[2], p[3], hw1).fill(color);
+    // Rounded cap at target shaft end
+    graphics.circle(tx, ty, thw).fill(color);
+
+    // Rounded cap at source shaft end (only for bidirectional — otherwise the node fill covers it)
+    if (bidirectional) {
+      graphics.circle(sx, sy, shw).fill(color);
+    }
 
     // Arrowhead at target
-    const headLength = 6 * this.targetScale;
-    this.drawArrowHead(graphics, p[2], p[3], angle, headLength, color);
+    this.drawArrowHead(
+      graphics,
+      targetTipX,
+      targetTipY,
+      angle,
+      headLength,
+      color,
+    );
 
     // Arrowhead at source (bidirectional)
     if (bidirectional) {
-      const startHeadLength = 6 * this.sourceScale;
-      this.drawArrowHead(graphics, p[0], p[1], angle + Math.PI, startHeadLength, color);
+      this.drawArrowHead(
+        graphics,
+        sourceTipX,
+        sourceTipY,
+        angle + Math.PI,
+        startHeadLength,
+        color,
+      );
     }
   }
 }
