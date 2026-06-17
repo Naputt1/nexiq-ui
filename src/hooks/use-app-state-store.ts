@@ -61,8 +61,10 @@ interface AppState {
     value: string;
   };
   isGeneratingView: boolean;
+  locked: boolean;
 
   setSelectedSubProjects: (paths: string[]) => void;
+  setLocked: (locked: boolean) => void;
   toggleSubProject: (path: string) => void;
   setCenteredItemId: (id: string | null) => void;
   setSelectedId: (id: string | null) => void;
@@ -131,8 +133,10 @@ export const useAppStateStore = create<AppState>()(
       value: "",
     },
     isGeneratingView: false,
+    locked: false,
 
     setSelectedSubProjects: (paths) => set({ selectedSubProjects: paths }),
+    setLocked: (locked) => set({ locked }),
     toggleSubProject: (path) =>
       set((state) => ({
         selectedSubProjects: state.selectedSubProjects.includes(path)
@@ -304,6 +308,7 @@ export const useAppStateStore = create<AppState>()(
                 : null);
 
           set({
+            locked: state.locked ?? false,
             selectedSubProjects: overrideSubProjects ||
               state.selectedSubProjects || [projectRoot],
             centeredItemId: state.centeredItemId || null,
@@ -383,6 +388,7 @@ export const useAppStateStore = create<AppState>()(
         activeTab,
         selectedCommit,
         gitComparisonEnabled,
+        locked,
         viewport,
         view,
         isLoaded,
@@ -403,6 +409,7 @@ export const useAppStateStore = create<AppState>()(
         activeTab,
         selectedCommit,
         gitComparisonEnabled,
+        locked,
         viewport,
         view,
         sidebar,
@@ -423,6 +430,7 @@ export const setupAutoSave = (projectRoot: string) => {
       selectedEdgeId: state.selectedEdgeId,
       selectedItemType: state.selectedItemType,
       selected: state.selected,
+      locked: state.locked,
       isSidebarOpen: state.isSidebarOpen,
       activeTab: state.activeTab,
       selectedCommit: state.selectedCommit,

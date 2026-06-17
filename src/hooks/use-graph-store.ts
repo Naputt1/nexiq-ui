@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { GraphData } from "../graph/hook";
 import type { TypeDataDeclare, GraphNodeDetail } from "@nexiq/extension-sdk";
 import type { FileAnalysisErrorRow, ResolveErrorRow } from "@nexiq/shared";
+import { useAppStateStore } from "./use-app-state-store";
 
 interface GraphStore {
   graphInstance: GraphData;
@@ -16,14 +17,12 @@ interface GraphStore {
   setResolveErrors: (resolveErrors: ResolveErrorRow[]) => void;
   totalErrorCount: number;
   setTotalErrorCount: (totalErrorCount: number) => void;
-  locked: boolean;
-  setLocked: (locked: boolean) => void;
 }
 
-export const useGraphStore = create<GraphStore>((set, get) => ({
+export const useGraphStore = create<GraphStore>((set) => ({
   graphInstance: new GraphData([], [], []),
   setGraphInstance: (graph) => {
-    graph.locked = useGraphStore.getState().locked;
+    graph.locked = useAppStateStore.getState().locked;
     set({ graphInstance: graph });
   },
   typeData: {},
@@ -45,10 +44,5 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   totalErrorCount: 0,
   setTotalErrorCount: (totalErrorCount) => {
     set({ totalErrorCount });
-  },
-  locked: false,
-  setLocked: (locked) => {
-    set({ locked });
-    get().graphInstance.locked = locked;
   },
 }));

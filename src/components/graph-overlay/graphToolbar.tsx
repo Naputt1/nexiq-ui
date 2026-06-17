@@ -13,8 +13,8 @@ const GraphToolbar = () => {
   const setIsSearchOpen = useAppStateStore((s) => s.setIsSearchOpen);
 
   const totalErrorCount = useGraphStore((s) => s.totalErrorCount);
-  const locked = useGraphStore((s) => s.locked);
-  const setLocked = useGraphStore((s) => s.setLocked);
+  const locked = useAppStateStore((s) => s.locked);
+  const setLocked = useAppStateStore((s) => s.setLocked);
 
   const toggleBottomPanel = useCallback(() => {
     setBottomPanelTab("source");
@@ -31,7 +31,12 @@ const GraphToolbar = () => {
       <Button
         variant="ghost"
         size="sm"
-        onClick={() => setLocked(!locked)}
+        onClick={() => {
+          const next = !locked;
+          setLocked(next);
+          const graph = useGraphStore.getState().graphInstance;
+          if (graph) graph.locked = next;
+        }}
         title={locked ? "Unlock nodes" : "Lock nodes"}
       >
         {locked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
