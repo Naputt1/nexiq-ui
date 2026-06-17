@@ -39,7 +39,7 @@ export class GraphCombo extends BaseNode {
     container.label = this.id;
     container.x = this.x;
     container.y = this.y;
-    container.interactive = true;
+    container.eventMode = "static";
     container.cursor = "pointer";
     container.alpha = context.hasGitChanges && !this.gitStatus ? 0.2 : 1;
     container.visible = this.visible !== false;
@@ -56,13 +56,16 @@ export class GraphCombo extends BaseNode {
 
     container.on("pointerdown", (e) => {
       if (e.button !== 0) return;
+      if (context.graph.locked) return;
       e.stopPropagation();
       dragData = e;
+      const stableParent = container.parent;
       context.graph.setDraggingId(this.id);
 
       const onMove = (moveEvent: PIXI.FederatedPointerEvent) => {
-        if (dragData) {
-          context.graph.comboDragMove(this.id, moveEvent);
+        if (dragData && stableParent) {
+          const pos = stableParent.toLocal(moveEvent.global);
+          context.graph.comboDragMove(this.id, pos.x, pos.y);
         }
       };
 
@@ -70,14 +73,14 @@ export class GraphCombo extends BaseNode {
         dragData = null;
         context.graph.setDraggingId(null);
         context.graph.comboDragEnd(this.id, e);
-        context.app.stage.off("pointermove", onMove);
-        context.app.stage.off("pointerup", onUp);
-        context.app.stage.off("pointerupoutside", onUp);
+        context.viewport.off("pointermove", onMove);
+        context.viewport.off("pointerup", onUp);
+        context.viewport.off("pointerupoutside", onUp);
       };
 
-      context.app.stage.on("pointermove", onMove);
-      context.app.stage.on("pointerup", onUp);
-      context.app.stage.on("pointerupoutside", onUp);
+      context.viewport.on("pointermove", onMove);
+      context.viewport.on("pointerup", onUp);
+      context.viewport.on("pointerupoutside", onUp);
     });
 
     container.on("pointertap", (e) => {

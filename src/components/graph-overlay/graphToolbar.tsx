@@ -1,4 +1,4 @@
-import { AlertTriangle, Search } from "lucide-react";
+import { AlertTriangle, Lock, Search, Unlock } from "lucide-react";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { ViewSwitcher } from "./ViewSwitcher";
@@ -13,11 +13,8 @@ const GraphToolbar = () => {
   const setIsSearchOpen = useAppStateStore((s) => s.setIsSearchOpen);
 
   const totalErrorCount = useGraphStore((s) => s.totalErrorCount);
-
-  const handleOpenErrors = useCallback(() => {
-    setBottomPanelTab("errors");
-    setBottomPanelOpen(true);
-  }, [setBottomPanelOpen, setBottomPanelTab]);
+  const locked = useGraphStore((s) => s.locked);
+  const setLocked = useGraphStore((s) => s.setLocked);
 
   const toggleBottomPanel = useCallback(() => {
     setBottomPanelTab("source");
@@ -31,20 +28,28 @@ const GraphToolbar = () => {
         <Search className="h-4 w-4" />
         Search
       </Button>
-      <Button variant="ghost" size="sm" onClick={toggleBottomPanel}>
-        Source
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setLocked(!locked)}
+        title={locked ? "Unlock nodes" : "Lock nodes"}
+      >
+        {locked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
       </Button>
-      {totalErrorCount > 0 && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-2"
-          onClick={handleOpenErrors}
-        >
-          <AlertTriangle className="h-3.5 w-3.5" />
-          {totalErrorCount} issues
-        </Button>
-      )}
+      <Button
+        variant={totalErrorCount > 0 ? "outline" : "ghost"}
+        size="sm"
+        className="gap-2"
+        onClick={toggleBottomPanel}
+      >
+        Source
+        {totalErrorCount > 0 && (
+          <>
+            <AlertTriangle className="h-3.5 w-3.5" />
+            {totalErrorCount}
+          </>
+        )}
+      </Button>
     </Card>
   );
 };

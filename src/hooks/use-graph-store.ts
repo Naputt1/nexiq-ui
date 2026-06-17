@@ -16,11 +16,14 @@ interface GraphStore {
   setResolveErrors: (resolveErrors: ResolveErrorRow[]) => void;
   totalErrorCount: number;
   setTotalErrorCount: (totalErrorCount: number) => void;
+  locked: boolean;
+  setLocked: (locked: boolean) => void;
 }
 
-export const useGraphStore = create<GraphStore>((set) => ({
+export const useGraphStore = create<GraphStore>((set, get) => ({
   graphInstance: new GraphData([], [], []),
   setGraphInstance: (graph) => {
+    graph.locked = useGraphStore.getState().locked;
     set({ graphInstance: graph });
   },
   typeData: {},
@@ -42,5 +45,10 @@ export const useGraphStore = create<GraphStore>((set) => ({
   totalErrorCount: 0,
   setTotalErrorCount: (totalErrorCount) => {
     set({ totalErrorCount });
+  },
+  locked: false,
+  setLocked: (locked) => {
+    set({ locked });
+    get().graphInstance.locked = locked;
   },
 }));

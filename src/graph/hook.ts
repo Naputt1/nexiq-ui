@@ -81,7 +81,7 @@ export interface GraphComboHookBase extends GraphComboData {
 export interface GraphComboHook extends GraphComboHookBase {
   comboRadiusChange: (id: string, radius: number) => void;
   comboCollapsed: (id: string) => void;
-  comboDragMove: (id: string, e: PIXI.FederatedPointerEvent) => void;
+  comboDragMove: (id: string, x: number, y: number) => void;
   comboDragEnd: (id: string, e: PIXI.FederatedPointerEvent) => void;
   comboHover: () => void;
 }
@@ -146,6 +146,7 @@ export class GraphData {
 
   private layoutInProgress: Set<string> = new Set();
   private draggingId: string | null = null;
+  public locked = false;
   private focusedId: string | null = null;
 
   public lastModified: number = Date.now();
@@ -604,8 +605,8 @@ export class GraphData {
             };
           });
         },
-        comboDragMove: (id: string, e: PIXI.FederatedPointerEvent) => {
-          this.comboDragMove(id, e);
+        comboDragMove: (id: string, x: number, y: number) => {
+          this.comboDragMove(id, x, y);
           const combo = this.getComboHook(id);
           if (combo == null) return;
 
@@ -1445,15 +1446,15 @@ export class GraphData {
     }
   }
 
-  public comboDragMove(id: string, e: PIXI.FederatedPointerEvent) {
+  public comboDragMove(id: string, x: number, y: number) {
     const combo = this.getComboByID(id);
     if (combo == null) {
       console.error("comboDragMove: combo not found");
       return;
     }
 
-    combo.x = e.target.x;
-    combo.y = e.target.y;
+    combo.x = x;
+    combo.y = y;
 
     const edgeIds = this.getComboEdges(id);
     this.updateEdgePos(edgeIds);
@@ -1503,7 +1504,8 @@ export class GraphData {
   public comboChildNodeMove(
     id: string,
     nodeId: string,
-    e: PIXI.FederatedPointerEvent,
+    x: number,
+    y: number,
   ) {
     const combo = this.getComboByID(id);
     if (combo == null) {
@@ -1517,8 +1519,8 @@ export class GraphData {
       return;
     }
 
-    node.x = e.target.x;
-    node.y = e.target.y;
+    node.x = x;
+    node.y = y;
 
     const edgeIds = new Set<string>();
 
@@ -1875,12 +1877,12 @@ export class GraphData {
     return this.curRender.edges[id];
   }
 
-  public nodeDragMove(nodeId: string, e: PIXI.FederatedPointerEvent) {
+  public nodeDragMove(nodeId: string, x: number, y: number) {
     const node = this.nodes.get(nodeId);
     if (!node) return;
 
-    node.x = e.target.x;
-    node.y = e.target.y;
+    node.x = x;
+    node.y = y;
 
     const edgeIds = new Set<string>();
     const ids = this.getComboEdges(nodeId);

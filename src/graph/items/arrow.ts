@@ -130,7 +130,7 @@ export class GraphArrow implements Renderable {
     // Hit Area
     const hitArea = new PIXI.Graphics();
     hitArea.label = `hit-${this.id}`;
-    hitArea.interactive = true;
+    hitArea.eventMode = "static";
     hitArea.cursor = "pointer";
     hitArea.visible = graphics.visible;
 

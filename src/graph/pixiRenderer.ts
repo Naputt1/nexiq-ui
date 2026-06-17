@@ -650,7 +650,7 @@ export class PixiRenderer {
         this.requestMinimapRender();
         break;
       case "node-drag-move":
-        this.updateEdges(params.edgeIds);
+        this.handleNodeDragMove(params.id, params.edgeIds);
         this.requestMinimapRender();
         break;
       case "combo-radius-change":
@@ -774,6 +774,15 @@ export class PixiRenderer {
     const combo = this.graph.getCombo(id);
     if (item && combo) {
       item.position.set(combo.x, combo.y);
+      this.updateEdges(edgeIds);
+    }
+  }
+
+  private handleNodeDragMove(id: string, edgeIds: string[]) {
+    const item = this.nodes.get(id);
+    const node = this.graph.getNode(id);
+    if (item && node) {
+      item.position.set(node.x, node.y);
       this.updateEdges(edgeIds);
     }
   }
