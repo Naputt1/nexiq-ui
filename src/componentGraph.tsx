@@ -59,6 +59,8 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
   const setGitComparisonEnabled = useAppStateStore(
     (s) => s.setGitComparisonEnabled,
   );
+  const locked = useAppStateStore((s) => s.locked);
+  const setLocked = useAppStateStore((s) => s.setLocked);
   const loadState = useAppStateStore((s) => s.loadState);
   const resetState = useAppStateStore((s) => s.reset);
   const isLoaded = useAppStateStore((s) => s.isLoaded);
@@ -835,6 +837,12 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
 
   useHotkey("Control+Shift+G", () => {
     setGitComparisonEnabled(!gitComparisonEnabled);
+  });
+
+  useHotkey("Control+Shift+L", () => {
+    const next = !locked;
+    setLocked(next);
+    useGraphStore.getState().graphInstance.locked = next;
   });
 
   const isMac =

@@ -1,11 +1,13 @@
 import {
   FolderOpen,
+  Lock,
   PanelBottomOpen,
   PanelLeft,
   PanelRight,
   RefreshCw,
   Search,
   Settings,
+  Unlock,
 } from "lucide-react";
 import {
   CommandDialog,
@@ -49,6 +51,8 @@ const GraphCommand: React.FC<GraphCommandProps> = ({
   const setGitComparisonEnabled = useAppStateStore(
     (s) => s.setGitComparisonEnabled,
   );
+  const locked = useAppStateStore((s) => s.locked);
+  const setLocked = useAppStateStore((s) => s.setLocked);
   const setIsSearchOpen = useAppStateStore((s) => s.setIsSearchOpen);
 
   const setSettingsModalOpen = useAppStateStore((s) => s.setSettingsModalOpen);
@@ -285,6 +289,28 @@ const GraphCommand: React.FC<GraphCommandProps> = ({
                 </Kbd>
                 <Kbd className="bg-transparent border-0 p-0 text-inherit">
                   G
+                </Kbd>
+              </CommandShortcut>
+            </CommandItem>
+            <CommandItem
+              onSelect={() => {
+                const next = !locked;
+                setLocked(next);
+                useGraphStore.getState().graphInstance.locked = next;
+                setIsCommandPaletteOpen(false);
+              }}
+            >
+              {locked ? <Unlock className="mr-2 h-4 w-4" /> : <Lock className="mr-2 h-4 w-4" />}
+              {locked ? "Unlock Nodes" : "Lock Nodes"}
+              <CommandShortcut>
+                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                  {modLabel}
+                </Kbd>
+                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                  ⇧
+                </Kbd>
+                <Kbd className="bg-transparent border-0 p-0 text-inherit">
+                  L
                 </Kbd>
               </CommandShortcut>
             </CommandItem>
