@@ -1,4 +1,4 @@
-import type { Extension } from "@nexiq/extension-sdk";
+import { type Extension, registerNodeType } from "@nexiq/extension-sdk";
 import { registerDetailSection } from "./detail-sections";
 import { allExtensions } from "../views/tasks/all-tasks";
 import type { GraphData } from "@/graph/hook";
@@ -16,6 +16,13 @@ export function loadExtension(extension: Extension<GraphData>) {
   if (extension.detailSections) {
     for (const section of extension.detailSections) {
       registerDetailSection(section);
+    }
+  }
+
+  // Register custom node types
+  if (extension.nodeTypes) {
+    for (const [type, appearance] of Object.entries(extension.nodeTypes)) {
+      registerNodeType(type, appearance);
     }
   }
 }

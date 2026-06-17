@@ -47,11 +47,12 @@ export class GraphViewBufferView {
     const nodes: GraphNodeData[] = [];
     for (let i = 0; i < this.view.nodesLength(); i++) {
       const node = this.view.nodes(i)!;
+      const customType = node.customType();
       nodes.push({
         id: node.id()!,
         name: node.name()!,
         displayName: node.displayName()!,
-        type: FlatBuffers.itemTypeToString(node.type()),
+        type: customType ?? FlatBuffers.itemTypeToString(node.type()),
         combo: node.comboId() || undefined,
         color: node.color() || undefined,
         radius: node.radius() > 0 ? node.radius() : undefined,
@@ -62,11 +63,12 @@ export class GraphViewBufferView {
     const combos: GraphComboData[] = [];
     for (let i = 0; i < this.view.combosLength(); i++) {
       const combo = this.view.combos(i)!;
+      const customType = combo.customType();
       combos.push({
         id: combo.id()!,
         name: combo.name()!,
         displayName: combo.displayName()!,
-        type: FlatBuffers.itemTypeToString(combo.type()),
+        type: customType ?? FlatBuffers.itemTypeToString(combo.type()),
         combo: combo.parentId() || undefined,
         collapsed: combo.collapsed(),
         color: combo.color() || undefined,
@@ -126,12 +128,14 @@ export function encodeGraphViewSnapshot(result: GraphViewResult): Uint8Array {
     const comboId = node.combo ? builder.createString(String(node.combo)) : 0;
     const color = node.color ? builder.createString(String(node.color)) : 0;
 
+    const fbType = FlatBuffers.stringToItemType(node.type as string);
+    const isCustom = fbType === FlatBuffers.ItemType.Custom;
+    const customTypeStr =
+      isCustom && node.type ? builder.createString(String(node.type)) : 0;
+
     FlatBuffers.GraphNode.startGraphNode(builder);
     FlatBuffers.GraphNode.addId(builder, id);
-    FlatBuffers.GraphNode.addType(
-      builder,
-      FlatBuffers.stringToItemType(node.type as string),
-    );
+    FlatBuffers.GraphNode.addType(builder, fbType);
     FlatBuffers.GraphNode.addName(builder, name);
     FlatBuffers.GraphNode.addDisplayName(builder, displayName);
     if (comboId) FlatBuffers.GraphNode.addComboId(builder, comboId);
@@ -140,6 +144,7 @@ export function encodeGraphViewSnapshot(result: GraphViewResult): Uint8Array {
 
     const gitStatus = node.gitStatus ? builder.createString(node.gitStatus) : 0;
     if (gitStatus) FlatBuffers.GraphNode.addGitStatus(builder, gitStatus);
+    if (customTypeStr) FlatBuffers.GraphNode.addCustomType(builder, customTypeStr);
 
     return FlatBuffers.GraphNode.endGraphNode(builder);
   });
@@ -159,12 +164,14 @@ export function encodeGraphViewSnapshot(result: GraphViewResult): Uint8Array {
       : 0;
     const color = combo.color ? builder.createString(String(combo.color)) : 0;
 
+    const fbType = FlatBuffers.stringToItemType(combo.type as string);
+    const isCustom = fbType === FlatBuffers.ItemType.Custom;
+    const customTypeStr =
+      isCustom && combo.type ? builder.createString(String(combo.type)) : 0;
+
     FlatBuffers.GraphCombo.startGraphCombo(builder);
     FlatBuffers.GraphCombo.addId(builder, id);
-    FlatBuffers.GraphCombo.addType(
-      builder,
-      FlatBuffers.stringToItemType(combo.type as string),
-    );
+    FlatBuffers.GraphCombo.addType(builder, fbType);
     FlatBuffers.GraphCombo.addName(builder, name);
     FlatBuffers.GraphCombo.addDisplayName(builder, displayName);
     if (parentId) FlatBuffers.GraphCombo.addParentId(builder, parentId);
@@ -176,6 +183,7 @@ export function encodeGraphViewSnapshot(result: GraphViewResult): Uint8Array {
       ? builder.createString(combo.gitStatus)
       : 0;
     if (gitStatus) FlatBuffers.GraphCombo.addGitStatus(builder, gitStatus);
+    if (customTypeStr) FlatBuffers.GraphCombo.addCustomType(builder, customTypeStr);
 
     return FlatBuffers.GraphCombo.endGraphCombo(builder);
   });

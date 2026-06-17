@@ -7,6 +7,7 @@ import tmp from "tmp";
 import {
   type Extension,
   initOutputTables,
+  registerNodeType,
   type OutEdge,
   type OutCombo,
   type OutDetail,
@@ -282,6 +283,13 @@ async function loadProjectExtensions(projectRoot: string) {
               for (const task of tasks) {
                 registerTask(vType as GraphViewType, task, resolvedPath);
               }
+            }
+          }
+
+          // Register custom node types
+          if (extension?.nodeTypes) {
+            for (const [type, appearance] of Object.entries(extension.nodeTypes)) {
+              registerNodeType(type, appearance);
             }
           }
         } catch (err) {
@@ -608,17 +616,24 @@ function convertSqliteToFlatBuffers(db: Database.Database): {
     const gitStatusOffset = node.git_status
       ? builder.createString(node.git_status)
       : 0;
+    const fbType = FB.stringToItemType(node.type);
+    const isCustom = fbType === FB.ItemType.Custom;
+    const customTypeOffset =
+      isCustom && node.type
+        ? builder.createString(node.type)
+        : 0;
 
     FB.GraphNode.startGraphNode(builder);
     FB.GraphNode.addId(builder, idOffset);
     FB.GraphNode.addName(builder, nameOffset);
-    FB.GraphNode.addType(builder, FB.stringToItemType(node.type));
+    FB.GraphNode.addType(builder, fbType);
     if (comboOffset) FB.GraphNode.addComboId(builder, comboOffset);
     if (colorOffset) FB.GraphNode.addColor(builder, colorOffset);
     if (node.radius) FB.GraphNode.addRadius(builder, node.radius);
     if (displayNameOffset)
       FB.GraphNode.addDisplayName(builder, displayNameOffset);
     if (gitStatusOffset) FB.GraphNode.addGitStatus(builder, gitStatusOffset);
+    if (customTypeOffset) FB.GraphNode.addCustomType(builder, customTypeOffset);
 
     nodeOffsets.push(FB.GraphNode.endGraphNode(builder));
   }
@@ -658,11 +673,17 @@ function convertSqliteToFlatBuffers(db: Database.Database): {
     const gitStatusOffset = combo.git_status
       ? builder.createString(combo.git_status)
       : 0;
+    const fbType = FB.stringToItemType(combo.type);
+    const isCustom = fbType === FB.ItemType.Custom;
+    const customTypeOffset =
+      isCustom && combo.type
+        ? builder.createString(combo.type)
+        : 0;
 
     FB.GraphCombo.startGraphCombo(builder);
     FB.GraphCombo.addId(builder, idOffset);
     FB.GraphCombo.addName(builder, nameOffset);
-    FB.GraphCombo.addType(builder, FB.stringToItemType(combo.type));
+    FB.GraphCombo.addType(builder, fbType);
     if (parentOffset) FB.GraphCombo.addParentId(builder, parentOffset);
     if (colorOffset) FB.GraphCombo.addColor(builder, colorOffset);
     if (combo.radius) FB.GraphCombo.addRadius(builder, combo.radius);
@@ -670,6 +691,7 @@ function convertSqliteToFlatBuffers(db: Database.Database): {
     if (displayNameOffset)
       FB.GraphCombo.addDisplayName(builder, displayNameOffset);
     if (gitStatusOffset) FB.GraphCombo.addGitStatus(builder, gitStatusOffset);
+    if (customTypeOffset) FB.GraphCombo.addCustomType(builder, customTypeOffset);
 
     comboOffsets.push(FB.GraphCombo.endGraphCombo(builder));
   }
