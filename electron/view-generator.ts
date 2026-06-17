@@ -49,7 +49,8 @@ function initDataTables(db: Database.Database) {
       hash TEXT NOT NULL,
       fingerprint TEXT NOT NULL,
       default_export TEXT,
-      star_exports_json TEXT
+      star_exports_json TEXT,
+      entry_point TEXT
     );
     CREATE TABLE IF NOT EXISTS scopes (
       id TEXT PRIMARY KEY,
@@ -338,94 +339,73 @@ async function runTaskInProcess(
     viewType,
     cacheDbPath,
   };
+
+  // Materialize source tables if they only exist as TEMP VIEWs
+  // (single-project mode) — temp objects don't survive serialize().
+  if (
+    !db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='files'")
+      .get()
+  ) {
+    initDataTables(db);
+    for (const tbl of [
+      "packages",
+      "files",
+      "scopes",
+      "entities",
+      "symbols",
+      "renders",
+      "exports",
+      "relations",
+    ]) {
+      if (
+        db
+          .prepare(
+            "SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name=?",
+          )
+          .get(tbl)
+      ) {
+        try {
+          db.exec(`INSERT OR IGNORE INTO main.${tbl} SELECT * FROM "${tbl}"`);
+        } catch {
+          // Schema mismatch — source table may have different columns; skip
+        }
+      }
+    }
+  }
+
+  // Serialize the shared in-memory DB for native tasks (e.g. Rust) so they
+  // can deserialize it directly instead of re-aggregating source data.
+  context.sqliteBuffer = db.serialize();
+
   const resultBuf = await task.runSqlite(context);
 
   if (resultBuf && resultBuf instanceof Uint8Array) {
-    // If a task (e.g. native Rust) returns a Buffer containing its outputs,
-    // we must merge its output tables into the shared js database instance.
-    const rustDb = new Database(Buffer.from(resultBuf));
-
-    // Nodes
-    const outNodes = rustDb
-      .prepare<[], OutNode>("SELECT * FROM out_nodes")
-      .all();
-    const insNode = db.prepare(
-      "INSERT OR REPLACE INTO out_nodes (id, name, type, combo_id, color, radius, display_name, git_status, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    );
-    for (const node of outNodes) {
-      insNode.run(
-        node.id,
-        node.name,
-        node.type ?? null,
-        node.combo_id ?? null,
-        node.color ?? null,
-        node.radius ?? null,
-        node.display_name ?? null,
-        node.git_status ?? null,
-        node.meta_json ?? null,
+    // Merge native task output tables into the shared database using
+    // batch SQL INSERT OR REPLACE (much faster than row-by-row JS loops).
+    // Write to a temp file and ATTACH so we can merge with batch SQL.
+    // The temp file stays in the OS page cache (tmpfs on macOS/Linux).
+    const tmpFile = tmp.fileSync({ postfix: ".sqlite" });
+    const mergePath = tmpFile.name;
+    try {
+      fs.writeFileSync(mergePath, Buffer.from(resultBuf));
+      db.exec(`ATTACH DATABASE '${mergePath}' AS merge_db`);
+      db.exec(
+        "INSERT OR REPLACE INTO main.out_nodes SELECT * FROM merge_db.out_nodes",
       );
-    }
-
-    // Edges
-    const outEdges = rustDb
-      .prepare<[], OutEdge>("SELECT * FROM out_edges")
-      .all();
-    const insEdge = db.prepare(
-      "INSERT OR REPLACE INTO out_edges (id, source, target, name, kind, category, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    );
-    for (const edge of outEdges) {
-      insEdge.run(
-        edge.id,
-        edge.source,
-        edge.target,
-        edge.name ?? null,
-        edge.kind ?? null,
-        edge.category ?? null,
-        edge.meta_json ?? null,
+      db.exec(
+        "INSERT OR REPLACE INTO main.out_edges SELECT * FROM merge_db.out_edges",
       );
-    }
-
-    // Combos
-    const outCombos = rustDb
-      .prepare<[], OutCombo>("SELECT * FROM out_combos")
-      .all();
-    const insCombo = db.prepare(
-      "INSERT OR REPLACE INTO out_combos (id, name, type, parent_id, color, radius, collapsed, display_name, git_status, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    );
-    for (const combo of outCombos) {
-      insCombo.run(
-        combo.id,
-        combo.name,
-        combo.type ?? null,
-        combo.parent_id ?? null,
-        combo.color ?? null,
-        combo.radius ?? null,
-        combo.collapsed ? 1 : 0,
-        combo.display_name ?? null,
-        combo.git_status ?? null,
-        combo.meta_json ?? null,
+      db.exec(
+        "INSERT OR REPLACE INTO main.out_combos SELECT * FROM merge_db.out_combos",
       );
-    }
-
-    // Details
-    const outDetails = rustDb
-      .prepare<[], OutDetail>("SELECT * FROM out_details")
-      .all();
-    const insDetail = db.prepare(
-      'INSERT OR REPLACE INTO out_details (id, file_name, project_path, line, "column", data_json) VALUES (?, ?, ?, ?, ?, ?)',
-    );
-    for (const detail of outDetails) {
-      insDetail.run(
-        detail.id,
-        detail.file_name ?? null,
-        detail.project_path ?? null,
-        detail.line ?? null,
-        detail.column ?? null,
-        detail.data_json ?? null,
+      db.exec(
+        "INSERT OR REPLACE INTO main.out_details SELECT * FROM merge_db.out_details",
       );
+      db.exec("DETACH DATABASE merge_db");
+    } finally {
+      tmpFile.removeCallback();
     }
-
-    rustDb.close();
   }
 }
 
