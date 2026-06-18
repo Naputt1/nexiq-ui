@@ -1,6 +1,7 @@
 import {
   DEFAULT_GRAPH_APPEARANCE,
   normalizeGraphAppearance,
+  getRegisteredNodeAppearance,
   type GraphAppearance,
   type NodeAppearance,
   type AppearanceOverride,
@@ -54,6 +55,10 @@ export function getNodeAppearanceKey(
   if (type === "attribute") return "attribute";
   if (id?.endsWith("-props")) return "prop";
   if (id?.endsWith("-render")) return "render";
+  // Check registered custom node types
+  if (type && getRegisteredNodeAppearance(type)) {
+    return type as NodeAppearanceKey;
+  }
   return undefined;
 }
 

@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
+import { execSync } from "node:child_process";
 import { performance } from "node:perf_hooks";
 import Database from "better-sqlite3";
 import * as flatbuffers from "flatbuffers";
@@ -7,6 +9,8 @@ import tmp from "tmp";
 import {
   type Extension,
   initOutputTables,
+  registerNodeType,
+  type NodeAppearance,
   type OutEdge,
   type OutCombo,
   type OutDetail,
@@ -49,7 +53,8 @@ function initDataTables(db: Database.Database) {
       hash TEXT NOT NULL,
       fingerprint TEXT NOT NULL,
       default_export TEXT,
-      star_exports_json TEXT
+      star_exports_json TEXT,
+      entry_point TEXT
     );
     CREATE TABLE IF NOT EXISTS scopes (
       id TEXT PRIMARY KEY,
@@ -225,95 +230,364 @@ interface PreparedViewDatabase {
   cleanup: () => void;
 }
 
-async function loadProjectExtensions(projectRoot: string) {
-  const startedAt = performance.now();
-  // Try to dynamically load extensions
+/**
+ * Resolve the list of built-in extension names/paths.
+ * Includes monorepo packages and any standalone extensions discovered
+ * in well-known sibling directories.
+ */
+function getBuiltInExtensionNames(): string[] {
+  const names: string[] = [
+    "@nexiq/component-extension",
+    "@nexiq/file-extension",
+  ];
+
+  // Auto-discover standalone extensions in sibling directories
+  // (e.g. ../tanstack-query-nexiq-extension)
+  const appRoot = process.env.APP_ROOT;
+  if (appRoot) {
+    const parentDir = path.resolve(appRoot, "..");
+    try {
+      for (const entry of fs.readdirSync(parentDir)) {
+        const fullPath = path.join(parentDir, entry);
+        if (entry.endsWith("-nexiq-extension") && fs.statSync(fullPath).isDirectory()) {
+          const pkgJsonPath = path.join(fullPath, "package.json");
+          if (fs.existsSync(pkgJsonPath)) {
+            names.push(fullPath);
+          }
+        }
+      }
+    } catch {
+      // ignore read errors on parent directory
+    }
+  }
+
+  return names;
+}
+
+/**
+ * Collect extension names from all discovery sources:
+ *  1. Built-in defaults (fallback when no project config)
+ *  2. Project `.nexiq/config.json`
+ *  3. Global `~/.nexiq/config.json`
+ *  4. Global `~/.nexiq/extensions/` directory
+ */
+function collectExtensionNames(projectRoot: string): string[] {
+  const names = new Set<string>();
+
+  // 1. Project config
   try {
     const configPath = path.join(projectRoot, ".nexiq/config.json");
     if (fs.existsSync(configPath)) {
-      const configStat = fs.statSync(configPath);
       const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-      const extensionNames = Array.isArray(config.extensions)
-        ? [...config.extensions].sort()
-        : [];
-      const cacheKey = projectRoot;
-      const cached = loadedExtensionState.get(cacheKey);
-      if (
-        cached &&
-        cached.configMtimeMs === configStat.mtimeMs &&
-        cached.extensionNames.length === extensionNames.length &&
-        cached.extensionNames.every(
-          (name, index) => name === extensionNames[index],
-        )
-      ) {
-        return {
-          startMs: 0,
-          endMs: performance.now() - startedAt,
-          detail: `${extensionNames.length} cached`,
-        };
-      }
-      for (const name of extensionNames) {
-        try {
-          let resolvedPath = name;
-          if (name.startsWith(".")) {
-            resolvedPath = path.resolve(projectRoot, name);
-          } else {
-            try {
-              resolvedPath =
-                typeof __non_webpack_require__ !== "undefined"
-                  ? __non_webpack_require__.resolve(name, {
-                      paths: [projectRoot],
-                    })
-                  : require.resolve(name, { paths: [projectRoot] });
-            } catch {
-              resolvedPath = name;
-            }
-          }
-          const extension: Extension = name.endsWith(".node")
-            ? typeof __non_webpack_require__ !== "undefined"
-              ? __non_webpack_require__(resolvedPath)
-              : // eslint-disable-next-line @typescript-eslint/no-require-imports
-                require(resolvedPath)
-            : await import(resolvedPath).then((m) => m.default || m);
-
-          if (extension?.viewTasks) {
-            for (const [vType, tasks] of Object.entries(extension.viewTasks)) {
-              for (const task of tasks) {
-                registerTask(vType as GraphViewType, task, resolvedPath);
-              }
-            }
-          }
-        } catch (err) {
-          console.error(`Failed to load extension ${name}:`, err);
+      if (Array.isArray(config.extensions)) {
+        for (const name of config.extensions) {
+          names.add(name);
         }
       }
-      loadedExtensionState.set(cacheKey, {
-        configMtimeMs: configStat.mtimeMs,
-        extensionNames,
-      });
-      return {
-        startMs: 0,
-        endMs: performance.now() - startedAt,
-        detail: `${extensionNames.length} loaded`,
-      };
     }
   } catch (err) {
-    console.error("Failed to parse extensions config:", err);
+    console.error("Failed to read project extension config:", err);
   }
+
+  // 2. If nothing configured in project, use built-in defaults
+  if (names.size === 0) {
+    for (const name of getBuiltInExtensionNames()) {
+      names.add(name);
+    }
+  }
+
+  // 3. Global config $HOME/.nexiq/config.json
+  try {
+    const globalConfigPath = path.join(os.homedir(), ".nexiq", "config.json");
+    if (fs.existsSync(globalConfigPath)) {
+      const config = JSON.parse(fs.readFileSync(globalConfigPath, "utf-8"));
+      if (Array.isArray(config.extensions)) {
+        for (const name of config.extensions) {
+          names.add(name);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Failed to read global extension config:", err);
+  }
+
+  // 4. Global extensions directory $HOME/.nexiq/extensions/
+  try {
+    const globalExtDir = path.join(os.homedir(), ".nexiq", "extensions");
+    if (fs.existsSync(globalExtDir)) {
+      for (const entry of fs.readdirSync(globalExtDir)) {
+        const fullPath = path.join(globalExtDir, entry);
+        const stat = fs.statSync(fullPath);
+        if (stat.isDirectory() || stat.isFile()) {
+          names.add(fullPath);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Failed to scan global extensions directory:", err);
+  }
+
+  return [...names].sort();
+}
+
+/**
+ * Resolve a bare package name to its directory by searching each resolve path's
+ * node_modules. Avoids require.resolve so it works regardless of the target
+ * package's exports map configuration.
+ */
+function resolvePackageDir(
+  name: string,
+  resolvePaths: string[],
+): string | null {
+  for (const rp of resolvePaths) {
+    const candidate = path.join(rp, "node_modules", name);
+    try {
+      if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+        return candidate;
+      }
+    } catch {
+      // symlink or permission issue — skip
+    }
+  }
+  return null;
+}
+
+/**
+ * Build a list of module resolution paths to search when loading extensions.
+ * Includes the project root, the app's own directory, and global npm/pnpm roots.
+ */
+function getExtensionResolvePaths(projectRoot: string): string[] {
+  const paths: string[] = [projectRoot];
+
+  // App's own node_modules (for built-in extensions shipped with the UI)
+  const appRoot = process.env.APP_ROOT;
+  if (appRoot) {
+    paths.push(appRoot);
+  }
+
+  // Global npm root
+  try {
+    const isWindows = process.platform === "win32";
+    const globalRoot = execSync(isWindows ? "npm root -g" : "npm root -g", {
+      encoding: "utf8",
+      timeout: 2000,
+      shell: isWindows ? "cmd.exe" : "/bin/sh",
+    }).trim();
+    if (globalRoot && fs.existsSync(globalRoot)) {
+      paths.push(globalRoot);
+    }
+  } catch {
+    // npm not available — continue
+  }
+
+  // Global pnpm root
+  try {
+    const pnpmRoot = execSync("pnpm root -g", {
+      encoding: "utf8",
+      timeout: 2000,
+      shell: "/bin/sh",
+    }).trim();
+    if (pnpmRoot && fs.existsSync(pnpmRoot)) {
+      paths.push(pnpmRoot);
+    }
+  } catch {
+    // pnpm not available — continue
+  }
+
+  // Common global paths as fallback
+  const home = os.homedir();
+  const commonGlobalPaths = [
+    "/usr/local/lib/node_modules",
+    "/opt/homebrew/lib/node_modules",
+    path.join(home, ".npm", "lib", "node_modules"),
+    path.join(home, ".config", "yarn", "global", "node_modules"),
+    path.join(home, "Library", "pnpm", "global", "node_modules"),
+  ];
+  for (const p of commonGlobalPaths) {
+    if (fs.existsSync(p)) {
+      paths.push(p);
+    }
+  }
+
+  return paths;
+}
+
+/**
+ * Load a single extension module by name, trying all given resolve paths.
+ */
+async function loadExtensionModule(
+  name: string,
+  projectRoot: string,
+  resolvePaths: string[],
+): Promise<Extension | null> {
+  let resolvedPath = name;
+
+  if (name.startsWith(".")) {
+    // Relative path — resolve against project root
+    resolvedPath = path.resolve(projectRoot, name);
+  } else if (!name.startsWith("/")) {
+    // Bare package name — search manually through each resolve path's
+    // node_modules. Avoids require.resolve which fails when the target
+    // package's exports map lacks a "default" condition.
+    const pkgDir = resolvePackageDir(name, resolvePaths);
+    if (!pkgDir) {
+      console.warn(
+        `Extension ${name} not found — tried paths: [${resolvePaths.join(", ")}]`,
+      );
+      return null;
+    }
+    resolvedPath = pkgDir;
+  }
+
+  // If resolvedPath is a directory, resolve to its entry point via package.json
+  // so ESM import() can load it (directory imports are not supported in ESM).
+  if (
+    !name.endsWith(".node") &&
+    !resolvedPath.endsWith(".js") &&
+    !resolvedPath.endsWith(".mjs") &&
+    !resolvedPath.endsWith(".cjs") &&
+    fs.existsSync(resolvedPath) &&
+    fs.statSync(resolvedPath).isDirectory()
+  ) {
+    const pkgPath = path.join(resolvedPath, "package.json");
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+        const entry = pkg.exports?.["."]?.import || pkg.main || "index.js";
+        resolvedPath = path.resolve(resolvedPath, entry);
+      } catch {
+        resolvedPath = path.join(resolvedPath, "index.js");
+      }
+    } else {
+      resolvedPath = path.join(resolvedPath, "index.js");
+    }
+  }
+
+  try {
+    const rawModule: unknown = name.endsWith(".node")
+      ? typeof __non_webpack_require__ !== "undefined"
+        ? __non_webpack_require__(resolvedPath)
+        : // eslint-disable-next-line @typescript-eslint/no-require-imports
+          require(resolvedPath)
+      : await import(resolvedPath).then((m) => m.default || m);
+
+    // The module might be the extension itself (default export) or a named export.
+    // If it doesn't have an id, search through named exports for one that does.
+    const extension: Extension | undefined =
+      rawModule &&
+      typeof rawModule === "object" &&
+      "id" in (rawModule as Record<string, unknown>)
+        ? (rawModule as Extension)
+        : Object.values(rawModule as Record<string, unknown>).find(
+            (v): v is Extension =>
+              v !== null &&
+              typeof v === "object" &&
+              "id" in v,
+          );
+
+    if (!extension) {
+      console.warn(
+        `Extension ${name} loaded but no valid extension object found (no export with 'id' property)`,
+      );
+      return null;
+    }
+
+    return extension;
+  } catch (err) {
+    console.error(`Failed to load extension module ${name} from ${resolvedPath}:`, err);
+    return null;
+  }
+}
+
+/**
+ * Register an extension's capabilities (view tasks, node types) into the registry.
+ */
+function registerExtension(extension: Extension, resolvedPath: string) {
+  if (extension.viewTasks) {
+    for (const [vType, tasks] of Object.entries(extension.viewTasks)) {
+      for (const task of tasks) {
+        registerTask(vType as GraphViewType, task, resolvedPath);
+      }
+    }
+  }
+
+  if (extension.nodeTypes) {
+    for (const [type, appearance] of Object.entries(extension.nodeTypes)) {
+      registerNodeType(type, appearance);
+      trackNodeType(type, appearance);
+    }
+  }
+}
+
+/**
+ * Dynamically discover and load extensions from multiple sources:
+ *  - Project `.nexiq/config.json`
+ *  - Built-in defaults (when no project config)
+ *  - Global `~/.nexiq/config.json`
+ *  - Global `~/.nexiq/extensions/`
+ *  - Global npm/pnpm installations
+ *
+ * This replaces compile-time hardcoded extension imports.
+ */
+async function loadProjectExtensions(projectRoot: string) {
+  const startedAt = performance.now();
+
+  const extensionNames = collectExtensionNames(projectRoot);
+
+  if (extensionNames.length === 0) {
+    return {
+      startMs: 0,
+      endMs: performance.now() - startedAt,
+      detail: "none found",
+    };
+  }
+
+  // Cache check
+  const cacheKey = `${projectRoot}::${extensionNames.join(",")}`;
+  if (loadedExtensionState.has(cacheKey)) {
+    return {
+      startMs: 0,
+      endMs: performance.now() - startedAt,
+      detail: `${extensionNames.length} cached`,
+    };
+  }
+
+  const resolvePaths = getExtensionResolvePaths(projectRoot);
+
+  let loadedCount = 0;
+  for (const name of extensionNames) {
+    const ext = await loadExtensionModule(name, projectRoot, resolvePaths);
+    if (ext) {
+      registerExtension(ext, name);
+      loadedCount++;
+    }
+  }
+
+  loadedExtensionState.set(cacheKey, true);
+
   return {
     startMs: 0,
     endMs: performance.now() - startedAt,
-    detail: "0 configured",
+    detail: `${loadedCount} loaded (${extensionNames.length} configured)`,
   };
 }
 
-const loadedExtensionState = new Map<
-  string,
-  {
-    configMtimeMs: number;
-    extensionNames: string[];
-  }
->();
+const loadedExtensionState = new Map<string, boolean>();
+
+/**
+ * Tracks node types registered by dynamically loaded extensions.
+ * These are bridged to the renderer process via IPC so custom node
+ * appearances are available in the UI without compile-time registration.
+ */
+const registeredNodeTypes: Record<string, NodeAppearance> = {};
+
+export function trackNodeType(type: string, appearance: NodeAppearance) {
+  registeredNodeTypes[type] = appearance;
+}
+
+export function getRegisteredNodeTypes(): Record<string, NodeAppearance> {
+  return { ...registeredNodeTypes };
+}
 
 /**
  * Run a task's runSqlite function directly against the shared in-memory database.
@@ -338,94 +612,73 @@ async function runTaskInProcess(
     viewType,
     cacheDbPath,
   };
+
+  // Materialize source tables if they only exist as TEMP VIEWs
+  // (single-project mode) — temp objects don't survive serialize().
+  if (
+    !db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='files'")
+      .get()
+  ) {
+    initDataTables(db);
+    for (const tbl of [
+      "packages",
+      "files",
+      "scopes",
+      "entities",
+      "symbols",
+      "renders",
+      "exports",
+      "relations",
+    ]) {
+      if (
+        db
+          .prepare(
+            "SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name=?",
+          )
+          .get(tbl)
+      ) {
+        try {
+          db.exec(`INSERT OR IGNORE INTO main.${tbl} SELECT * FROM "${tbl}"`);
+        } catch {
+          // Schema mismatch — source table may have different columns; skip
+        }
+      }
+    }
+  }
+
+  // Serialize the shared in-memory DB for native tasks (e.g. Rust) so they
+  // can deserialize it directly instead of re-aggregating source data.
+  context.sqliteBuffer = db.serialize();
+
   const resultBuf = await task.runSqlite(context);
 
   if (resultBuf && resultBuf instanceof Uint8Array) {
-    // If a task (e.g. native Rust) returns a Buffer containing its outputs,
-    // we must merge its output tables into the shared js database instance.
-    const rustDb = new Database(Buffer.from(resultBuf));
-
-    // Nodes
-    const outNodes = rustDb
-      .prepare<[], OutNode>("SELECT * FROM out_nodes")
-      .all();
-    const insNode = db.prepare(
-      "INSERT OR REPLACE INTO out_nodes (id, name, type, combo_id, color, radius, display_name, git_status, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    );
-    for (const node of outNodes) {
-      insNode.run(
-        node.id,
-        node.name,
-        node.type ?? null,
-        node.combo_id ?? null,
-        node.color ?? null,
-        node.radius ?? null,
-        node.display_name ?? null,
-        node.git_status ?? null,
-        node.meta_json ?? null,
+    // Merge native task output tables into the shared database using
+    // batch SQL INSERT OR REPLACE (much faster than row-by-row JS loops).
+    // Write to a temp file and ATTACH so we can merge with batch SQL.
+    // The temp file stays in the OS page cache (tmpfs on macOS/Linux).
+    const tmpFile = tmp.fileSync({ postfix: ".sqlite" });
+    const mergePath = tmpFile.name;
+    try {
+      fs.writeFileSync(mergePath, Buffer.from(resultBuf));
+      db.exec(`ATTACH DATABASE '${mergePath}' AS merge_db`);
+      db.exec(
+        "INSERT OR REPLACE INTO main.out_nodes SELECT * FROM merge_db.out_nodes",
       );
-    }
-
-    // Edges
-    const outEdges = rustDb
-      .prepare<[], OutEdge>("SELECT * FROM out_edges")
-      .all();
-    const insEdge = db.prepare(
-      "INSERT OR REPLACE INTO out_edges (id, source, target, name, kind, category, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    );
-    for (const edge of outEdges) {
-      insEdge.run(
-        edge.id,
-        edge.source,
-        edge.target,
-        edge.name ?? null,
-        edge.kind ?? null,
-        edge.category ?? null,
-        edge.meta_json ?? null,
+      db.exec(
+        "INSERT OR REPLACE INTO main.out_edges SELECT * FROM merge_db.out_edges",
       );
-    }
-
-    // Combos
-    const outCombos = rustDb
-      .prepare<[], OutCombo>("SELECT * FROM out_combos")
-      .all();
-    const insCombo = db.prepare(
-      "INSERT OR REPLACE INTO out_combos (id, name, type, parent_id, color, radius, collapsed, display_name, git_status, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    );
-    for (const combo of outCombos) {
-      insCombo.run(
-        combo.id,
-        combo.name,
-        combo.type ?? null,
-        combo.parent_id ?? null,
-        combo.color ?? null,
-        combo.radius ?? null,
-        combo.collapsed ? 1 : 0,
-        combo.display_name ?? null,
-        combo.git_status ?? null,
-        combo.meta_json ?? null,
+      db.exec(
+        "INSERT OR REPLACE INTO main.out_combos SELECT * FROM merge_db.out_combos",
       );
-    }
-
-    // Details
-    const outDetails = rustDb
-      .prepare<[], OutDetail>("SELECT * FROM out_details")
-      .all();
-    const insDetail = db.prepare(
-      'INSERT OR REPLACE INTO out_details (id, file_name, project_path, line, "column", data_json) VALUES (?, ?, ?, ?, ?, ?)',
-    );
-    for (const detail of outDetails) {
-      insDetail.run(
-        detail.id,
-        detail.file_name ?? null,
-        detail.project_path ?? null,
-        detail.line ?? null,
-        detail.column ?? null,
-        detail.data_json ?? null,
+      db.exec(
+        "INSERT OR REPLACE INTO main.out_details SELECT * FROM merge_db.out_details",
       );
+      db.exec("DETACH DATABASE merge_db");
+    } finally {
+      tmpFile.removeCallback();
     }
-
-    rustDb.close();
   }
 }
 
@@ -628,17 +881,24 @@ function convertSqliteToFlatBuffers(db: Database.Database): {
     const gitStatusOffset = node.git_status
       ? builder.createString(node.git_status)
       : 0;
+    const fbType = FB.stringToItemType(node.type);
+    const isCustom = fbType === FB.ItemType.Custom;
+    const customTypeOffset =
+      isCustom && node.type
+        ? builder.createString(node.type)
+        : 0;
 
     FB.GraphNode.startGraphNode(builder);
     FB.GraphNode.addId(builder, idOffset);
     FB.GraphNode.addName(builder, nameOffset);
-    FB.GraphNode.addType(builder, FB.stringToItemType(node.type));
+    FB.GraphNode.addType(builder, fbType);
     if (comboOffset) FB.GraphNode.addComboId(builder, comboOffset);
     if (colorOffset) FB.GraphNode.addColor(builder, colorOffset);
     if (node.radius) FB.GraphNode.addRadius(builder, node.radius);
     if (displayNameOffset)
       FB.GraphNode.addDisplayName(builder, displayNameOffset);
     if (gitStatusOffset) FB.GraphNode.addGitStatus(builder, gitStatusOffset);
+    if (customTypeOffset) FB.GraphNode.addCustomType(builder, customTypeOffset);
 
     nodeOffsets.push(FB.GraphNode.endGraphNode(builder));
   }
@@ -678,11 +938,17 @@ function convertSqliteToFlatBuffers(db: Database.Database): {
     const gitStatusOffset = combo.git_status
       ? builder.createString(combo.git_status)
       : 0;
+    const fbType = FB.stringToItemType(combo.type);
+    const isCustom = fbType === FB.ItemType.Custom;
+    const customTypeOffset =
+      isCustom && combo.type
+        ? builder.createString(combo.type)
+        : 0;
 
     FB.GraphCombo.startGraphCombo(builder);
     FB.GraphCombo.addId(builder, idOffset);
     FB.GraphCombo.addName(builder, nameOffset);
-    FB.GraphCombo.addType(builder, FB.stringToItemType(combo.type));
+    FB.GraphCombo.addType(builder, fbType);
     if (parentOffset) FB.GraphCombo.addParentId(builder, parentOffset);
     if (colorOffset) FB.GraphCombo.addColor(builder, colorOffset);
     if (combo.radius) FB.GraphCombo.addRadius(builder, combo.radius);
@@ -690,6 +956,7 @@ function convertSqliteToFlatBuffers(db: Database.Database): {
     if (displayNameOffset)
       FB.GraphCombo.addDisplayName(builder, displayNameOffset);
     if (gitStatusOffset) FB.GraphCombo.addGitStatus(builder, gitStatusOffset);
+    if (customTypeOffset) FB.GraphCombo.addCustomType(builder, customTypeOffset);
 
     comboOffsets.push(FB.GraphCombo.endGraphCombo(builder));
   }

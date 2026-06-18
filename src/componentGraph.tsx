@@ -273,6 +273,13 @@ const ComponentGraph = ({ projectPath, subProject }: ComponentGraphProps) => {
 
         setGraphViewBuffer(result);
 
+        // Sync extension data (node types, etc.) from the main process.
+        // Extensions are loaded dynamically during view generation, so
+        // this call ensures the renderer has the latest extension metadata.
+        import("./registry/extension-manager").then((m) =>
+          m.initRendererExtensions(),
+        );
+
         // Fetch and apply UI state after graph buffer is set
         window.ipcRenderer
           .invoke("get-graph-position", projectPath, view)

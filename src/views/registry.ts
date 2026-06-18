@@ -1,33 +1,7 @@
 import { type GraphViewType } from "../../electron/types";
 import { type GraphViewTask } from "./types";
-import { fileTask, packageTask } from "@nexiq/file-extension";
-import { allExtensions } from "./tasks/all-tasks";
-import { componentRustTask } from "@nexiq/component-extension";
 
-const registry: Record<string, GraphViewTask[]> = {
-  component: [componentRustTask],
-  file: [componentRustTask, fileTask],
-  router: [],
-  package: [packageTask],
-};
-
-// Automatically register tasks from all extensions
-for (const extension of allExtensions) {
-  if (extension.viewTasks) {
-    for (const [view, tasks] of Object.entries(extension.viewTasks)) {
-      for (const task of tasks) {
-        const viewType = view as GraphViewType;
-        if (!registry[viewType]) {
-          registry[viewType] = [];
-        }
-        // Check if task already registered
-        if (!registry[viewType].some((t) => t.id === task.id)) {
-          registry[viewType].push(task);
-        }
-      }
-    }
-  }
-}
+const registry: Record<string, GraphViewTask[]> = {};
 
 /**
  * Returns a prioritized list of tasks for a given view type.
