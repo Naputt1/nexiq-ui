@@ -33,6 +33,8 @@ export class GraphArrow implements Renderable {
   isBidirectional: boolean = false;
   labelIndex: number = 0;
   labelCount: number = 1;
+  isDuplicateLabel: boolean = false;
+  duplicateCount: number = 1;
   sourceScale: number = 1;
   targetScale: number = 1;
 
@@ -262,6 +264,11 @@ export class GraphArrow implements Renderable {
       return;
     }
 
+    if (this.isDuplicateLabel) {
+      existing?.destroy();
+      return;
+    }
+
     const midX = (this.points[0] + this.points[2]) / 2;
     const midY = (this.points[1] + this.points[3]) / 2;
 
@@ -276,7 +283,7 @@ export class GraphArrow implements Renderable {
         },
       });
 
-    text.text = this.name;
+    text.text = this.duplicateCount > 1 ? `${this.name} (${this.duplicateCount})` : this.name;
     text.style.fontSize = 10 * this.scale;
     text.style.fill =
       context.customColors?.labelColor ||

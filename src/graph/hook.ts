@@ -1352,15 +1352,48 @@ export class GraphData {
       );
       const isBidirectional = hasForward && hasReverse;
 
+      const nameCounts = new Map<string, number>();
+      for (const info of group) {
+        const name = info.edge.name;
+        if (name) {
+          nameCounts.set(name, (nameCounts.get(name) || 0) + 1);
+        }
+      }
+
+      const uniqueNames = [
+        ...new Set(
+          group
+            .map((info) => info.edge.name)
+            .filter((n): n is string => !!n),
+        ),
+      ];
+
+      const seenNames = new Set<string>();
+
       for (let i = 0; i < group.length; i++) {
         const info = group[i];
+        const name = info.edge.name;
+
         info.edge.points = [...sharedPoints];
         info.edge.scale = sharedScale;
         info.edge.sourceScale = srcNode.scale;
         info.edge.targetScale = targetNode.scale;
         info.edge.isBidirectional = isBidirectional;
-        info.edge.labelIndex = i;
-        info.edge.labelCount = group.length;
+
+        if (name) {
+          info.edge.labelIndex = uniqueNames.indexOf(name);
+          info.edge.labelCount = uniqueNames.length;
+
+          if (seenNames.has(name)) {
+            info.edge.isDuplicateLabel = true;
+          } else {
+            seenNames.add(name);
+            info.edge.duplicateCount = nameCounts.get(name)!;
+          }
+        } else {
+          info.edge.labelIndex = i;
+          info.edge.labelCount = group.length;
+        }
       }
     }
   }
