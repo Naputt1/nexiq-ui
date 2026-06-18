@@ -155,6 +155,10 @@ contextBridge.exposeInMainWorld("largeData", {
   },
 });
 
+contextBridge.exposeInMainWorld("extensionRegistry", {
+  getNodeTypes: () => ipcRenderer.invoke("get-node-types"),
+});
+
 contextBridge.exposeInMainWorld("graphSnapshot", {
   open(projectRoot: string, analysisPath?: string) {
     return requestGraphSnapshotHandle("graph", "open", {

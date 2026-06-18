@@ -3,10 +3,14 @@ import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App.tsx";
 import { HashRouter } from "react-router-dom";
+import { initRendererExtensions } from "./registry/extension-manager";
 
 const root = createRoot(document.getElementById("root")!);
 
 const init = async () => {
+  // Initialize dynamically discovered extension state (node types, etc.)
+  // from the main process before rendering.
+  await initRendererExtensions();
   if (import.meta.env.DEV) {
     const { scan } = await import("react-scan");
     scan({

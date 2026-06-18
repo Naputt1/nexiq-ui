@@ -1,7 +1,7 @@
 import { type Extension, registerNodeType } from "@nexiq/extension-sdk";
 import { registerDetailSection } from "./detail-sections";
-import { allExtensions } from "../views/tasks/all-tasks";
 import type { GraphData } from "@/graph/hook";
+import type { NodeAppearance } from "@nexiq/extension-sdk";
 
 const extensions: Map<string, Extension<GraphData>> = new Map();
 
@@ -27,9 +27,21 @@ export function loadExtension(extension: Extension<GraphData>) {
   }
 }
 
-// Automatically load UI parts of all extensions
-for (const ext of allExtensions) {
-  loadExtension(ext);
+/**
+ * Initialize/renderer extension state with data from the main process.
+ * Called at app startup and when projects are opened, to sync dynamically
+ * discovered extension data (e.g. custom node types) into the renderer's
+ * extension SDK registry.
+ */
+export async function initRendererExtensions() {
+  try {
+    const nodeTypes = await window.extensionRegistry.getNodeTypes();
+    for (const [type, appearance] of Object.entries(nodeTypes)) {
+      registerNodeType(type, appearance as NodeAppearance);
+    }
+  } catch (err) {
+    console.error("Failed to initialize renderer extensions:", err);
+  }
 }
 
 /**

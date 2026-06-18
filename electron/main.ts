@@ -27,7 +27,7 @@ import {
   GRAPH_SNAPSHOT_STATUS,
 } from "../src/graph-snapshot/constants";
 
-import { getSerializedViewRegistry } from "./view-generator";
+import { getSerializedViewRegistry, getRegisteredNodeTypes } from "./view-generator";
 import type { GenerateViewRequest } from "../src/views/types";
 import type {
   GraphSnapshotPortRequest,
@@ -1479,6 +1479,10 @@ ipcMain.handle(
 
 ipcMain.handle("debug-get-view-registry", async () => {
   return getSerializedViewRegistry();
+});
+
+ipcMain.handle("get-node-types", async () => {
+  return getRegisteredNodeTypes();
 });
 
 async function resolveSqlitePath(

@@ -21,7 +21,7 @@ import {
 } from "../electron/types";
 import type { GraphData } from "./graph/hook";
 
-import type { Extension, GraphNodeDetail } from "@nexiq/extension-sdk";
+import type { Extension, GraphNodeDetail, NodeAppearance } from "@nexiq/extension-sdk";
 import type {
   GenerateViewRequest,
   SerializedViewRegistry,
@@ -41,6 +41,9 @@ declare global {
     nexiqGraph: GraphData;
     nexiqSearch: (value: string) => void;
     registerNexiqExtension: (extension: Extension<GraphData>) => void;
+    extensionRegistry: {
+      getNodeTypes: () => Promise<Record<string, NodeAppearance>>;
+    };
     graphSnapshot: {
       open: (
         projectRoot: string,
