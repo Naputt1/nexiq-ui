@@ -236,63 +236,44 @@ interface PreparedViewDatabase {
  * in well-known sibling directories.
  */
 function getBuiltInExtensionNames(): string[] {
-  const names: string[] = [
+  return [
     "@nexiq/component-extension",
     "@nexiq/file-extension",
   ];
-
-  // Auto-discover standalone extensions in sibling directories
-  // (e.g. ../tanstack-query-nexiq-extension)
-  const appRoot = process.env.APP_ROOT;
-  if (appRoot) {
-    const parentDir = path.resolve(appRoot, "..");
-    try {
-      for (const entry of fs.readdirSync(parentDir)) {
-        const fullPath = path.join(parentDir, entry);
-        if (entry.endsWith("-nexiq-extension") && fs.statSync(fullPath).isDirectory()) {
-          const pkgJsonPath = path.join(fullPath, "package.json");
-          if (fs.existsSync(pkgJsonPath)) {
-            names.push(fullPath);
-          }
-        }
-      }
-    } catch {
-      // ignore read errors on parent directory
-    }
-  }
-
-  return names;
 }
 
 /**
  * Collect extension names from all discovery sources:
- *  1. Built-in defaults (fallback when no project config)
- *  2. Project `.nexiq/config.json`
+ *  1. Built-in extensions (always included)
+ *  2. Project config (nexiq.config.json, then .nexiq/config.json)
  *  3. Global `~/.nexiq/config.json`
- *  4. Global `~/.nexiq/extensions/` directory
  */
 function collectExtensionNames(projectRoot: string): string[] {
   const names = new Set<string>();
 
-  // 1. Project config
-  try {
-    const configPath = path.join(projectRoot, ".nexiq/config.json");
-    if (fs.existsSync(configPath)) {
-      const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-      if (Array.isArray(config.extensions)) {
-        for (const name of config.extensions) {
-          names.add(name);
-        }
-      }
-    }
-  } catch (err) {
-    console.error("Failed to read project extension config:", err);
+  // 1. Always add built-in extensions
+  for (const name of getBuiltInExtensionNames()) {
+    names.add(name);
   }
 
-  // 2. If nothing configured in project, use built-in defaults
-  if (names.size === 0) {
-    for (const name of getBuiltInExtensionNames()) {
-      names.add(name);
+  // 2. Project config — additive (nexiq.config.json, then .nexiq/config.json)
+  const projectConfigPaths = [
+    path.join(projectRoot, "nexiq.config.json"),
+    path.join(projectRoot, ".nexiq/config.json"),
+  ];
+  for (const configPath of projectConfigPaths) {
+    try {
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+        if (Array.isArray(config.extensions)) {
+          for (const extName of config.extensions) {
+            names.add(extName);
+          }
+          break; // prefer first found
+        }
+      }
+    } catch (err) {
+      console.error(`Failed to read config at ${configPath}:`, err);
     }
   }
 
@@ -309,22 +290,6 @@ function collectExtensionNames(projectRoot: string): string[] {
     }
   } catch (err) {
     console.error("Failed to read global extension config:", err);
-  }
-
-  // 4. Global extensions directory $HOME/.nexiq/extensions/
-  try {
-    const globalExtDir = path.join(os.homedir(), ".nexiq", "extensions");
-    if (fs.existsSync(globalExtDir)) {
-      for (const entry of fs.readdirSync(globalExtDir)) {
-        const fullPath = path.join(globalExtDir, entry);
-        const stat = fs.statSync(fullPath);
-        if (stat.isDirectory() || stat.isFile()) {
-          names.add(fullPath);
-        }
-      }
-    }
-  } catch (err) {
-    console.error("Failed to scan global extensions directory:", err);
   }
 
   return [...names].sort();
@@ -365,7 +330,7 @@ function getExtensionResolvePaths(projectRoot: string): string[] {
     paths.push(appRoot);
   }
 
-  // Global npm root
+  // Global npm root (npm root -g returns the node_modules directory; use its parent)
   try {
     const isWindows = process.platform === "win32";
     const globalRoot = execSync(isWindows ? "npm root -g" : "npm root -g", {
@@ -374,13 +339,13 @@ function getExtensionResolvePaths(projectRoot: string): string[] {
       shell: isWindows ? "cmd.exe" : "/bin/sh",
     }).trim();
     if (globalRoot && fs.existsSync(globalRoot)) {
-      paths.push(globalRoot);
+      paths.push(path.resolve(globalRoot, ".."));
     }
   } catch {
     // npm not available — continue
   }
 
-  // Global pnpm root
+  // Global pnpm root (pnpm root -g returns a directory containing node_modules)
   try {
     const pnpmRoot = execSync("pnpm root -g", {
       encoding: "utf8",
@@ -397,14 +362,14 @@ function getExtensionResolvePaths(projectRoot: string): string[] {
   // Common global paths as fallback
   const home = os.homedir();
   const commonGlobalPaths = [
-    "/usr/local/lib/node_modules",
-    "/opt/homebrew/lib/node_modules",
-    path.join(home, ".npm", "lib", "node_modules"),
-    path.join(home, ".config", "yarn", "global", "node_modules"),
-    path.join(home, "Library", "pnpm", "global", "node_modules"),
+    "/usr/local/lib",
+    "/opt/homebrew/lib",
+    path.join(home, ".npm", "lib"),
+    path.join(home, ".config", "yarn", "global"),
+    path.join(home, "Library", "pnpm", "global"),
   ];
   for (const p of commonGlobalPaths) {
-    if (fs.existsSync(p)) {
+    if (fs.existsSync(path.join(p, "node_modules"))) {
       paths.push(p);
     }
   }
@@ -521,13 +486,13 @@ function registerExtension(extension: Extension, resolvedPath: string) {
 
 /**
  * Dynamically discover and load extensions from multiple sources:
- *  - Project `.nexiq/config.json`
+ *  - Project config (nexiq.config.json, then .nexiq/config.json)
  *  - Built-in defaults (when no project config)
  *  - Global `~/.nexiq/config.json`
- *  - Global `~/.nexiq/extensions/`
  *  - Global npm/pnpm installations
  *
- * This replaces compile-time hardcoded extension imports.
+ * Extensions from project/global config are loaded only from global npm/pnpm
+ * roots. Built-in extensions are resolved from the app's own node_modules.
  */
 async function loadProjectExtensions(projectRoot: string) {
   const startedAt = performance.now();
@@ -553,10 +518,13 @@ async function loadProjectExtensions(projectRoot: string) {
   }
 
   const resolvePaths = getExtensionResolvePaths(projectRoot);
+  const globalPaths = resolvePaths.slice(2); // skip projectRoot and appRoot
+  const builtInNames = new Set(getBuiltInExtensionNames());
 
   let loadedCount = 0;
   for (const name of extensionNames) {
-    const ext = await loadExtensionModule(name, projectRoot, resolvePaths);
+    const paths = builtInNames.has(name) ? resolvePaths : globalPaths;
+    const ext = await loadExtensionModule(name, projectRoot, paths);
     if (ext) {
       registerExtension(ext, name);
       loadedCount++;
