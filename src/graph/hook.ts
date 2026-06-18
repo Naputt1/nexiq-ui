@@ -146,7 +146,7 @@ export class GraphData {
 
   private layoutInProgress: Set<string> = new Set();
   private draggingId: string | null = null;
-  public locked = false;
+  public locked = true;
   private focusedId: string | null = null;
 
   public lastModified: number = Date.now();
